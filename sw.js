@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-v1';
+const CACHE_NAME = 'vejr-2026.02.22-1';
 const ASSETS = [
   'vejr.html',
   'manifest.json',

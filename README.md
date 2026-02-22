@@ -93,6 +93,21 @@ After the first visit, the app shell (HTML, icons, fonts) is cached by the Servi
 
 ---
 
+## Build number
+
+The current build number is shown in the top-right corner of the app header (e.g. `build 2026.02.22-1`). Use it to confirm you are running the latest deployed version and not a stale cached copy.
+
+When making a new deployment, update **both** of these to the same value:
+
+| File | What to change |
+|---|---|
+| `vejr.html` | The text inside `<div id="build-number">` |
+| `sw.js` | The `CACHE_NAME` constant on line 1 |
+
+Format: `YYYY.MM.DD-N` where `N` increments if there are multiple deploys on the same day (e.g. `2026.02.22-2`).
+
+---
+
 ## Icon sizes
 
 | File | Size | Used by |
