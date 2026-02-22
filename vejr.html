@@ -1170,8 +1170,8 @@ function showTooltip(idx) {
 
   tip.innerHTML = `
     <div class="tt-time">${day} kl. ${h}:00</div>
-    <div class="tt-row" style="margin-bottom:4px">
-      <span class="tt-label">🌤</span>
+    <div class="tt-row" style="margin-bottom:4px;align-items:center;">
+      <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;flex:0 0 32px;"></canvas>
       <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
     </div>
     <div class="tt-row">
@@ -1199,6 +1199,20 @@ function showTooltip(idx) {
     </div>`;
 
   tip.style.display = 'block';
+
+  // Draw the weather icon onto the inline canvas
+  const iconCanvas = document.getElementById('tt-icon-canvas');
+  if (iconCanvas) {
+    const sz = 32;
+    const dpr = window.devicePixelRatio || 1;
+    iconCanvas.width  = sz * dpr;
+    iconCanvas.height = sz * dpr;
+    iconCanvas.style.width  = sz + 'px';
+    iconCanvas.style.height = sz + 'px';
+    const ictx = iconCanvas.getContext('2d');
+    ictx.scale(dpr, dpr);
+    dmiIcon(ictx, wmoType(code, d.times[idx]), sz / 2, sz / 2, sz, prec, code);
+  }
 }
 
 function hideTooltip() {
