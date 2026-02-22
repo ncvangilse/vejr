@@ -26,6 +26,8 @@
    In portrait mode the #rotator div is fixed to the viewport, rotated 90°
    and sized to exactly fill the screen (width↔height swapped).
 ──────────────────────────────────────────────────────────────────────────── */
+#rotator { width: 100%; }
+
 @media (orientation: portrait) {
   html, body { overflow: hidden; width: 100%; height: 100%; }
   #rotator {
@@ -1238,20 +1240,8 @@ async function load(cityName, model) {
 
     lastData = {times, temps, precips, gusts, winds, dirs, codes, ensTemp, ensWind, ensPrecip};
 
-    // Wait until the canvas wrap has a real width before drawing.
-    // ResizeObserver fires once layout is complete, fixing the "crammed on F5" bug.
-    const wrap = document.querySelector('.chart-canvas-wrap');
-    if (wrap && wrap.clientWidth > 0) {
-      renderAll(lastData);
-    } else {
-      const ro = new ResizeObserver(() => {
-        if (wrap.clientWidth > 0) {
-          ro.disconnect();
-          renderAll(lastData);
-        }
-      });
-      ro.observe(wrap);
-    }
+    // Double rAF ensures layout is complete before measuring canvas width
+    requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
 
   } catch(e) {
     console.error(e);
