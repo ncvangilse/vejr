@@ -1438,9 +1438,18 @@ if ('serviceWorker' in navigator) {
     }
 
     function transform(e) {
-      // Apply (cx, cy) → (cy, -cx) to the first touch or mouse point
-      const src = (e.touches && e.touches[0]) || e;
-      return fakeEv(e, src.clientY, -src.clientX);
+      // Apply (cx, cy) → (cy, -cx · aspect) to the first touch or mouse point.
+      // The map is non-square (wide × short after rotation).  Without correction
+      // left/right drags (physical cx, mapped to logical y on the short axis)
+      // feel slower than up/down drags.  Multiplying the logical-y component by
+      // (mapWidth / mapHeight) equalises the speed in both axes.
+      const src    = (e.touches && e.touches[0]) || e;
+      const mapEl  = document.getElementById('radar-map');
+      // In portrait the element is CSS-rotated: its visual width = logical height,
+      // visual height = logical width.  getBoundingClientRect gives visual dims.
+      const rect   = mapEl ? mapEl.getBoundingClientRect() : { width: 1, height: 1 };
+      const aspect = rect.height / rect.width;   // logical-width / logical-height
+      return fakeEv(e, src.clientY, -src.clientX * aspect);
     }
 
     const origDown = L.Draggable.prototype._onDown;
