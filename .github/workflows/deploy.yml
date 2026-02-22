@@ -33,11 +33,15 @@ jobs:
           COMMIT_MSG=$(git log -1 --pretty=format:%s)
           TITLE="[build $BUILD] $COMMIT_MSG"
           PAYLOAD=$(jq -n --arg t "$TITLE" '{name: $t}')
-          curl -sf -X PATCH \
+          echo "Payload: $PAYLOAD"
+          echo "URL: https://api.github.com/repos/$REPO/actions/runs/$RUN_ID"
+          RESPONSE=$(curl -s -X PATCH \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" \
-            -d "$PAYLOAD"
+            -d "$PAYLOAD")
+          echo "Response: $RESPONSE"
 
   deploy:
     runs-on: ubuntu-latest
