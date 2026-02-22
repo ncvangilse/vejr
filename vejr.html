@@ -397,6 +397,7 @@ async function geocode(city) {
 async function fetchWeather(lat, lon, model) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
     + `&hourly=temperature_2m,precipitation,windspeed_10m,windgusts_10m,winddirection_10m,weathercode`
+    + `&daily=sunrise,sunset`
     + `&forecast_days=${FORECAST_DAYS}&timezone=auto&windspeed_unit=ms`
     + (model && model !== 'best_match' ? `&models=${model}` : '');
   const r = await fetch(url);
@@ -960,15 +961,17 @@ async function load(cityName, model) {
     const H = data.hourly;
     const iconCodes = iconData?.hourly?.weathercode || null;
 
-    // Use the actual UTC offset from the API (includes DST and political boundaries).
-    const utcOffsetHours = (data.utc_offset_seconds || 0) / 3600;
-
-    // Build sunTimes keyed on the dates actually present in the API response,
-    // so keys always match regardless of browser timezone vs location timezone.
+    // Build sunTimes from the API's daily sunrise/sunset — authoritative, includes DST.
+    // open-meteo returns these as local time strings e.g. "2026-02-22T06:43"
     sunTimes = {};
-    for (const t of H.time) {
-      const key = t.slice(0, 10);
-      if (!sunTimes[key]) sunTimes[key] = sunriseSunsetHours(key, loc.latitude, utcOffsetHours);
+    if (data.daily?.sunrise && data.daily?.sunset) {
+      data.daily.sunrise.forEach((riseStr, i) => {
+        const key     = riseStr.slice(0, 10);
+        const sunrise = parseFloat(riseStr.slice(11,13)) + parseFloat(riseStr.slice(14,16)) / 60;
+        const setStr  = data.daily.sunset[i];
+        const sunset  = parseFloat(setStr.slice(11,13))  + parseFloat(setStr.slice(14,16))  / 60;
+        sunTimes[key] = { sunrise, sunset };
+      });
     }
 
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];

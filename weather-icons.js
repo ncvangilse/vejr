@@ -4,40 +4,8 @@
    WMO codes → icon type
 ══════════════════════════════════════════════════ */
 
-// ── Solar position ────────────────────────────────
-// Returns { sunrise, sunset } as decimal hours in **local clock time**.
-// utcOffsetHours = actual UTC offset of the location (from API utc_offset_seconds/3600),
-// which correctly accounts for DST and political timezone boundaries.
-function sunriseSunsetHours(dateStr, lat, utcOffsetHours) {
-  const date   = new Date(dateStr + 'T12:00:00Z');
-  const JD     = date.getTime() / 86400000 + 2440587.5;
-  const n      = JD - 2451545.0;
-  const L      = (280.460 + 0.9856474 * n) % 360;
-  const g      = (357.528 + 0.9856003 * n) % 360;
-  const gR     = g * Math.PI / 180;
-  const lambda = L + 1.915 * Math.sin(gR) + 0.020 * Math.sin(2 * gR);
-  const lambdaR = lambda * Math.PI / 180;
-  const sinDec = Math.sin(23.439 * Math.PI / 180) * Math.sin(lambdaR);
-  const dec    = Math.asin(sinDec);
-  const latR   = lat * Math.PI / 180;
-  const cosH   = (Math.sin(-0.8333 * Math.PI / 180) - Math.sin(latR) * sinDec)
-                 / (Math.cos(latR) * Math.cos(dec));
-  if (cosH > 1)  return { sunrise: 12, sunset: 12 };  // polar night
-  if (cosH < -1) return { sunrise:  0, sunset: 24 };  // midnight sun
-  const H      = Math.acos(cosH) * 180 / Math.PI;
-  // Equation of time (minutes → hours)
-  const f      = (279.575 + 0.9856474 * n) * Math.PI / 180;
-  const EqT    = (-104.5 * Math.sin(f) + 596.9 * Math.cos(f)
-                  - 4.1 * Math.sin(2*f) - 12.79 * Math.cos(2*f)
-                  - 429.3 * Math.sin(3*f) - 2.0  * Math.cos(3*f)
-                  + 19.3 * Math.sin(4*f)) / 3600;
-  // Solar noon in UTC, then shift to local clock time using the real UTC offset
-  const noonUTC  = 12 - EqT;
-  const noonLocal = noonUTC + utcOffsetHours;
-  return { sunrise: noonLocal - H / 15, sunset: noonLocal + H / 15 };
-}
-
-// Populated by load() with { "YYYY-MM-DD": { sunrise, sunset } }
+// Populated by load() with { "YYYY-MM-DD": { sunrise, sunset } } in local decimal hours.
+// Sourced directly from open-meteo daily sunrise/sunset — no manual solar calculation needed.
 let sunTimes = {};
 
 function isNight(timeStr) {
