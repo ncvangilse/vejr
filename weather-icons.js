@@ -5,9 +5,10 @@
 ══════════════════════════════════════════════════ */
 
 // ── Solar position ────────────────────────────────
-// Returns { sunrise, sunset } as decimal hours (local solar time)
-// using the NOAA simplified algorithm. Accurate to ±1–2 min.
-function sunriseSunsetHours(dateStr, lat, lon) {
+// Returns { sunrise, sunset } as decimal hours in **local clock time**.
+// utcOffsetHours = actual UTC offset of the location (from API utc_offset_seconds/3600),
+// which correctly accounts for DST and political timezone boundaries.
+function sunriseSunsetHours(dateStr, lat, utcOffsetHours) {
   const date   = new Date(dateStr + 'T12:00:00Z');
   const JD     = date.getTime() / 86400000 + 2440587.5;
   const n      = JD - 2451545.0;
@@ -24,15 +25,16 @@ function sunriseSunsetHours(dateStr, lat, lon) {
   if (cosH > 1)  return { sunrise: 12, sunset: 12 };  // polar night
   if (cosH < -1) return { sunrise:  0, sunset: 24 };  // midnight sun
   const H      = Math.acos(cosH) * 180 / Math.PI;
-  // equation of time (minutes)
+  // Equation of time (minutes → hours)
   const f      = (279.575 + 0.9856474 * n) * Math.PI / 180;
   const EqT    = (-104.5 * Math.sin(f) + 596.9 * Math.cos(f)
                   - 4.1 * Math.sin(2*f) - 12.79 * Math.cos(2*f)
                   - 429.3 * Math.sin(3*f) - 2.0  * Math.cos(3*f)
                   + 19.3 * Math.sin(4*f)) / 3600;
-  const UTC_off = lon / 15;
-  const noon   = 12 - EqT - UTC_off;
-  return { sunrise: noon - H / 15, sunset: noon + H / 15 };
+  // Solar noon in UTC, then shift to local clock time using the real UTC offset
+  const noonUTC  = 12 - EqT;
+  const noonLocal = noonUTC + utcOffsetHours;
+  return { sunrise: noonLocal - H / 15, sunset: noonLocal + H / 15 };
 }
 
 // Populated by load() with { "YYYY-MM-DD": { sunrise, sunset } }

@@ -946,18 +946,7 @@ async function load(cityName, model) {
   try {
     const loc  = await geocode(cityName);
 
-    // Pre-compute sunrise/sunset for every date in the forecast window
-    sunTimes = {};
-    for (let d = 0; d < FORECAST_DAYS + 1; d++) {
-      const date = new Date();
-      date.setDate(date.getDate() + d);
-      const key = date.toISOString().slice(0, 10);
-      sunTimes[key] = sunriseSunsetHours(key, loc.latitude, loc.longitude);
-    }
-
     // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
-    // Also fetch ICON weathercodes alongside DMI, because DMI HARMONIE rarely outputs
-    // thunderstorm codes (≥95) — ICON is in the same NWP family and gives proper WMO codes.
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
           .then(r => r.ok ? r.json() : null).catch(() => null)
@@ -970,6 +959,17 @@ async function load(cityName, model) {
     ]);
     const H = data.hourly;
     const iconCodes = iconData?.hourly?.weathercode || null;
+
+    // Use the actual UTC offset from the API (includes DST and political boundaries).
+    // This is critical for correct day/night detection — lon/15 can be wrong by 1–2h.
+    const utcOffsetHours = (data.utc_offset_seconds || 0) / 3600;
+    sunTimes = {};
+    for (let d = 0; d < FORECAST_DAYS + 1; d++) {
+      const date = new Date();
+      date.setDate(date.getDate() + d);
+      const key = date.toISOString().slice(0, 10);
+      sunTimes[key] = sunriseSunsetHours(key, loc.latitude, utcOffsetHours);
+    }
 
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
     const totalH=FORECAST_DAYS*24;
