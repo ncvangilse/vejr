@@ -135,85 +135,74 @@ function _sun(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Cloud: classic silhouette — four overlapping circles, flat bottom, rain-darkened.
+// Cloud: classic silhouette — single filled path from outer-tangent arcs, flat bottom.
+// No stroke-and-overfill tricks; pure geometry guarantees consistent colour.
 function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
 
   const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
   function lerp(a, b) { return Math.round(a + (b - a) * t); }
-  // body: near-white → mid grey
-  const br = lerp(0xee, 0x6e), bg = lerp(0xf2, 0x78), bb = lerp(0xf8, 0x80);
-  // shadow underside: light grey → dark grey
-  const sr = lerp(0xb8, 0x3e), sg = lerp(0xc2, 0x4e), sb = lerp(0xd0, 0x5a);
-  // stroke: medium grey → very dark
-  const or = lerp(0x88, 0x2e), og = lerp(0x98, 0x3a), ob = lerp(0xa8, 0x44);
+  const bodyCol      = `rgb(${lerp(0xee,0x6a)},${lerp(0xf2,0x72)},${lerp(0xf8,0x7a)})`;
+  const undersideCol = `rgb(${lerp(0xb0,0x38)},${lerp(0xba,0x46)},${lerp(0xc8,0x52)})`;
+  const strokeCol    = `rgb(${lerp(0x7a,0x28)},${lerp(0x8a,0x32)},${lerp(0x9a,0x3c)})`;
 
-  const bodyCol      = `rgb(${br},${bg},${bb})`;
-  const undersideCol = `rgb(${sr},${sg},${sb})`;
-  const strokeCol    = `rgb(${or},${og},${ob})`;
-
+  // Four bump circles left→right: small, medium, large (peak), medium
   const bumps = [
-    { x: -U*0.52, y:  U*0.10, r: U*0.25 },
-    { x: -U*0.18, y: -U*0.06, r: U*0.37 },
+    { x: -U*0.50, y:  U*0.10, r: U*0.26 },
+    { x: -U*0.16, y: -U*0.06, r: U*0.37 },
     { x:  U*0.20, y: -U*0.16, r: U*0.43 },
     { x:  U*0.54, y:  U*0.02, r: U*0.31 },
   ];
-  const bottom =  U * 0.34;
-  const left   = -U * 0.82;
-  const right  =  U * 0.88;
-  const top    = -U * 0.62;
+  const bottom = U * 0.34;
+  const left   = bumps[0].x - bumps[0].r;
+  const right  = bumps[bumps.length-1].x + bumps[bumps.length-1].r;
 
-  // 1. Shadow: filled union of bumps shifted down, clipped so it only shows below body
-  ctx.save();
+  // Build outer silhouette path:
+  // For each adjacent pair, find the angle where the outer tangent crosses,
+  // then arc each bump from that angle to the next.
+  // Outer tangent crossing angle from circle A to circle B:
+  //   the hand-off point is where the line between centres crosses at the
+  //   weighted position r_A / (r_A + r_B) along the inter-centre segment.
+  function handoffAngle(a, b) {
+    // angle from centre of circle A toward the tangent hand-off point
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  }
+
+  // Per-bump: startAngle and endAngle of the visible arc
+  const n = bumps.length;
+  const startA = new Array(n);
+  const endA   = new Array(n);
+  for (let i = 0; i < n; i++) {
+    startA[i] = (i === 0)   ? Math.PI        : handoffAngle(bumps[i-1], bumps[i]) + Math.PI;
+    endA[i]   = (i === n-1) ? 0              : handoffAngle(bumps[i],   bumps[i+1]);
+  }
+
+  // Draw body silhouette
   ctx.beginPath();
-  ctx.rect(left, bottom - U*0.12, right - left, U*0.20);
-  ctx.clip();
+  ctx.moveTo(left, bottom);
+  for (let i = 0; i < n; i++) {
+    // arc from startA to endA going counter-clockwise (over the top)
+    ctx.arc(bumps[i].x, bumps[i].y, bumps[i].r, startA[i], endA[i], true);
+  }
+  ctx.lineTo(right, bottom);
+  ctx.closePath();
+
+  // Fill underside shadow (same path, shifted down)
+  ctx.save();
+  ctx.translate(0, U * 0.09);
   ctx.fillStyle = undersideCol;
-  bumps.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y + U*0.10, b.r, 0, Math.PI*2);
-    ctx.fill();
-  });
+  ctx.fill();
   ctx.restore();
 
-  // 2. Body: filled union of bumps, clipped to flat-bottom rect
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(left, top, right - left, bottom - top);
-  ctx.clip();
+  // Fill body
   ctx.fillStyle = bodyCol;
-  bumps.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
-    ctx.fill();
-  });
-  ctx.restore();
+  ctx.fill();
 
-  // 3. Outline: use compositing to stroke only the outer silhouette.
-  //    Draw filled union into an offscreen approach: stroke each circle with
-  //    destination-out on a saved layer, then restore. Simpler: just clip
-  //    to body rect and stroke each circle — interior strokes will be hidden
-  //    by re-filling body colour with a tiny inset.
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(left, top, right - left, bottom - top + U*0.04);
-  ctx.clip();
+  // Stroke outline
   ctx.strokeStyle = strokeCol;
-  ctx.lineWidth = Math.max(0.8, U * 0.07);
-  ctx.lineJoin = 'round';
-  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); });
-  // erase interior strokes by re-filling body
-  ctx.fillStyle = bodyCol;
-  bumps.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r - Math.max(0.6, U*0.045), 0, Math.PI*2);
-    ctx.fill();
-  });
-  // bottom edge
-  ctx.strokeStyle = strokeCol;
-  ctx.lineWidth = Math.max(0.8, U * 0.07);
-  ctx.beginPath(); ctx.moveTo(left, bottom); ctx.lineTo(right, bottom); ctx.stroke();
-  ctx.restore();
+  ctx.lineWidth   = Math.max(0.8, U * 0.065);
+  ctx.lineJoin    = 'round';
+  ctx.stroke();
 
   ctx.restore();
 }
