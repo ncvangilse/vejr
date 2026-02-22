@@ -1198,16 +1198,39 @@ function showTooltip(idx, mouseX, mouseY) {
 
   tip.style.display = 'block';
 
-  // position: follow mouse, flip left if near right edge
+  // position: follow mouse, account for portrait rotation
   const tw = 185, th = 200;
   const vw = window.innerWidth, vh = window.innerHeight;
-  let tx = mouseX + 14;
-  let ty = mouseY - 20;
-  if (tx + tw > vw - 8) tx = mouseX - tw - 14;
-  if (ty + th > vh - 8) ty = vh - th - 8;
-  if (ty < 8) ty = 8;
-  tip.style.left = tx + 'px';
-  tip.style.top  = ty + 'px';
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+
+  if (portrait) {
+    // In portrait mode the #rotator is rotated 90° CW.
+    // Rotate the tooltip 90° CW too so the text reads correctly in the rotated layout.
+    tip.style.transform = 'rotate(90deg)';
+    tip.style.transformOrigin = 'top left';
+
+    // Map the "right/above cursor" offset from rotated-layout space to viewport space.
+    // Rotated-layout (+14 right, -20 up)  →  viewport (+20 down, +14 right)
+    let tx = mouseX + 20;
+    let ty = mouseY + 14;
+    // Overflow guards (note: tw/th roles swap because the box is rotated)
+    if (ty + tw > vh - 8) ty = mouseY - tw - 14;
+    if (tx + th > vw - 8) tx = mouseX - th - 20;
+    if (tx < 8) tx = 8;
+    if (ty < 8) ty = 8;
+    tip.style.left = tx + 'px';
+    tip.style.top  = ty + 'px';
+  } else {
+    tip.style.transform = '';
+    tip.style.transformOrigin = '';
+    let tx = mouseX + 14;
+    let ty = mouseY - 20;
+    if (tx + tw > vw - 8) tx = mouseX - tw - 14;
+    if (ty + th > vh - 8) ty = vh - th - 8;
+    if (ty < 8) ty = 8;
+    tip.style.left = tx + 'px';
+    tip.style.top  = ty + 'px';
+  }
 }
 
 function hideTooltip() {
@@ -1227,8 +1250,12 @@ function attachHoverListeners() {
     if (!wrap) { hideTooltip(); return; }
 
     const rect  = wrap.getBoundingClientRect();
-    const relX  = e.clientX - rect.left;
-    const fracX = Math.max(0, Math.min(1, relX / rect.width));
+    const portrait = window.matchMedia('(orientation: portrait)').matches;
+    // In portrait mode the rotator is rotated 90° CW, so the chart's time axis
+    // runs along the viewport Y axis instead of the X axis.
+    const relX  = portrait ? (e.clientY - rect.top) : (e.clientX - rect.left);
+    const span  = portrait ? rect.height : rect.width;
+    const fracX = Math.max(0, Math.min(1, relX / span));
     const n     = lastData.times.length;
     const idx   = Math.min(n - 1, Math.floor(fracX * n));
     // snap fracX to centre of column for crosshair
