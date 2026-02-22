@@ -80,17 +80,17 @@ function dmiIcon(ctx, type, cx, cy, sz, rainAmt) {
   switch(type) {
     case 'sun':          _sun(ctx, 0, 0, U); break;
     case 'night_clear':  _stars(ctx, U); break;
-    case 'sun_cloud':    _sun(ctx, -U*0.45, -U*0.42, U*0.60); _cloud(ctx, U*0.10, U*0.18, U, 0); break;
-    case 'night_partly': _stars(ctx, U*0.55, -U*0.50, -U*0.38); _cloud(ctx, U*0.10, U*0.20, U, 0); break;
-    case 'cloud_sun':    _sun(ctx, -U*0.48, -U*0.44, U*0.52); _cloud(ctx, U*0.05, U*0.10, U*1.02, 0); break;
-    case 'cloud':        _cloud(ctx, 0, 0, U*1.02, 0); break;
-    case 'drizzle':      _cloud(ctx, 0, -U*0.22, U, r); _rain(ctx, 0, U*0.52, U, 2); break;
-    case 'rain':         _cloud(ctx, 0, -U*0.22, U, r); _rain(ctx, 0, U*0.52, U, 3); break;
-    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U, r); _rain(ctx, U*0.05, U*0.56, U, 3); break;
-    case 'snow':         _cloud(ctx, 0, -U*0.22, U, 0); _snow(ctx, 0, U*0.54, U); break;
-    case 'thunder':      _cloud(ctx, 0, -U*0.22, U*1.02, r); _bolt(ctx, 0, U*0.38, U); break;
-    case 'fog':          _cloud(ctx, 0, -U*0.22, U, 0); _fog(ctx, 0, U*0.46, U); break;
-    default:             _cloud(ctx, 0, 0, U*1.02, 0);
+    case 'sun_cloud':    _sun(ctx, -U*0.44, -U*0.44, U*0.58); _cloud(ctx, U*0.14, U*0.22, U*0.68, 0); break;
+    case 'night_partly': _stars(ctx, U*0.60, -U*0.50, -U*0.40); _cloud(ctx, U*0.14, U*0.24, U*0.68, 0); break;
+    case 'cloud_sun':    _sun(ctx, -U*0.46, -U*0.46, U*0.52); _cloud(ctx, U*0.05, U*0.08, U*0.90, 0); break;
+    case 'cloud':        _cloud(ctx, 0, 0, U, 0); break;
+    case 'drizzle':      _cloud(ctx, 0, -U*0.24, U, r); _rain(ctx, 0, U*0.54, U, 2); break;
+    case 'rain':         _cloud(ctx, 0, -U*0.24, U, r); _rain(ctx, 0, U*0.54, U, 3); break;
+    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U*0.88, r); _rain(ctx, U*0.05, U*0.58, U, 3); break;
+    case 'snow':         _cloud(ctx, 0, -U*0.24, U, 0); _snow(ctx, 0, U*0.56, U); break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.24, U, r); _bolt(ctx, 0, U*0.40, U); break;
+    case 'fog':          _cloud(ctx, 0, -U*0.24, U, 0); _fog(ctx, 0, U*0.48, U); break;
+    default:             _cloud(ctx, 0, 0, U, 0);
   }
   ctx.restore();
 }
@@ -117,47 +117,68 @@ function _sun(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Cloud: DMI flat blob — wide, low, grey bottom, white top
-// Key: TWO rounded bumps on top, very flat aspect ratio (~2.2:1 w/h)
-// rainAmt (mm per 3h): 0 = default light grey, scales to fully dark grey at ~6 mm
+// Cloud: classic 3-bump silhouette built from overlapping circles + flat bottom
+// U = scale unit (half cell height). rainAmt darkens the cloud.
 function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
-  const w = U * 1.50, h = U * 0.62;
-  // Map rain amount to a 0–1 darkness factor
-  // 0 mm → 0, ~1 mm → ~0.17, ~3 mm → ~0.50, ≥6 mm → 1.0
+
+  // Rain → darkness factor 0–1 (saturates at 6 mm)
   const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
-  // Interpolate cloud colours towards dark storm grey as rain increases
   function lerpHex(a, b) {
     return '#' + [0,2,4].map(i =>
       Math.round(parseInt(a.slice(i+1,i+3),16) * (1-t) + parseInt(b.slice(i+1,i+3),16) * t)
         .toString(16).padStart(2,'0')
     ).join('');
   }
-  const bodyCol      = lerpHex('#edf1f6', '#6e7880');  // light → dark grey
-  const undersideCol = lerpHex('#b0b8c2', '#3e4e5a');  // grey bottom → dark
-  const strokeCol    = lerpHex('#8898a8', '#2e3a44');   // outline → very dark
-  // grey underside
-  ctx.beginPath(); _cloudShape(ctx, 0, h*0.10, w, h);
-  ctx.fillStyle = undersideCol; ctx.fill();
-  // body
-  ctx.beginPath(); _cloudShape(ctx, 0, 0, w, h);
-  ctx.fillStyle = bodyCol; ctx.fill();
-  ctx.strokeStyle = strokeCol; ctx.lineWidth = Math.max(0.5, U*0.05); ctx.stroke();
+  const bodyCol      = lerpHex('#eef2f8', '#6e7880');
+  const undersideCol = lerpHex('#c4ccd8', '#3e4e5a');
+  const strokeCol    = lerpHex('#8898a8', '#2e3a44');
+
+  // Three bump circles: left (small), centre (large), right (medium)
+  // All expressed as fractions of U so the cloud fills the cell nicely.
+  const cL = { x: -U*0.38, y:  U*0.10, r: U*0.30 };  // left small bump
+  const cC = { x:  U*0.00, y: -U*0.10, r: U*0.44 };  // centre large bump
+  const cR = { x:  U*0.42, y:  U*0.06, r: U*0.34 };  // right medium bump
+  // Flat bottom: a rectangle that caps the bottom of the bumps
+  const bottom = U * 0.32;   // y of the flat base line
+  const left   = -U * 0.72;
+  const right  =  U * 0.80;
+
+  // Draw underside shadow (shifted down a little)
+  const sd = U * 0.07;
+  ctx.save();
+  ctx.translate(0, sd);
+  ctx.fillStyle = undersideCol;
+  _cloudPuff(ctx, cL, cC, cR, bottom + sd, left, right);
+  ctx.fill();
+  ctx.restore();
+
+  // Draw main body
+  ctx.fillStyle = bodyCol;
+  _cloudPuff(ctx, cL, cC, cR, bottom, left, right);
+  ctx.fill();
+  ctx.strokeStyle = strokeCol;
+  ctx.lineWidth = Math.max(0.6, U * 0.055);
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
   ctx.restore();
 }
 
-function _cloudShape(ctx, ox, oy, w, h) {
-  const x = ox-w/2, y = oy-h/2;
-  const bR = h*0.24;  // bottom-corner radius
-  const lR = h*0.46;  // left top bump
-  const rR = h*0.34;  // right top bump
-  ctx.moveTo(x+bR, y+h);
-  ctx.lineTo(x+w-bR, y+h);
-  ctx.arcTo(x+w,    y+h,    x+w,    y+h-bR, bR);
-  ctx.arcTo(x+w,    y+rR*0.3, x+w-rR, y+rR*0.3, rR);
-  ctx.arcTo(x+w*0.58, y,    x+w*0.58-lR*0.4, y+lR*0.5, lR*0.92);
-  ctx.arcTo(x+bR,   y+h*0.1, x+bR,   y+h-bR, bR*0.9);
-  ctx.arcTo(x,      y+h-bR,  x+bR,   y+h,    bR);
+// Draws the cloud puff path: three arcs on top, flat bottom rectangle
+function _cloudPuff(ctx, cL, cC, cR, bottom, left, right) {
+  ctx.beginPath();
+  // Start at bottom-left corner
+  ctx.moveTo(left, bottom);
+  // Left arc (small bump)
+  ctx.arc(cL.x, cL.y, cL.r, Math.PI * 0.85, Math.PI * 1.70, false);
+  // Centre arc (large bump) — tangent transition handled by arc overlap
+  ctx.arc(cC.x, cC.y, cC.r, Math.PI * 1.10, Math.PI * 0.05, false);  // going left→top→right
+  // Right arc (medium bump)
+  ctx.arc(cR.x, cR.y, cR.r, Math.PI * 1.88, Math.PI * 0.15, false);
+  // Down to bottom-right corner, then flat base back to start
+  ctx.lineTo(right, bottom);
+  ctx.lineTo(left,  bottom);
   ctx.closePath();
 }
 
