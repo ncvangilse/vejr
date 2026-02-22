@@ -17,6 +17,8 @@ concurrency:
 jobs:
   retitle:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,8 +32,8 @@ jobs:
           BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
           COMMIT_MSG=$(git log -1 --pretty=format:%s)
           TITLE="[build $BUILD] $COMMIT_MSG"
-          PAYLOAD=$(jq -n --arg t "$TITLE" '{display_title: $t}')
-          curl -s -X PATCH \
+          PAYLOAD=$(jq -n --arg t "$TITLE" '{name: $t}')
+          curl -sf -X PATCH \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" \
