@@ -9,7 +9,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  actions: write
 
 concurrency:
   group: pages
@@ -18,16 +17,23 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Set run title
+        id: build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
           TITLE="[build $BUILD] ${{ github.event.head_commit.message }}"
           gh api --method PATCH \
             -H "Accept: application/vnd.github+json" \
@@ -37,13 +43,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Generate build number
-        id: build
-        run: |
-          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
-          echo "number=$BUILD" >> $GITHUB_OUTPUT
-          echo "Build number: $BUILD"
 
       - name: Inject build number
         run: |
