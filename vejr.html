@@ -961,14 +961,14 @@ async function load(cityName, model) {
     const iconCodes = iconData?.hourly?.weathercode || null;
 
     // Use the actual UTC offset from the API (includes DST and political boundaries).
-    // This is critical for correct day/night detection — lon/15 can be wrong by 1–2h.
     const utcOffsetHours = (data.utc_offset_seconds || 0) / 3600;
+
+    // Build sunTimes keyed on the dates actually present in the API response,
+    // so keys always match regardless of browser timezone vs location timezone.
     sunTimes = {};
-    for (let d = 0; d < FORECAST_DAYS + 1; d++) {
-      const date = new Date();
-      date.setDate(date.getDate() + d);
-      const key = date.toISOString().slice(0, 10);
-      sunTimes[key] = sunriseSunsetHours(key, loc.latitude, utcOffsetHours);
+    for (const t of H.time) {
+      const key = t.slice(0, 10);
+      if (!sunTimes[key]) sunTimes[key] = sunriseSunsetHours(key, loc.latitude, utcOffsetHours);
     }
 
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];

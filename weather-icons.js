@@ -137,72 +137,73 @@ function _sun(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Cloud: classic silhouette — single filled path from outer-tangent arcs, flat bottom.
-// No stroke-and-overfill tricks; pure geometry guarantees consistent colour.
+// Cloud: classic multi-bump silhouette with flat bottom, rain-darkened fill.
 function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
 
   const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
   function lerp(a, b) { return Math.round(a + (b - a) * t); }
-  const bodyCol      = `rgb(${lerp(0xee,0x6a)},${lerp(0xf2,0x72)},${lerp(0xf8,0x7a)})`;
-  const undersideCol = `rgb(${lerp(0xb0,0x38)},${lerp(0xba,0x46)},${lerp(0xc8,0x52)})`;
-  const strokeCol    = `rgb(${lerp(0x7a,0x28)},${lerp(0x8a,0x32)},${lerp(0x9a,0x3c)})`;
+  const bodyCol      = `rgb(${lerp(0xee,0x62)},${lerp(0xf2,0x6a)},${lerp(0xf8,0x72)})`;
+  const undersideCol = `rgb(${lerp(0xa8,0x32)},${lerp(0xb4,0x3e)},${lerp(0xc4,0x4a)})`;
+  const strokeCol    = `rgb(${lerp(0x78,0x24)},${lerp(0x88,0x2e)},${lerp(0x98,0x38)})`;
 
-  // Four bump circles left→right: small, medium, large (peak), medium
+  // Four bumps: far-left small, left-centre medium, right-centre large (peak), far-right medium
   const bumps = [
-    { x: -U*0.50, y:  U*0.10, r: U*0.26 },
-    { x: -U*0.16, y: -U*0.06, r: U*0.37 },
-    { x:  U*0.20, y: -U*0.16, r: U*0.43 },
-    { x:  U*0.54, y:  U*0.02, r: U*0.31 },
+    { x: -U*0.50, y:  U*0.08, r: U*0.26 },
+    { x: -U*0.14, y: -U*0.08, r: U*0.38 },
+    { x:  U*0.22, y: -U*0.18, r: U*0.44 },
+    { x:  U*0.56, y:  U*0.00, r: U*0.32 },
   ];
-  const bottom = U * 0.34;
-  const left   = bumps[0].x - bumps[0].r;
-  const right  = bumps[bumps.length-1].x + bumps[bumps.length-1].r;
+  const n      = bumps.length;
+  const bottom = U * 0.36;
 
-  // Build outer silhouette path:
-  // For each adjacent pair, find the angle where the outer tangent crosses,
-  // then arc each bump from that angle to the next.
-  // Outer tangent crossing angle from circle A to circle B:
-  //   the hand-off point is where the line between centres crosses at the
-  //   weighted position r_A / (r_A + r_B) along the inter-centre segment.
-  function handoffAngle(a, b) {
-    // angle from centre of circle A toward the tangent hand-off point
-    return Math.atan2(b.y - a.y, b.x - a.x);
-  }
-
-  // Per-bump: startAngle and endAngle of the visible arc
-  const n = bumps.length;
-  const startA = new Array(n);
-  const endA   = new Array(n);
+  // For each bump compute the angular range of its exposed top arc.
+  // The hand-off between bump[i] and bump[i+1] happens at the angle
+  // FROM bump[i]'s centre TOWARD bump[i+1]'s centre (the circles overlap
+  // so the silhouette crosses near that direction).
+  // We sweep each arc CLOCKWISE (anticlockwise=false) from endAngle back
+  // to startAngle — i.e. over the top — by using anticlockwise=true and
+  // swapping start/end so we always go over the peak.
+  const sa = [], ea = [];
   for (let i = 0; i < n; i++) {
-    startA[i] = (i === 0)   ? Math.PI        : handoffAngle(bumps[i-1], bumps[i]) + Math.PI;
-    endA[i]   = (i === n-1) ? 0              : handoffAngle(bumps[i],   bumps[i+1]);
+    // angle FROM this bump TOWARD right neighbour = end of this bump's arc
+    ea[i] = (i < n-1)
+      ? Math.atan2(bumps[i+1].y - bumps[i].y, bumps[i+1].x - bumps[i].x)
+      : 0;                           // rightmost: end at 3 o'clock
+    // angle FROM this bump TOWARD left neighbour = start of this bump's arc
+    sa[i] = (i > 0)
+      ? Math.atan2(bumps[i-1].y - bumps[i].y, bumps[i-1].x - bumps[i].x)
+      : Math.PI;                     // leftmost: start at 9 o'clock
   }
 
-  // Draw body silhouette
+  // Trace silhouette: moveTo flat-bottom left, then arc each bump over its top,
+  // then line to flat-bottom right and close.
+  const flatLeft  = bumps[0].x - bumps[0].r * 0.7;
+  const flatRight = bumps[n-1].x + bumps[n-1].r * 0.7;
+
   ctx.beginPath();
-  ctx.moveTo(left, bottom);
+  ctx.moveTo(flatLeft, bottom);
   for (let i = 0; i < n; i++) {
-    // arc from startA to endA going counter-clockwise (over the top)
-    ctx.arc(bumps[i].x, bumps[i].y, bumps[i].r, startA[i], endA[i], true);
+    // Arc from sa[i] to ea[i] going anticlockwise = over the top of the bump
+    ctx.arc(bumps[i].x, bumps[i].y, bumps[i].r, sa[i], ea[i], true);
   }
-  ctx.lineTo(right, bottom);
+  ctx.lineTo(flatRight, bottom);
   ctx.closePath();
 
-  // Fill underside shadow (same path, shifted down)
+  // Shadow: same path shifted down
   ctx.save();
-  ctx.translate(0, U * 0.09);
+  ctx.translate(0, U * 0.10);
   ctx.fillStyle = undersideCol;
   ctx.fill();
   ctx.restore();
 
-  // Fill body
+  // Body fill
   ctx.fillStyle = bodyCol;
   ctx.fill();
 
-  // Stroke outline
+  // Outline
   ctx.strokeStyle = strokeCol;
-  ctx.lineWidth   = Math.max(0.8, U * 0.065);
+  ctx.lineWidth   = Math.max(0.8, U * 0.07);
   ctx.lineJoin    = 'round';
   ctx.stroke();
 
