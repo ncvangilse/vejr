@@ -416,25 +416,26 @@ function wmoType(code, timeStr) {
 //  sz = full icon cell height (ICON_H)
 //  All proportions derived from studying the real DMI GIFs
 // ═══════════════════════════════════════════════════
-function dmiIcon(ctx, type, cx, cy, sz) {
+function dmiIcon(ctx, type, cx, cy, sz, rainAmt) {
   ctx.save();
   ctx.translate(cx, cy);
   // DMI icons sit in a small box — sun radius ~35% of half-height
   const U = sz * 0.5; // unit = half cell height
+  const r = rainAmt || 0;
   switch(type) {
     case 'sun':          _sun(ctx, 0, 0, U); break;
     case 'night_clear':  _stars(ctx, U); break;
-    case 'sun_cloud':    _sun(ctx, -U*0.45, -U*0.42, U*0.60); _cloud(ctx, U*0.10, U*0.18, U); break;
-    case 'night_partly': _stars(ctx, U*0.55, -U*0.50, -U*0.38); _cloud(ctx, U*0.10, U*0.20, U); break;
-    case 'cloud_sun':    _sun(ctx, -U*0.48, -U*0.44, U*0.52); _cloud(ctx, U*0.05, U*0.10, U*1.02); break;
-    case 'cloud':        _cloud(ctx, 0, 0, U*1.02); break;
-    case 'drizzle':      _cloud(ctx, 0, -U*0.22, U); _rain(ctx, 0, U*0.52, U, 2); break;
-    case 'rain':         _cloud(ctx, 0, -U*0.22, U); _rain(ctx, 0, U*0.52, U, 3); break;
-    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U); _rain(ctx, U*0.05, U*0.56, U, 3); break;
-    case 'snow':         _cloud(ctx, 0, -U*0.22, U); _snow(ctx, 0, U*0.54, U); break;
-    case 'thunder':      _cloud(ctx, 0, -U*0.22, U*1.02); _bolt(ctx, 0, U*0.38, U); break;
-    case 'fog':          _cloud(ctx, 0, -U*0.22, U); _fog(ctx, 0, U*0.46, U); break;
-    default:             _cloud(ctx, 0, 0, U*1.02);
+    case 'sun_cloud':    _sun(ctx, -U*0.45, -U*0.42, U*0.60); _cloud(ctx, U*0.10, U*0.18, U, 0); break;
+    case 'night_partly': _stars(ctx, U*0.55, -U*0.50, -U*0.38); _cloud(ctx, U*0.10, U*0.20, U, 0); break;
+    case 'cloud_sun':    _sun(ctx, -U*0.48, -U*0.44, U*0.52); _cloud(ctx, U*0.05, U*0.10, U*1.02, 0); break;
+    case 'cloud':        _cloud(ctx, 0, 0, U*1.02, 0); break;
+    case 'drizzle':      _cloud(ctx, 0, -U*0.22, U, r); _rain(ctx, 0, U*0.52, U, 2); break;
+    case 'rain':         _cloud(ctx, 0, -U*0.22, U, r); _rain(ctx, 0, U*0.52, U, 3); break;
+    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U, r); _rain(ctx, U*0.05, U*0.56, U, 3); break;
+    case 'snow':         _cloud(ctx, 0, -U*0.22, U, 0); _snow(ctx, 0, U*0.54, U); break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.22, U*1.02, r); _bolt(ctx, 0, U*0.38, U); break;
+    case 'fog':          _cloud(ctx, 0, -U*0.22, U, 0); _fog(ctx, 0, U*0.46, U); break;
+    default:             _cloud(ctx, 0, 0, U*1.02, 0);
   }
   ctx.restore();
 }
@@ -463,16 +464,30 @@ function _sun(ctx, ox, oy, U) {
 
 // Cloud: DMI flat blob — wide, low, grey bottom, white top
 // Key: TWO rounded bumps on top, very flat aspect ratio (~2.2:1 w/h)
-function _cloud(ctx, ox, oy, U) {
+// rainAmt (mm per 3h): 0 = default light grey, scales to fully dark grey at ~6 mm
+function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
   const w = U * 1.50, h = U * 0.62;
+  // Map rain amount to a 0–1 darkness factor
+  // 0 mm → 0, ~1 mm → ~0.17, ~3 mm → ~0.50, ≥6 mm → 1.0
+  const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
+  // Interpolate cloud colours towards dark storm grey as rain increases
+  function lerpHex(a, b) {
+    return '#' + [0,2,4].map(i =>
+      Math.round(parseInt(a.slice(i+1,i+3),16) * (1-t) + parseInt(b.slice(i+1,i+3),16) * t)
+        .toString(16).padStart(2,'0')
+    ).join('');
+  }
+  const bodyCol      = lerpHex('#edf1f6', '#6e7880');  // light → dark grey
+  const undersideCol = lerpHex('#b0b8c2', '#3e4e5a');  // grey bottom → dark
+  const strokeCol    = lerpHex('#8898a8', '#2e3a44');   // outline → very dark
   // grey underside
   ctx.beginPath(); _cloudShape(ctx, 0, h*0.10, w, h);
-  ctx.fillStyle='#b0b8c2'; ctx.fill();
-  // white body
+  ctx.fillStyle = undersideCol; ctx.fill();
+  // body
   ctx.beginPath(); _cloudShape(ctx, 0, 0, w, h);
-  ctx.fillStyle='#edf1f6'; ctx.fill();
-  ctx.strokeStyle='#8898a8'; ctx.lineWidth=Math.max(0.5, U*0.05); ctx.stroke();
+  ctx.fillStyle = bodyCol; ctx.fill();
+  ctx.strokeStyle = strokeCol; ctx.lineWidth = Math.max(0.5, U*0.05); ctx.stroke();
   ctx.restore();
 }
 
@@ -690,7 +705,7 @@ function resolveDPI(canvas, cssW, cssH) {
 /* ══════════════════════════════════════════════════
    DRAW TOP ROW (time axis + icons + UV + wind dirs)
 ══════════════════════════════════════════════════ */
-function drawTopRow(times, codes) {
+function drawTopRow(times, codes, precips) {
   const canvas = document.getElementById('c-top');
   const wrap   = canvas.parentElement;
   const cssW   = wrap.clientWidth;
@@ -765,7 +780,7 @@ function drawTopRow(times, codes) {
 
   // icons — drawn on canvas
   codes.forEach((c,i)=>{
-    dmiIcon(ctx, wmoType(c, times[i]), (i+0.5)*colW, iconY + ICON_H/2, ICON_H);
+    dmiIcon(ctx, wmoType(c, times[i]), (i+0.5)*colW, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0);
   });
 
   // set axis label
@@ -1138,7 +1153,7 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
 let lastData = null;
 
 function renderAll(d) {
-  drawTopRow(d.times, d.codes);
+  drawTopRow(d.times, d.codes, d.precips);
   drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null);
   drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null);
 }
