@@ -556,7 +556,7 @@ function drawTopRow(times, codes, precips) {
 
   // icons — drawn on canvas
   codes.forEach((c,i)=>{
-    dmiIcon(ctx, wmoType(c, times[i]), (i+0.5)*colW, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0);
+    dmiIcon(ctx, wmoType(c, times[i]), (i+0.5)*colW, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0, c);
   });
 
   // set axis label

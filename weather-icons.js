@@ -66,17 +66,35 @@ function wmoType(code, timeStr) {
   return 'cloud';
 }
 
+// Minimum cloud darkness (0–1) implied by the WMO code alone,
+// independent of actual precipitation amount.
+function wmoMinDark(code) {
+  if (code >= 95) return 0.70;   // thunderstorm  → very dark
+  if (code === 82) return 0.65;  // violent shower → very dark
+  if (code === 81) return 0.50;  // moderate shower
+  if (code === 80) return 0.35;  // light shower
+  if (code === 65) return 0.60;  // heavy rain
+  if (code === 63) return 0.45;  // moderate rain
+  if (code === 61) return 0.30;  // light rain
+  if (code === 55) return 0.30;  // heavy drizzle
+  if (code === 53) return 0.20;  // moderate drizzle
+  if (code === 51) return 0.12;  // light drizzle
+  return 0;
+}
+
 // ═══════════════════════════════════════════════════
 //  DMI-accurate icon drawing
 //  sz = full icon cell height (ICON_H)
 //  All proportions derived from studying the real DMI GIFs
 // ═══════════════════════════════════════════════════
-function dmiIcon(ctx, type, cx, cy, sz, rainAmt) {
+function dmiIcon(ctx, type, cx, cy, sz, rainAmt, wmoCode) {
   ctx.save();
   ctx.translate(cx, cy);
-  // DMI icons sit in a small box — sun radius ~35% of half-height
-  const U = sz * 0.5; // unit = half cell height
+  const U = sz * 0.5;
   const r = rainAmt || 0;
+  // Effective rain: at least as dark as the WMO code implies, regardless of actual mm value
+  const minDark = wmoMinDark(wmoCode || 0);
+  const er = Math.max(r, minDark * 6);
   switch(type) {
     case 'sun':          _sun(ctx, 0, 0, U); break;
     case 'night_clear':  _stars(ctx, U); break;
@@ -84,11 +102,11 @@ function dmiIcon(ctx, type, cx, cy, sz, rainAmt) {
     case 'night_partly': _stars(ctx, U*0.60, -U*0.50, -U*0.40); _cloud(ctx, U*0.14, U*0.24, U*0.68, 0); break;
     case 'cloud_sun':    _sun(ctx, -U*0.46, -U*0.46, U*0.52); _cloud(ctx, U*0.05, U*0.08, U*0.90, 0); break;
     case 'cloud':        _cloud(ctx, 0, 0, U, 0); break;
-    case 'drizzle':      _cloud(ctx, 0, -U*0.24, U, r); _rain(ctx, 0, U*0.54, U, 2); break;
-    case 'rain':         _cloud(ctx, 0, -U*0.24, U, r); _rain(ctx, 0, U*0.54, U, 3); break;
-    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U*0.88, r); _rain(ctx, U*0.05, U*0.58, U, 3); break;
+    case 'drizzle':      _cloud(ctx, 0, -U*0.24, U, er); _rain(ctx, 0, U*0.54, U, 2); break;
+    case 'rain':         _cloud(ctx, 0, -U*0.24, U, er); _rain(ctx, 0, U*0.54, U, 3); break;
+    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U*0.88, er); _rain(ctx, U*0.05, U*0.58, U, 3); break;
     case 'snow':         _cloud(ctx, 0, -U*0.24, U, 0); _snow(ctx, 0, U*0.56, U); break;
-    case 'thunder':      _cloud(ctx, 0, -U*0.30, U, r); _bolt(ctx, 0, U*0.36, U); break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.30, U, er); _bolt(ctx, 0, U*0.36, U); break;
     case 'fog':          _cloud(ctx, 0, -U*0.24, U, 0); _fog(ctx, 0, U*0.48, U); break;
     default:             _cloud(ctx, 0, 0, U, 0);
   }
