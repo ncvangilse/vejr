@@ -1398,95 +1398,81 @@ if ('serviceWorker' in navigator) {
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
 
-  // ── Rotation-aware drag fix ─────────────────────────────────────────────────
-  // The #rotator is CSS-rotated 90° CW in portrait mode.  Leaflet's Draggable
-  // reads raw clientX/clientY for both the start point (_onDown) and every move
-  // event (_onMove), then subtracts them to get a pan offset.  Because the map
-  // is inside a rotated container those physical coords produce the wrong delta.
-  //
-  // Fix: consistently transform (clientX, clientY) → (clientY, -clientX) in
-  // both _onDown and _onMove.  This is the inverse of rotate(90° CW):
-  //   physical→logical:  lx = cy,  ly = -cx
-  // Applying the same transform to start and current points means the delta is
-  // also correctly rotated:
-  //   Δlx = Δcy  (physical up/down  → logical left/right)
-  //   Δly = -Δcx (physical left/right → logical up/down, inverted)
-  //
-  // We build a minimal fake event object because native Touch/MouseEvent
-  // properties are read-only and cannot be overwritten.
-  (function patchLeafletForRotation() {
+  // ── Rotation-aware drag — direct implementation ────────────────────────────
+  // Leaflet's built-in drag reads raw clientX/clientY and also applies a
+  // _parentScale correction that misfires inside a CSS-rotated container.
+  // Instead we disable Leaflet's dragging entirely and implement our own
+  // pointer listeners that call radarMap.panBy() directly with the correct
+  // axis-swapped deltas.  This gives 1-px-per-px tracking with no scaling
+  // artefacts in both portrait and landscape.
+  function attachMapDrag(mapEl) {
     const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
+    let dragging = false, lastX = 0, lastY = 0;
 
-    function fakeEv(e, cx, cy) {
-      // Minimal event object forwarding everything Leaflet needs
-      const base = {
-        type:            e.type,
-        target:          e.target,
-        button:          e.button,
-        shiftKey:        e.shiftKey,
-        clientX:         cx,
-        clientY:         cy,
-        preventDefault:  () => e.preventDefault && e.preventDefault(),
-        stopPropagation: () => e.stopPropagation && e.stopPropagation(),
-      };
-      if (e.touches) {
-        const t = [base]; t.item = i => t[i];
-        base.touches        = t;
-        base.changedTouches = t;
-      }
-      return base;
+    function onStart(x, y) {
+      dragging = true;
+      lastX = x; lastY = y;
     }
-
-    function transform(e) {
-      // Apply (cx, cy) → (cy · scaleX, -cx · scaleY) so that equal physical
-      // finger travel covers equal proportional distance on both map axes.
+    function onMove(x, y) {
+      if (!dragging || !radarMap) return;
+      const dx = x - lastX;
+      const dy = y - lastY;
+      lastX = x; lastY = y;
+      // panBy([px,py]) subtracts (px,py) from the map pane position, so:
+      //   panBy([-dx,-dy]) makes the content follow the finger 1:1.
       //
-      // After CSS rotate(90° CW):
-      //   physical Y axis  → map logical X axis  (logical width  = map W px)
-      //   physical X axis  → map logical Y axis  (logical height = map H px)
-      //
-      // radarMap.getSize() returns the true logical pixel size {x: W, y: H}.
-      // We scale so 1 physical px = (logicalDim / physicalDim) logical px
-      // on each axis, making speed proportional to map size in that direction.
-      const src  = (e.touches && e.touches[0]) || e;
-      let scaleX = 1, scaleY = 1;
-      if (radarMap) {
-        const sz   = radarMap.getSize();          // logical: {x: mapW, y: mapH}
-        const mapEl = document.getElementById('radar-map');
-        const rect  = mapEl ? mapEl.getBoundingClientRect() : null;
-        if (rect && rect.width && rect.height) {
-          // rect.width  = physical pixels available along the physical X axis
-          // rect.height = physical pixels available along the physical Y axis
-          // physical Y → logical X: scale so full physical-Y sweep = mapW px
-          scaleX = sz.x / rect.height;
-          // physical X → logical Y: scale so full physical-X sweep = mapH px
-          scaleY = sz.y / rect.width;
-        }
+      // In portrait the #rotator is CSS-rotated 90° CW, so physical axes map to
+      // visual map axes as follows:
+      //   physical right (+dx) = visual down  on the map → panBy(0, -dx)
+      //   physical down  (+dy) = visual left  on the map → panBy(+dy, 0)
+      // Combined portrait: panBy([+dy, -dx])
+      if (isPortrait()) {
+        radarMap.panBy([dy, -dx], { animate: false });
+      } else {
+        radarMap.panBy([-dx, -dy], { animate: false });
       }
-      return fakeEv(e, src.clientY * scaleX, -src.clientX * scaleY);
     }
+    function onEnd() { dragging = false; }
 
-    const origDown = L.Draggable.prototype._onDown;
-    L.Draggable.prototype._onDown = function (e) {
-      origDown.call(this, isPortrait() ? transform(e) : e);
-    };
+    // Touch
+    mapEl.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const t = e.touches[0];
+      onStart(t.clientX, t.clientY);
+    }, { passive: false });
+    mapEl.addEventListener('touchmove', e => {
+      e.preventDefault();
+      const t = e.touches[0];
+      onMove(t.clientX, t.clientY);
+    }, { passive: false });
+    mapEl.addEventListener('touchend', onEnd);
+    mapEl.addEventListener('touchcancel', onEnd);
 
-    const origMove = L.Draggable.prototype._onMove;
-    L.Draggable.prototype._onMove = function (e) {
-      origMove.call(this, isPortrait() ? transform(e) : e);
-    };
-  })();
+    // Mouse
+    mapEl.addEventListener('mousedown', e => {
+      e.preventDefault();
+      onStart(e.clientX, e.clientY);
+    });
+    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', onEnd);
+  }
   // ────────────────────────────────────────────────────────────────────────────
 
   function initMap(lat, lon) {
     if (!radarMap) {
-      // zoomControl: false — we supply our own buttons in #radar-controls
-      radarMap = L.map('radar-map', { zoomControl: false, attributionControl: false });
+      radarMap = L.map('radar-map', {
+        zoomControl: false,
+        attributionControl: false,
+        dragging: false,      // we handle dragging ourselves
+        inertia: false,
+      });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 10
       }).addTo(radarMap);
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
+
+      attachMapDrag(document.getElementById('radar-map'));
     }
     radarMap.setView([lat, lon], 7);
   }
