@@ -1,12 +1,3 @@
-          // h5wasm.ready resolves with the module containing File, Group, etc.
-          const mod = await h5wasm.ready;
-          window._h5wasm = mod;
-          resolve();
-        s.src = 'https://cdn.jsdelivr.net/npm/h5wasm@0.7.7/dist/iife/hdf5_hl.js';
-    // 1. Load h5wasm from CDN (iife bundle exposes global `h5wasm`, File is on the ready module)
-    if (!window._h5wasm) {
-    const h5 = window._h5wasm;
-    const f = new h5.File(new Uint8Array(buffer), 'tmp.h5');
 <!DOCTYPE html>
 <html lang="da">
 <head>
