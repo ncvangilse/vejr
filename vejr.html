@@ -1477,14 +1477,19 @@ if ('serviceWorker' in navigator) {
     radarMap.setView([lat, lon], 7);
   }
 
+  let radarLayers = [];   // one L.tileLayer per frame, pre-added at opacity 0
+
   function showFrame(idx) {
     if (!radarFrames.length || !radarMap) return;
-    const frame = radarFrames[idx];
-    if (radarLayer) { radarMap.removeLayer(radarLayer); radarLayer = null; }
-    const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
-    radarLayer = L.tileLayer(url, { opacity: 0.65, maxZoom: 10, tileSize: 256 });
-    radarLayer.addTo(radarMap);
-    const d = new Date(frame.time * 1000);
+
+    // Hide previous frame
+    if (radarLayer) radarLayer.setOpacity(0);
+
+    // Show new frame
+    radarLayer = radarLayers[idx];
+    if (radarLayer) radarLayer.setOpacity(0.65);
+
+    const d = new Date(radarFrames[idx].time * 1000);
     const pad = n => String(n).padStart(2,'0');
     timeLabel.textContent = `${d.getDate()}. ${DA_MON[d.getMonth()]} ${d.getHours()}:${pad(d.getMinutes())}`;
     slider.value = idx;
@@ -1516,21 +1521,36 @@ if ('serviceWorker' in navigator) {
       const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
       if (!r.ok) return;
       const data = await r.json();
-      // past frames + nowcast frames
-      const past     = data.radar?.past     || [];
-      const nowcast  = data.radar?.nowcast  || [];
+      const past    = data.radar?.past    || [];
+      const nowcast = data.radar?.nowcast || [];
       radarFrames = [...past, ...nowcast];
       if (!radarFrames.length) return;
 
       document.getElementById('radar-section').style.display = 'block';
       initMap(lat, lon);
 
+      // Pre-create all tile layers at opacity 0 and add them to the map.
+      // Because they are added immediately the browser starts fetching tiles
+      // for all frames, so by the time the animation reaches each frame the
+      // tiles are already cached → no blink.
+      radarLayers.forEach(l => radarMap.removeLayer(l));
+      radarLayers = radarFrames.map(frame => {
+        const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+        const l = L.tileLayer(url, { opacity: 0, maxZoom: 10, tileSize: 256 });
+        l.addTo(radarMap);
+        return l;
+      });
+      radarLayer = null;
+
       slider.max = radarFrames.length - 1;
-      // Start on latest past frame (last past entry)
       radarIdx = past.length - 1;
       showFrame(radarIdx);
+
       // Invalidate map size after it becomes visible
       setTimeout(() => radarMap.invalidateSize(), 50);
+
+      // Auto-start playback
+      if (!radarPlaying) togglePlay();
     } catch(e) {
       console.warn('Radar load failed', e);
     }
