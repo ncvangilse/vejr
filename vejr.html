@@ -1398,6 +1398,58 @@ if ('serviceWorker' in navigator) {
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
 
+  // ── Rotation-aware pointer patching ────────────────────────────────────────
+  // The #rotator div is CSS-rotated 90° CW in portrait mode.  Leaflet reads
+  // raw clientX/clientY from DOM events, so a left/right drag appears as an
+  // up/down pan.  We intercept every pointer/mouse/touch event on the map
+  // container in the capture phase and swap (+ mirror) X/Y so Leaflet always
+  // sees coordinates in the map's own logical frame.
+  function patchMapEvents(mapEl) {
+    const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
+
+    function rewrite(ev) {
+      if (!isPortrait()) return;
+      const rect = mapEl.getBoundingClientRect();
+      // After rotate(90deg) translateY(-100%) the element's visual dimensions
+      // are rect.width × rect.height (swapped from logical).
+      // Logical width = visual height, logical height = visual width.
+      const logH = rect.width;
+
+      function rewriteCoords(x, y) {
+        // Map visual-space coords back to logical (pre-rotation) coords.
+        // Inverse of CSS rotate(90deg): lx = vy, ly = logH - vx
+        const vx = x - rect.left;
+        const vy = y - rect.top;
+        return [rect.left + vy, rect.top + (logH - vx)];
+      }
+
+      function patchPoint(obj) {
+        if (obj && typeof obj.clientX === 'number') {
+          const [nx, ny] = rewriteCoords(obj.clientX, obj.clientY);
+          try {
+            Object.defineProperty(obj, 'clientX', { value: nx, writable: true, configurable: true });
+            Object.defineProperty(obj, 'clientY', { value: ny, writable: true, configurable: true });
+          } catch(e) {}
+        }
+      }
+
+      if (ev.touches) {
+        Array.from(ev.touches).forEach(patchPoint);
+        Array.from(ev.changedTouches || []).forEach(patchPoint);
+      } else {
+        patchPoint(ev);
+      }
+    }
+
+    const EVTS = ['mousedown','mousemove','mouseup',
+                  'touchstart','touchmove','touchend',
+                  'pointerdown','pointermove','pointerup'];
+    EVTS.forEach(type =>
+      mapEl.addEventListener(type, rewrite, { capture: true, passive: true })
+    );
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   function initMap(lat, lon) {
     if (!radarMap) {
       // zoomControl: false — we supply our own buttons in #radar-controls
@@ -1407,6 +1459,9 @@ if ('serviceWorker' in navigator) {
       }).addTo(radarMap);
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
+
+      // Patch the map container so Leaflet receives rotation-corrected coordinates
+      patchMapEvents(document.getElementById('radar-map'));
     }
     radarMap.setView([lat, lon], 7);
   }
