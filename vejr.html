@@ -252,6 +252,25 @@ canvas.main-canvas {
   width: 100%;
   height: 320px;
   background: #1a2330;
+  position: relative;
+}
+#radar-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a2330;
+  color: #8af;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+#radar-loading.hidden {
+  opacity: 0;
 }
 #radar-controls {
   display: flex;
@@ -384,7 +403,9 @@ canvas.main-canvas {
     Radar – nedbør
     <span id="radar-source-label">RainViewer</span>
   </div>
-  <div id="radar-map"></div>
+  <div id="radar-map">
+    <div id="radar-loading">Indlæser radar…</div>
+  </div>
   <div id="radar-controls">
     <button id="radar-play-btn">▶ Afspil</button>
     <input id="radar-slider" type="range" min="0" value="0" step="1">
@@ -1477,7 +1498,17 @@ if ('serviceWorker' in navigator) {
     radarMap.setView([lat, lon], 7);
   }
 
-  let radarLayers = [];   // one L.tileLayer per frame, pre-added at opacity 0
+  let radarLayers  = [];   // one L.tileLayer per frame, pre-added at opacity 0
+  let radarReady   = [];   // parallel boolean array: true when tiles are loaded
+
+  function hideLoadingOverlay() {
+    const el = document.getElementById('radar-loading');
+    if (el) {
+      el.classList.add('hidden');
+      // Remove from DOM after fade so it can't block pointer events
+      setTimeout(() => el.remove(), 500);
+    }
+  }
 
   function showFrame(idx) {
     if (!radarFrames.length || !radarMap) return;
@@ -1485,9 +1516,12 @@ if ('serviceWorker' in navigator) {
     // Hide previous frame
     if (radarLayer) radarLayer.setOpacity(0);
 
-    // Show new frame
+    // Show new frame only if tiles are loaded; otherwise leave map as-is
     radarLayer = radarLayers[idx];
-    if (radarLayer) radarLayer.setOpacity(0.65);
+    if (radarLayer && radarReady[idx]) {
+      radarLayer.setOpacity(0.65);
+      hideLoadingOverlay();
+    }
 
     const d = new Date(radarFrames[idx].time * 1000);
     const pad = n => String(n).padStart(2,'0');
@@ -1529,27 +1563,35 @@ if ('serviceWorker' in navigator) {
       document.getElementById('radar-section').style.display = 'block';
       initMap(lat, lon);
 
-      // Pre-create all tile layers at opacity 0 and add them to the map.
-      // Because they are added immediately the browser starts fetching tiles
-      // for all frames, so by the time the animation reaches each frame the
-      // tiles are already cached → no blink.
+      // Remove any layers from a previous load
       radarLayers.forEach(l => radarMap.removeLayer(l));
-      radarLayers = radarFrames.map(frame => {
+      radarLayers = [];
+      radarReady  = [];
+
+      // Create all layers at opacity 0 and add them immediately so the browser
+      // starts fetching tiles in the background.  Mark each as ready when its
+      // tiles finish loading so showFrame can reveal it without blinking.
+      radarFrames.forEach((frame, i) => {
         const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
         const l = L.tileLayer(url, { opacity: 0, maxZoom: 10, tileSize: 256 });
+        radarReady.push(false);
+        l.on('load', () => {
+          radarReady[i] = true;
+          // If this is the currently displayed frame, reveal it now
+          if (i === radarIdx) showFrame(radarIdx);
+        });
         l.addTo(radarMap);
-        return l;
+        radarLayers.push(l);
       });
       radarLayer = null;
 
       slider.max = radarFrames.length - 1;
-      radarIdx = past.length - 1;
-      showFrame(radarIdx);
+      radarIdx   = past.length - 1;
+      showFrame(radarIdx);  // will show immediately if tiles already cached
 
-      // Invalidate map size after it becomes visible
       setTimeout(() => radarMap.invalidateSize(), 50);
 
-      // Auto-start playback
+      // Auto-start playback immediately — frames show as they become ready
       if (!radarPlaying) togglePlay();
     } catch(e) {
       console.warn('Radar load failed', e);
