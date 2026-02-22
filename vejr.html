@@ -1448,7 +1448,11 @@ if ('serviceWorker' in navigator) {
       // In portrait the element is CSS-rotated: its visual width = logical height,
       // visual height = logical width.  getBoundingClientRect gives visual dims.
       const rect   = mapEl ? mapEl.getBoundingClientRect() : { width: 1, height: 1 };
-      const aspect = rect.height / rect.width;   // logical-width / logical-height
+      // In portrait the map's visual width < visual height (it's a short wide
+      // strip rotated 90°).  Physical left/right (clientX) maps to the map's
+      // short logical axis, so we scale it DOWN by (visualWidth / visualHeight)
+      // so that equal finger travel covers an equal *proportion* of each axis.
+      const aspect = rect.width / rect.height;   // < 1 → slows left/right down
       return fakeEv(e, src.clientY, -src.clientX * aspect);
     }
 
