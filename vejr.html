@@ -288,36 +288,20 @@ canvas.main-canvas {
   min-width: 130px;
   text-align: right;
 }
-
-/* ── Counter-rotate Leaflet controls in portrait so they sit upright ──── */
-@media (orientation: portrait) {
-  /* The control container is sized to the map; rotate it -90° around its
-     own centre so the controls flip back to upright. Then shift it so it
-     still covers the map area (width and height are swapped after rotation,
-     so we translate by the difference). */
-  #radar-map .leaflet-control-container {
-    position: absolute;
-    /* map width = 100vw (after rotator swap), height = 320px */
-    width:  320px;      /* becomes the height after -90° rotation   */
-    height: 100%;       /* becomes the width  after -90° rotation   */
-    transform-origin: top left;
-    transform: rotate(-90deg) translateX(-100%);
-    pointer-events: none;   /* re-enabled per-child below */
-  }
-  #radar-map .leaflet-control-container > * {
-    pointer-events: auto;
-  }
-  /* Swap the corner positions so top-left→bottom-left, top-right→top-left, etc.
-     after the -90° rotation the logical corners are:
-       physical top-left    → logical bottom-left  (use topleft for bottomleft things)
-       physical top-right   → logical top-left     (use topright for topleft things)
-       physical bottom-left → logical bottom-right
-       physical bottom-right→ logical top-right    */
-  #radar-map .leaflet-top.leaflet-left   { top: auto; bottom: 0; left: 0;    right: auto; }
-  #radar-map .leaflet-top.leaflet-right  { top: 0;    bottom: auto; left: 0; right: auto; }
-  #radar-map .leaflet-bottom.leaflet-left  { top: auto; bottom: 0; left: auto; right: 0; }
-  #radar-map .leaflet-bottom.leaflet-right { top: 0;    left: auto; right: 0; bottom: auto; }
+.radar-zoom-btn {
+  padding: 2px 10px;
+  background: #003c8f;
+  color: #fff;
+  border: none;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
 }
+.radar-zoom-btn:hover { background: #0051c4; }
+
+
 </style>
 </head>
 <body>
@@ -405,6 +389,8 @@ canvas.main-canvas {
     <button id="radar-play-btn">▶ Afspil</button>
     <input id="radar-slider" type="range" min="0" value="0" step="1">
     <div id="radar-time-label">—</div>
+    <button class="radar-zoom-btn" id="radar-zoom-in"  title="Zoom ind">+</button>
+    <button class="radar-zoom-btn" id="radar-zoom-out" title="Zoom ud">−</button>
   </div>
 </div>
 
@@ -1409,14 +1395,18 @@ if ('serviceWorker' in navigator) {
   const slider    = document.getElementById('radar-slider');
   const playBtn   = document.getElementById('radar-play-btn');
   const timeLabel = document.getElementById('radar-time-label');
+  const zoomIn    = document.getElementById('radar-zoom-in');
+  const zoomOut   = document.getElementById('radar-zoom-out');
 
   function initMap(lat, lon) {
     if (!radarMap) {
-      radarMap = L.map('radar-map', { zoomControl: true, attributionControl: false });
+      // zoomControl: false — we supply our own buttons in #radar-controls
+      radarMap = L.map('radar-map', { zoomControl: false, attributionControl: false });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 10
       }).addTo(radarMap);
-      L.control.attribution({ prefix: '' }).addTo(radarMap);
+      zoomIn.addEventListener('click',  () => radarMap.zoomIn());
+      zoomOut.addEventListener('click', () => radarMap.zoomOut());
     }
     radarMap.setView([lat, lon], 7);
   }
