@@ -37,31 +37,35 @@ vejr/
 
 ## Hosting on GitHub Pages
 
-### 1. Push to GitHub
+> ✅ The code is already pushed to GitHub. You just need to **turn on Pages** — that's why you get a 404.
 
-```
-git add .
-git commit -m "Add PWA support and GitHub Pages files"
-git push
-```
+### 1. Enable GitHub Pages (direct link)
 
-### 2. Enable GitHub Pages
+👉 **Go directly to:** https://github.com/ncvangilse/vejr/settings/pages
 
-- Go to **https://github.com/ncvangilse/vejr**
-- Click **Settings** (top tab bar)
-- Click **Pages** in the left sidebar
-- Under **Branch**, select `main` and keep the folder as `/ (root)`
-- Click **Save**
+On that page:
 
-> ⚠️ If you don't see a green "Your site is published" banner within ~2 minutes, check that the branch is set correctly. A 404 almost always means Pages has not been enabled yet, or is pointing at the wrong branch.
+1. Under **"Build and deployment"**, find the **Source** dropdown
+2. Change it from `Deploy from a branch` (it should already say this) — make sure it's set
+3. Under **Branch**, open the first dropdown and select **`main`**
+4. Leave the second dropdown as **`/ (root)`**
+5. Click **Save**
 
-### 3. Confirm it's live
+> If you see **"GitHub Pages is currently disabled"** or the branch dropdown is set to `None`, that's the problem — just set it to `main` and save.
 
-After saving, GitHub will show a banner:
+### 2. Wait for deployment
 
-> *Your site is live at https://ncvangilse.github.io/vejr/*
+- GitHub will run a short deployment (usually 1–2 minutes)
+- Refresh the same Settings → Pages page after a minute
+- You will see a box at the top saying:
 
-Wait ~1–2 minutes, then open that URL in a browser to confirm.
+  > **"Your site is live at https://ncvangilse.github.io/vejr/"**
+
+  with a **"Visit site"** button next to it. That's how you know it worked.
+
+### 3. Open the app
+
+Once live, the app is at: **https://ncvangilse.github.io/vejr/**
 
 ---
 
