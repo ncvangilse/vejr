@@ -299,7 +299,7 @@ canvas.main-canvas {
 
 </div> <!-- #rotator -->
 
-<script src="weather-icons.js"></script>
+<script src="weather-icons.js?v=2"></script>
 <script>
 /* ══════════════════════════════════════════════════
    CONFIG
@@ -309,40 +309,6 @@ const STEP = 3; // every 3 hours
 const DA_DAYS  = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
 const DA_DAYS3 = ['søn','man','tir','ons','tor','fre','lør'];
 
-// Basmilius weather icon CDN — best open-source icon set for WMO codes
-const ICON_CDN = 'https://cdn.jsdelivr.net/gh/basmilius/weather-icons@2.0.1/production/fill/svg/';
-const WMO_ICON = {
-  // day versions
-  day: {
-    0:'clear-day', 1:'partly-cloudy-day', 2:'partly-cloudy-day', 3:'overcast',
-    45:'fog', 48:'fog',
-    51:'drizzle', 53:'drizzle', 55:'drizzle',
-    61:'rain', 63:'rain', 65:'rain',
-    71:'snow', 73:'snow', 75:'snow',
-    77:'snow',
-    80:'rain', 81:'rain', 82:'thunderstorms-rain',
-    85:'snow', 86:'snow',
-    95:'thunderstorms', 96:'thunderstorms-rain', 99:'thunderstorms-rain',
-  },
-  // night versions
-  night: {
-    0:'clear-night', 1:'partly-cloudy-night', 2:'partly-cloudy-night', 3:'overcast',
-    45:'fog', 48:'fog',
-    51:'drizzle', 53:'drizzle', 55:'drizzle',
-    61:'rain', 63:'rain', 65:'rain',
-    71:'snow', 73:'snow', 75:'snow',
-    77:'snow',
-    80:'rain', 81:'rain', 82:'thunderstorms-rain',
-    85:'snow', 86:'snow',
-    95:'thunderstorms', 96:'thunderstorms-rain', 99:'thunderstorms-rain',
-  }
-};
-function wmoIconUrl(code, timeStr) {
-  const night = timeStr && isNight(timeStr);
-  const map = night ? WMO_ICON.night : WMO_ICON.day;
-  const name = map[code] || (night ? 'partly-cloudy-night' : 'partly-cloudy-day');
-  return ICON_CDN + name + '.svg';
-}
 const DA_MON   = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
 /* ══════════════════════════════════════════════════
