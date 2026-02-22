@@ -2,6 +2,8 @@
 
 A Danish weather forecast web app powered by [DMI](https://www.dmi.dk/) and [Open-Meteo](https://open-meteo.com/) data. Displays hourly forecasts for temperature, precipitation, wind, and more — all in a clean, minimal chart interface.
 
+🔗 **Live app:** https://ncvangilse.github.io/vejr/
+
 ---
 
 ## Features
@@ -18,6 +20,7 @@ A Danish weather forecast web app powered by [DMI](https://www.dmi.dk/) and [Ope
 
 ```
 vejr/
+├── index.html         # Redirects to vejr.html (required for GitHub Pages root)
 ├── vejr.html          # Main app (single-page)
 ├── manifest.json      # Web App Manifest (PWA metadata)
 ├── sw.js              # Service Worker (caching & offline)
@@ -34,50 +37,55 @@ vejr/
 
 ## Hosting on GitHub Pages
 
-1. **Push the repo to GitHub**
-   ```
-   git add .
-   git commit -m "Initial commit"
-   git push
-   ```
+### 1. Push to GitHub
 
-2. **Enable GitHub Pages**
-   - Go to your repository on GitHub
-   - Navigate to **Settings → Pages**
-   - Under *Branch*, select `main` (or `master`) and folder `/root`
-   - Click **Save**
+```
+git add .
+git commit -m "Add PWA support and GitHub Pages files"
+git push
+```
 
-3. **Wait ~1 minute**, then your app will be live at:
-   ```
-   https://<your-username>.github.io/<repo-name>/vejr.html
-   ```
+### 2. Enable GitHub Pages
+
+- Go to **https://github.com/ncvangilse/vejr**
+- Click **Settings** (top tab bar)
+- Click **Pages** in the left sidebar
+- Under **Branch**, select `main` and keep the folder as `/ (root)`
+- Click **Save**
+
+> ⚠️ If you don't see a green "Your site is published" banner within ~2 minutes, check that the branch is set correctly. A 404 almost always means Pages has not been enabled yet, or is pointing at the wrong branch.
+
+### 3. Confirm it's live
+
+After saving, GitHub will show a banner:
+
+> *Your site is live at https://ncvangilse.github.io/vejr/*
+
+Wait ~1–2 minutes, then open that URL in a browser to confirm.
 
 ---
 
 ## Adding to your iPhone home screen
 
-> **Important:** You must use **Safari** on iOS — other browsers (Chrome, Firefox) do not support Add to Home Screen properly on iPhone.
+> **Important:** You must use **Safari** on iOS — Chrome and Firefox on iPhone do not support "Add to Home Screen" as a proper PWA.
 
 1. Open **Safari** on your iPhone
-2. Go to:
-   ```
-   https://<your-username>.github.io/<repo-name>/vejr.html
-   ```
-3. Tap the **Share** button (the box with an arrow pointing up) at the bottom of the screen
-4. Scroll down and tap **"Add to Home Screen"**
-5. Optionally edit the name (it defaults to **"Vejr"**), then tap **Add**
+2. Go to **https://ncvangilse.github.io/vejr/**
+3. Tap the **Share** button — the box with an arrow pointing up, at the bottom of the screen
+4. Scroll down in the share sheet and tap **"Add to Home Screen"**
+5. Optionally edit the name (defaults to **"Vejr"**), then tap **Add**
 
-The app will now appear on your home screen with the weather icon. When launched from there, it opens **full-screen** without the Safari browser UI — just like a native app.
+The app now appears on your home screen with the weather icon. When launched from there, it opens **full-screen** with no browser UI — just like a native app.
 
 ---
 
 ## Offline support
 
-After your first visit, the app shell (HTML, icons, fonts) is cached by the Service Worker. This means:
+After the first visit, the app shell (HTML, icons, fonts) is cached by the Service Worker:
 
 - The app **loads instantly** on subsequent visits
-- It still **works without an internet connection** (though live weather data requires a connection)
-- Live forecast API calls always go to the network to ensure fresh data
+- It **works without an internet connection** (live forecast data still needs a connection)
+- API calls always bypass the cache to ensure fresh weather data
 
 ---
 
