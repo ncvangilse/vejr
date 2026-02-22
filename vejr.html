@@ -1572,7 +1572,7 @@ if ('serviceWorker' in navigator) {
       // starts fetching tiles in the background.  Mark each as ready when its
       // tiles finish loading so showFrame can reveal it without blinking.
       radarFrames.forEach((frame, i) => {
-        const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/1_1.png`;
+        const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/0_1.png`;
         const l = L.tileLayer(url, { opacity: 0, maxZoom: 10, tileSize: 256 });
         radarReady.push(false);
         l.on('load', () => {
