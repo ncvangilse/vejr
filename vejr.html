@@ -22,6 +22,21 @@
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
+/* ── Portrait rotation ─────────────────────────────────────────────────────
+   When the screen is taller than it is wide, rotate the entire page 90°
+   so the landscape chart layout always fills the screen properly.
+   We swap width/height so the rotated body covers the full viewport.
+──────────────────────────────────────────────────────────────────────────── */
+@media (orientation: portrait) {
+  body {
+    transform-origin: top left;
+    transform: rotate(90deg) translateY(-100%);
+    width: 100vh;
+    min-height: 100vw;
+    overflow-x: hidden;
+  }
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   background: #c8d0d8;
