@@ -4,21 +4,42 @@ on:
   push:
     branches: [main]
 
-# Allow the workflow to write to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
   actions: write
 
-# Only one deployment at a time
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
+  retitle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set run title
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
+          COMMIT_MSG=$(git log -1 --pretty=format:%s)
+          TITLE="[build $BUILD] $COMMIT_MSG"
+          PAYLOAD=$(jq -n --arg t "$TITLE" '{display_title: $t}')
+          curl -s -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" \
+            -d "$PAYLOAD"
+
   deploy:
     runs-on: ubuntu-latest
+    needs: retitle
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -33,18 +54,6 @@ jobs:
           BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
           echo "number=$BUILD" >> $GITHUB_OUTPUT
           echo "Build number: $BUILD"
-
-      - name: Update run title
-        run: |
-          BUILD=${{ steps.build.outputs.number }}
-          COMMIT_MSG=$(echo "${{ github.event.head_commit.message }}" | head -1)
-          TITLE="[build $BUILD] $COMMIT_MSG"
-          PAYLOAD=$(jq -n --arg t "$TITLE" '{display_title: $t}')
-          curl -s -X PATCH \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} \
-            -d "$PAYLOAD"
 
       - name: Inject build number
         run: |
