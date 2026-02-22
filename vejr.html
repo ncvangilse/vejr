@@ -193,6 +193,8 @@ canvas.main-canvas {
   display: none;
   position: fixed;
   z-index: 1000;
+  bottom: 10px;
+  right: 10px;
   background: rgba(18, 26, 38, 0.93);
   border: 1px solid rgba(120,160,200,0.35);
   border-radius: 6px;
@@ -1117,7 +1119,7 @@ function drawCrosshairs(fracX, idx) {
   });
 }
 
-function showTooltip(idx, mouseX, mouseY) {
+function showTooltip(idx) {
   if (!lastData) return;
   const d = lastData;
   const tip = document.getElementById('hover-tooltip');
@@ -1197,40 +1199,6 @@ function showTooltip(idx, mouseX, mouseY) {
     </div>`;
 
   tip.style.display = 'block';
-
-  // position: follow mouse, account for portrait rotation
-  const tw = 185, th = 200;
-  const vw = window.innerWidth, vh = window.innerHeight;
-  const portrait = window.matchMedia('(orientation: portrait)').matches;
-
-  if (portrait) {
-    // In portrait mode the #rotator is rotated 90° CW.
-    // Rotate the tooltip 90° CW too so the text reads correctly in the rotated layout.
-    tip.style.transform = 'rotate(90deg)';
-    tip.style.transformOrigin = 'top left';
-
-    // Map the "right/above cursor" offset from rotated-layout space to viewport space.
-    // Rotated-layout (+14 right, -20 up)  →  viewport (+20 down, +14 right)
-    let tx = mouseX + 20;
-    let ty = mouseY + 14;
-    // Overflow guards (note: tw/th roles swap because the box is rotated)
-    if (ty + tw > vh - 8) ty = mouseY - tw - 14;
-    if (tx + th > vw - 8) tx = mouseX - th - 20;
-    if (tx < 8) tx = 8;
-    if (ty < 8) ty = 8;
-    tip.style.left = tx + 'px';
-    tip.style.top  = ty + 'px';
-  } else {
-    tip.style.transform = '';
-    tip.style.transformOrigin = '';
-    let tx = mouseX + 14;
-    let ty = mouseY - 20;
-    if (tx + tw > vw - 8) tx = mouseX - tw - 14;
-    if (ty + th > vh - 8) ty = vh - th - 8;
-    if (ty < 8) ty = 8;
-    tip.style.left = tx + 'px';
-    tip.style.top  = ty + 'px';
-  }
 }
 
 function hideTooltip() {
@@ -1262,7 +1230,7 @@ function attachHoverListeners() {
     const snapFrac = (idx + 0.5) / n;
 
     drawCrosshairs(snapFrac, idx);
-    showTooltip(idx, e.clientX, e.clientY);
+    showTooltip(idx);
   });
 
   content.addEventListener('mouseleave', hideTooltip);
