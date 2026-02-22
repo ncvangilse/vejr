@@ -1,3 +1,12 @@
+          // h5wasm.ready resolves with the module containing File, Group, etc.
+          const mod = await h5wasm.ready;
+          window._h5wasm = mod;
+          resolve();
+        s.src = 'https://cdn.jsdelivr.net/npm/h5wasm@0.7.7/dist/iife/hdf5_hl.js';
+    // 1. Load h5wasm from CDN (iife bundle exposes global `h5wasm`, File is on the ready module)
+    if (!window._h5wasm) {
+    const h5 = window._h5wasm;
+    const f = new h5.File(new Uint8Array(buffer), 'tmp.h5');
 <!DOCTYPE html>
 <html lang="da">
 <head>
@@ -20,6 +29,10 @@
 <link rel="apple-touch-icon" sizes="152x152" href="icon-assets/icon-152.png">
 <link rel="apple-touch-icon" sizes="167x167" href="icon-assets/icon-167.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-assets/icon-180.png">
+
+<!-- Leaflet (used for RainViewer radar map) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -222,6 +235,68 @@ canvas.main-canvas {
 }
 #hover-tooltip .tt-label { color: #8ab4d4; font-size: 10px; }
 #hover-tooltip .tt-val   { font-weight: 600; font-size: 12px; }
+
+/* ── Radar section ─────────────────────────────────────────────────────── */
+#radar-section {
+  width: 100%;
+  margin-top: 12px;
+  background: #e4e9ef;
+  border: 1px solid #a8b0b8;
+  box-shadow: 2px 3px 8px rgba(0,0,0,0.22);
+  display: none;
+}
+#radar-header {
+  background: #d8dfe8;
+  border-bottom: 1px solid #a8b0b8;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#radar-header span { font-size: 10px; font-weight: 400; color: #667; }
+#radar-map {
+  width: 100%;
+  height: 320px;
+  background: #1a2330;
+}
+#radar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #d8dfe8;
+  border-top: 1px solid #a8b0b8;
+  flex-wrap: wrap;
+}
+#radar-play-btn {
+  padding: 4px 14px;
+  background: #003c8f;
+  color: #fff;
+  border: none;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.4px;
+}
+#radar-play-btn:hover { background: #0051c4; }
+#radar-slider {
+  flex: 1;
+  min-width: 80px;
+  accent-color: #003c8f;
+  cursor: pointer;
+}
+#radar-time-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: #334;
+  white-space: nowrap;
+  min-width: 130px;
+  text-align: right;
+}
 </style>
 </head>
 <body>
@@ -295,6 +370,20 @@ canvas.main-canvas {
       <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
     </div>
 
+  </div>
+</div>
+
+<!-- ── RainViewer Radar ─────────────────────────────────────────────── -->
+<div id="radar-section">
+  <div id="radar-header">
+    Radar – nedbør
+    <span id="radar-source-label">RainViewer</span>
+  </div>
+  <div id="radar-map"></div>
+  <div id="radar-controls">
+    <button id="radar-play-btn">▶ Afspil</button>
+    <input id="radar-slider" type="range" min="0" value="0" step="1">
+    <div id="radar-time-label">—</div>
   </div>
 </div>
 
@@ -1021,6 +1110,9 @@ async function load(cityName, model) {
     // Double rAF ensures layout is complete before measuring canvas width
     requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
 
+    // Load RainViewer radar centred on the selected city
+    if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
+
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -1280,6 +1372,96 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
+
+/* ══════════════════════════════════════════════════
+   RAINVIEWER RADAR
+══════════════════════════════════════════════════ */
+(function () {
+  let radarMap = null;
+  let radarLayer = null;
+  let radarFrames = [];
+  let radarIdx = 0;
+  let radarPlaying = false;
+  let radarTimer = null;
+  const PLAY_INTERVAL = 500; // ms between frames
+
+  const slider    = document.getElementById('radar-slider');
+  const playBtn   = document.getElementById('radar-play-btn');
+  const timeLabel = document.getElementById('radar-time-label');
+
+  function initMap(lat, lon) {
+    if (!radarMap) {
+      radarMap = L.map('radar-map', { zoomControl: true, attributionControl: false });
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 10
+      }).addTo(radarMap);
+      L.control.attribution({ prefix: '' }).addTo(radarMap);
+    }
+    radarMap.setView([lat, lon], 7);
+  }
+
+  function showFrame(idx) {
+    if (!radarFrames.length || !radarMap) return;
+    const frame = radarFrames[idx];
+    if (radarLayer) { radarMap.removeLayer(radarLayer); radarLayer = null; }
+    const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+    radarLayer = L.tileLayer(url, { opacity: 0.65, maxZoom: 10, tileSize: 256 });
+    radarLayer.addTo(radarMap);
+    const d = new Date(frame.time * 1000);
+    const pad = n => String(n).padStart(2,'0');
+    timeLabel.textContent = `${d.getDate()}. ${DA_MON[d.getMonth()]} ${d.getHours()}:${pad(d.getMinutes())}`;
+    slider.value = idx;
+  }
+
+  function nextFrame() {
+    radarIdx = (radarIdx + 1) % radarFrames.length;
+    showFrame(radarIdx);
+  }
+
+  function togglePlay() {
+    radarPlaying = !radarPlaying;
+    playBtn.textContent = radarPlaying ? '⏸ Pause' : '▶ Afspil';
+    if (radarPlaying) {
+      radarTimer = setInterval(nextFrame, PLAY_INTERVAL);
+    } else {
+      clearInterval(radarTimer);
+    }
+  }
+
+  slider.addEventListener('input', () => {
+    radarIdx = +slider.value;
+    showFrame(radarIdx);
+  });
+  playBtn.addEventListener('click', togglePlay);
+
+  async function loadRadar(lat, lon) {
+    try {
+      const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+      if (!r.ok) return;
+      const data = await r.json();
+      // past frames + nowcast frames
+      const past     = data.radar?.past     || [];
+      const nowcast  = data.radar?.nowcast  || [];
+      radarFrames = [...past, ...nowcast];
+      if (!radarFrames.length) return;
+
+      document.getElementById('radar-section').style.display = 'block';
+      initMap(lat, lon);
+
+      slider.max = radarFrames.length - 1;
+      // Start on latest past frame (last past entry)
+      radarIdx = past.length - 1;
+      showFrame(radarIdx);
+      // Invalidate map size after it becomes visible
+      setTimeout(() => radarMap.invalidateSize(), 50);
+    } catch(e) {
+      console.warn('Radar load failed', e);
+    }
+  }
+
+  // Expose so the load() function can call it
+  window.loadRadar = loadRadar;
+})();
 </script>
 </body>
 </html>
