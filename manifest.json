@@ -9,22 +9,22 @@
   "theme_color": "#003c8f",
   "icons": [
     {
-      "src": "icon-assets/icon-120.png",
+      "src": "icon-assets/icon-120.png?v=2",
       "sizes": "120x120",
       "type": "image/png"
     },
     {
-      "src": "icon-assets/icon-152.png",
+      "src": "icon-assets/icon-152.png?v=2",
       "sizes": "152x152",
       "type": "image/png"
     },
     {
-      "src": "icon-assets/icon-167.png",
+      "src": "icon-assets/icon-167.png?v=2",
       "sizes": "167x167",
       "type": "image/png"
     },
     {
-      "src": "icon-assets/icon-180.png",
+      "src": "icon-assets/icon-180.png?v=2",
       "sizes": "180x180",
       "type": "image/png"
     }
