@@ -1438,22 +1438,32 @@ if ('serviceWorker' in navigator) {
     }
 
     function transform(e) {
-      // Apply (cx, cy) → (cy, -cx · aspect) to the first touch or mouse point.
-      // The map is non-square (wide × short after rotation).  Without correction
-      // left/right drags (physical cx, mapped to logical y on the short axis)
-      // feel slower than up/down drags.  Multiplying the logical-y component by
-      // (mapWidth / mapHeight) equalises the speed in both axes.
-      const src    = (e.touches && e.touches[0]) || e;
-      const mapEl  = document.getElementById('radar-map');
-      // In portrait the element is CSS-rotated: its visual width = logical height,
-      // visual height = logical width.  getBoundingClientRect gives visual dims.
-      const rect   = mapEl ? mapEl.getBoundingClientRect() : { width: 1, height: 1 };
-      // In portrait the map's visual width < visual height (it's a short wide
-      // strip rotated 90°).  Physical left/right (clientX) maps to the map's
-      // short logical axis, so we scale it DOWN by (visualWidth / visualHeight)
-      // so that equal finger travel covers an equal *proportion* of each axis.
-      const aspect = rect.width / rect.height;   // < 1 → slows left/right down
-      return fakeEv(e, src.clientY, -src.clientX * aspect);
+      // Apply (cx, cy) → (cy · scaleX, -cx · scaleY) so that equal physical
+      // finger travel covers equal proportional distance on both map axes.
+      //
+      // After CSS rotate(90° CW):
+      //   physical Y axis  → map logical X axis  (logical width  = map W px)
+      //   physical X axis  → map logical Y axis  (logical height = map H px)
+      //
+      // radarMap.getSize() returns the true logical pixel size {x: W, y: H}.
+      // We scale so 1 physical px = (logicalDim / physicalDim) logical px
+      // on each axis, making speed proportional to map size in that direction.
+      const src  = (e.touches && e.touches[0]) || e;
+      let scaleX = 1, scaleY = 1;
+      if (radarMap) {
+        const sz   = radarMap.getSize();          // logical: {x: mapW, y: mapH}
+        const mapEl = document.getElementById('radar-map');
+        const rect  = mapEl ? mapEl.getBoundingClientRect() : null;
+        if (rect && rect.width && rect.height) {
+          // rect.width  = physical pixels available along the physical X axis
+          // rect.height = physical pixels available along the physical Y axis
+          // physical Y → logical X: scale so full physical-Y sweep = mapW px
+          scaleX = sz.x / rect.height;
+          // physical X → logical Y: scale so full physical-X sweep = mapH px
+          scaleY = sz.y / rect.width;
+        }
+      }
+      return fakeEv(e, src.clientY * scaleX, -src.clientX * scaleY);
     }
 
     const origDown = L.Draggable.prototype._onDown;
