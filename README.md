@@ -45,27 +45,25 @@ vejr/
 
 On that page:
 
-1. Under **"Build and deployment"**, find the **Source** dropdown
-2. Change it from `Deploy from a branch` (it should already say this) — make sure it's set
-3. Under **Branch**, open the first dropdown and select **`main`**
-4. Leave the second dropdown as **`/ (root)`**
-5. Click **Save**
+1. Under **"Build and deployment"**, open the **Source** dropdown
+2. Select **`GitHub Actions`** ← this is important, do NOT use "Deploy from a branch"
+3. Click **Save**
 
-> If you see **"GitHub Pages is currently disabled"** or the branch dropdown is set to `None`, that's the problem — just set it to `main` and save.
+> Selecting "GitHub Actions" lets the `deploy.yml` workflow handle the build number injection and deployment automatically on every push.
 
-### 2. Wait for deployment
+### 2. Trigger a deployment
 
-- GitHub will run a short deployment (usually 1–2 minutes)
-- Refresh the same Settings → Pages page after a minute
-- You will see a box at the top saying:
+The pipeline runs automatically on every push to `main`. To trigger it now:
 
-  > **"Your site is live at https://ncvangilse.github.io/vejr/"**
+```
+git push
+```
 
-  with a **"Visit site"** button next to it. That's how you know it worked.
+You can watch it run live at: https://github.com/ncvangilse/vejr/actions
 
 ### 3. Open the app
 
-Once live, the app is at: **https://ncvangilse.github.io/vejr/**
+Once the workflow finishes (usually ~1 minute), the app is live at: **https://ncvangilse.github.io/vejr/**
 
 ---
 
@@ -95,16 +93,14 @@ After the first visit, the app shell (HTML, icons, fonts) is cached by the Servi
 
 ## Build number
 
-The current build number is shown in the top-right corner of the app header (e.g. `build 2026.02.22-1`). Use it to confirm you are running the latest deployed version and not a stale cached copy.
+The current build number is shown in the top-right corner of the app header (e.g. `build 2026.02.22-3`). Use it to confirm you are running the latest deployed version and not a stale cached copy.
 
-When making a new deployment, update **both** of these to the same value:
+The build number is **injected automatically** by the GitHub Actions pipeline on every push to `main` — you never need to update it manually. The format is `YYYY.MM.DD-N` where `N` is the GitHub Actions run number, incrementing automatically with each deploy.
 
-| File | What to change |
-|---|---|
-| `vejr.html` | The text inside `<div id="build-number">` |
-| `sw.js` | The `CACHE_NAME` constant on line 1 |
-
-Format: `YYYY.MM.DD-N` where `N` increments if there are multiple deploys on the same day (e.g. `2026.02.22-2`).
+The pipeline (`.github/workflows/deploy.yml`) does three things on every push:
+1. Replaces the `%%BUILD_NUMBER%%` token in `vejr.html` and `sw.js` with the real build number
+2. Bumps the Service Worker cache name, forcing clients to download fresh files
+3. Deploys the result straight to GitHub Pages
 
 ---
 

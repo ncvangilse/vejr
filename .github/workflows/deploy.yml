@@ -1,0 +1,49 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Allow the workflow to write to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate build number
+        id: build
+        run: |
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+          echo "Build number: $BUILD"
+
+      - name: Inject build number
+        run: |
+          BUILD=${{ steps.build.outputs.number }}
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
