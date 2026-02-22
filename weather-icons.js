@@ -135,85 +135,89 @@ function _sun(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Cloud: classic silhouette — four overlapping circles clipped to a flat-bottomed rect.
-// Circles overlap so there are no gaps; the rect clip gives a clean flat base.
-// U = scale unit (half cell height). rainAmt darkens the cloud.
+// Cloud: classic silhouette — four overlapping circles, flat bottom, rain-darkened.
 function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
 
-  // Rain → darkness factor 0–1 (saturates at 6 mm)
   const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
-  function lerpHex(a, b) {
-    return '#' + [0,2,4].map(i =>
-      Math.round(parseInt(a.slice(i+1,i+3),16) * (1-t) + parseInt(b.slice(i+1,i+3),16) * t)
-        .toString(16).padStart(2,'0')
-    ).join('');
-  }
-  const bodyCol      = lerpHex('#eef2f8', '#6e7880');
-  const undersideCol = lerpHex('#c4ccd8', '#3e4e5a');
-  const strokeCol    = lerpHex('#8898a8', '#2e3a44');
+  function lerp(a, b) { return Math.round(a + (b - a) * t); }
+  // body: near-white → mid grey
+  const br = lerp(0xee, 0x6e), bg = lerp(0xf2, 0x78), bb = lerp(0xf8, 0x80);
+  // shadow underside: light grey → dark grey
+  const sr = lerp(0xb8, 0x3e), sg = lerp(0xc2, 0x4e), sb = lerp(0xd0, 0x5a);
+  // stroke: medium grey → very dark
+  const or = lerp(0x88, 0x2e), og = lerp(0x98, 0x3a), ob = lerp(0xa8, 0x44);
 
-  // Four bump circles — positions & radii tuned for a classic cloud profile:
-  //   far-left small · left-centre medium · right-centre large (tallest) · far-right medium
+  const bodyCol      = `rgb(${br},${bg},${bb})`;
+  const undersideCol = `rgb(${sr},${sg},${sb})`;
+  const strokeCol    = `rgb(${or},${og},${ob})`;
+
   const bumps = [
-    { x: -U*0.52, y:  U*0.14, r: U*0.24 },   // far-left  small
-    { x: -U*0.20, y: -U*0.04, r: U*0.36 },   // left-centre medium
-    { x:  U*0.18, y: -U*0.14, r: U*0.42 },   // right-centre large (peak)
-    { x:  U*0.52, y:  U*0.04, r: U*0.30 },   // far-right  medium
+    { x: -U*0.52, y:  U*0.10, r: U*0.25 },
+    { x: -U*0.18, y: -U*0.06, r: U*0.37 },
+    { x:  U*0.20, y: -U*0.16, r: U*0.43 },
+    { x:  U*0.54, y:  U*0.02, r: U*0.31 },
   ];
-  const top    = -U * 0.60;   // clip top  (well above all circles)
-  const bottom =  U * 0.34;   // flat base y
-  const left   = -U * 0.80;
-  const right  =  U * 0.85;
+  const bottom =  U * 0.34;
+  const left   = -U * 0.82;
+  const right  =  U * 0.88;
+  const top    = -U * 0.62;
 
-  // ── shadow layer (slide down slightly) ──────────────────────────
+  // 1. Shadow: filled union of bumps shifted down, clipped so it only shows below body
   ctx.save();
-  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top + U*0.07);
+  ctx.beginPath();
+  ctx.rect(left, bottom - U*0.12, right - left, U*0.20);
   ctx.clip();
-  ctx.translate(0, U * 0.08);
   ctx.fillStyle = undersideCol;
-  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
+  bumps.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y + U*0.10, b.r, 0, Math.PI*2);
+    ctx.fill();
+  });
   ctx.restore();
 
-  // ── main body (clipped to flat-bottom rect) ──────────────────────
+  // 2. Body: filled union of bumps, clipped to flat-bottom rect
   ctx.save();
-  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top);
+  ctx.beginPath();
+  ctx.rect(left, top, right - left, bottom - top);
   ctx.clip();
-  ctx.fillStyle = bodyCol;
-  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
-  ctx.restore();
-
-  // ── outline: stroke each circle clipped to the body rect, then clip out neighbours ──
-  // Simpler & guaranteed smooth: stroke each bump circle, masked so only the
-  // outer visible arc shows. We do this by clipping to the rect and drawing
-  // each arc with a thick stroke, then overdrawing with body colour to erase
-  // any interior arc segments that peek out.
-  ctx.save();
-  ctx.beginPath(); ctx.rect(left - U*0.1, top, (right - left) + U*0.2, bottom - top + U*0.05);
-  ctx.clip();
-  ctx.strokeStyle = strokeCol;
-  ctx.lineWidth   = Math.max(0.7, U * 0.06);
-  ctx.lineJoin    = 'round';
-  ctx.lineCap     = 'round';
-  // Stroke all bumps — inner arcs will be covered by re-filling body on top
-  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); });
-  // Re-fill body colour to erase strokes in interior overlaps
   ctx.fillStyle = bodyCol;
   bumps.forEach(b => {
-    const shrink = Math.max(0.5, U * 0.04);
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r - shrink, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+    ctx.fill();
   });
-  // Flat bottom edge line
+  ctx.restore();
+
+  // 3. Outline: use compositing to stroke only the outer silhouette.
+  //    Draw filled union into an offscreen approach: stroke each circle with
+  //    destination-out on a saved layer, then restore. Simpler: just clip
+  //    to body rect and stroke each circle — interior strokes will be hidden
+  //    by re-filling body colour with a tiny inset.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(left, top, right - left, bottom - top + U*0.04);
+  ctx.clip();
   ctx.strokeStyle = strokeCol;
-  ctx.lineWidth = Math.max(0.7, U * 0.06);
+  ctx.lineWidth = Math.max(0.8, U * 0.07);
+  ctx.lineJoin = 'round';
+  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); });
+  // erase interior strokes by re-filling body
+  ctx.fillStyle = bodyCol;
+  bumps.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r - Math.max(0.6, U*0.045), 0, Math.PI*2);
+    ctx.fill();
+  });
+  // bottom edge
+  ctx.strokeStyle = strokeCol;
+  ctx.lineWidth = Math.max(0.8, U * 0.07);
   ctx.beginPath(); ctx.moveTo(left, bottom); ctx.lineTo(right, bottom); ctx.stroke();
   ctx.restore();
 
   ctx.restore();
 }
 
-// _cloudOutline kept as no-op (outline now drawn inline above)
-function _cloudOutline() {}
 
 // Rain: short diagonal lines
 function _rain(ctx, ox, oy, U, n) {
