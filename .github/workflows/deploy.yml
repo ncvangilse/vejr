@@ -38,11 +38,13 @@ jobs:
         run: |
           BUILD=${{ steps.build.outputs.number }}
           COMMIT_MSG=$(echo "${{ github.event.head_commit.message }}" | head -1)
+          TITLE="[build $BUILD] $COMMIT_MSG"
+          PAYLOAD=$(jq -n --arg t "$TITLE" '{display_title: $t}')
           curl -s -X PATCH \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} \
-            -d "{\"display_title\": \"[build $BUILD] $COMMIT_MSG\"}"
+            -d "$PAYLOAD"
 
       - name: Inject build number
         run: |
