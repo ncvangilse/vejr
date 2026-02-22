@@ -88,7 +88,7 @@ function dmiIcon(ctx, type, cx, cy, sz, rainAmt) {
     case 'rain':         _cloud(ctx, 0, -U*0.24, U, r); _rain(ctx, 0, U*0.54, U, 3); break;
     case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U*0.88, r); _rain(ctx, U*0.05, U*0.58, U, 3); break;
     case 'snow':         _cloud(ctx, 0, -U*0.24, U, 0); _snow(ctx, 0, U*0.56, U); break;
-    case 'thunder':      _cloud(ctx, 0, -U*0.24, U, r); _bolt(ctx, 0, U*0.40, U); break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.30, U, r); _bolt(ctx, 0, U*0.36, U); break;
     case 'fog':          _cloud(ctx, 0, -U*0.24, U, 0); _fog(ctx, 0, U*0.48, U); break;
     default:             _cloud(ctx, 0, 0, U, 0);
   }
@@ -117,7 +117,8 @@ function _sun(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Cloud: classic 3-bump silhouette built from overlapping circles + flat bottom
+// Cloud: classic silhouette — four overlapping circles clipped to a flat-bottomed rect.
+// Circles overlap so there are no gaps; the rect clip gives a clean flat base.
 // U = scale unit (half cell height). rainAmt darkens the cloud.
 function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
@@ -134,53 +135,67 @@ function _cloud(ctx, ox, oy, U, rainAmt) {
   const undersideCol = lerpHex('#c4ccd8', '#3e4e5a');
   const strokeCol    = lerpHex('#8898a8', '#2e3a44');
 
-  // Three bump circles: left (small), centre (large), right (medium)
-  // All expressed as fractions of U so the cloud fills the cell nicely.
-  const cL = { x: -U*0.38, y:  U*0.10, r: U*0.30 };  // left small bump
-  const cC = { x:  U*0.00, y: -U*0.10, r: U*0.44 };  // centre large bump
-  const cR = { x:  U*0.42, y:  U*0.06, r: U*0.34 };  // right medium bump
-  // Flat bottom: a rectangle that caps the bottom of the bumps
-  const bottom = U * 0.32;   // y of the flat base line
-  const left   = -U * 0.72;
-  const right  =  U * 0.80;
+  // Four bump circles — positions & radii tuned for a classic cloud profile:
+  //   far-left small · left-centre medium · right-centre large (tallest) · far-right medium
+  const bumps = [
+    { x: -U*0.52, y:  U*0.14, r: U*0.24 },   // far-left  small
+    { x: -U*0.20, y: -U*0.04, r: U*0.36 },   // left-centre medium
+    { x:  U*0.18, y: -U*0.14, r: U*0.42 },   // right-centre large (peak)
+    { x:  U*0.52, y:  U*0.04, r: U*0.30 },   // far-right  medium
+  ];
+  const top    = -U * 0.60;   // clip top  (well above all circles)
+  const bottom =  U * 0.34;   // flat base y
+  const left   = -U * 0.80;
+  const right  =  U * 0.85;
 
-  // Draw underside shadow (shifted down a little)
-  const sd = U * 0.07;
+  // ── shadow layer (slide down slightly) ──────────────────────────
   ctx.save();
-  ctx.translate(0, sd);
+  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top + U*0.07);
+  ctx.clip();
+  ctx.translate(0, U * 0.08);
   ctx.fillStyle = undersideCol;
-  _cloudPuff(ctx, cL, cC, cR, bottom + sd, left, right);
-  ctx.fill();
+  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
   ctx.restore();
 
-  // Draw main body
+  // ── main body (clipped to flat-bottom rect) ──────────────────────
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top);
+  ctx.clip();
   ctx.fillStyle = bodyCol;
-  _cloudPuff(ctx, cL, cC, cR, bottom, left, right);
-  ctx.fill();
+  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
+  ctx.restore();
+
+  // ── outline: stroke each circle clipped to the body rect, then clip out neighbours ──
+  // Simpler & guaranteed smooth: stroke each bump circle, masked so only the
+  // outer visible arc shows. We do this by clipping to the rect and drawing
+  // each arc with a thick stroke, then overdrawing with body colour to erase
+  // any interior arc segments that peek out.
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left - U*0.1, top, (right - left) + U*0.2, bottom - top + U*0.05);
+  ctx.clip();
   ctx.strokeStyle = strokeCol;
-  ctx.lineWidth = Math.max(0.6, U * 0.055);
-  ctx.lineJoin = 'round';
-  ctx.stroke();
+  ctx.lineWidth   = Math.max(0.7, U * 0.06);
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  // Stroke all bumps — inner arcs will be covered by re-filling body on top
+  bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); });
+  // Re-fill body colour to erase strokes in interior overlaps
+  ctx.fillStyle = bodyCol;
+  bumps.forEach(b => {
+    const shrink = Math.max(0.5, U * 0.04);
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r - shrink, 0, Math.PI*2); ctx.fill();
+  });
+  // Flat bottom edge line
+  ctx.strokeStyle = strokeCol;
+  ctx.lineWidth = Math.max(0.7, U * 0.06);
+  ctx.beginPath(); ctx.moveTo(left, bottom); ctx.lineTo(right, bottom); ctx.stroke();
+  ctx.restore();
 
   ctx.restore();
 }
 
-// Draws the cloud puff path: three arcs on top, flat bottom rectangle
-function _cloudPuff(ctx, cL, cC, cR, bottom, left, right) {
-  ctx.beginPath();
-  // Start at bottom-left corner
-  ctx.moveTo(left, bottom);
-  // Left arc (small bump)
-  ctx.arc(cL.x, cL.y, cL.r, Math.PI * 0.85, Math.PI * 1.70, false);
-  // Centre arc (large bump) — tangent transition handled by arc overlap
-  ctx.arc(cC.x, cC.y, cC.r, Math.PI * 1.10, Math.PI * 0.05, false);  // going left→top→right
-  // Right arc (medium bump)
-  ctx.arc(cR.x, cR.y, cR.r, Math.PI * 1.88, Math.PI * 0.15, false);
-  // Down to bottom-right corner, then flat base back to start
-  ctx.lineTo(right, bottom);
-  ctx.lineTo(left,  bottom);
-  ctx.closePath();
-}
+// _cloudOutline kept as no-op (outline now drawn inline above)
+function _cloudOutline() {}
 
 // Rain: short diagonal lines
 function _rain(ctx, ox, oy, U, n) {
@@ -204,12 +219,24 @@ function _snow(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Lightning bolt
+// Lightning bolt — filled zigzag, large enough to be clearly visible
 function _bolt(ctx, ox, oy, U) {
   ctx.save(); ctx.translate(ox, oy);
+  // Filled bold bolt: top-right → mid-left notch → mid-right → bottom-left
   ctx.beginPath();
-  ctx.moveTo(U*0.10,0); ctx.lineTo(-U*0.05,U*0.20); ctx.lineTo(U*0.05,U*0.20); ctx.lineTo(-U*0.10,U*0.42);
-  ctx.strokeStyle='#f0c000'; ctx.lineWidth=Math.max(1.2,U*0.12); ctx.lineJoin='round'; ctx.lineCap='round'; ctx.stroke();
+  ctx.moveTo( U*0.14, -U*0.02);
+  ctx.lineTo(-U*0.04,  U*0.22);
+  ctx.lineTo( U*0.06,  U*0.22);
+  ctx.lineTo(-U*0.14,  U*0.50);
+  ctx.lineTo( U*0.04,  U*0.24);
+  ctx.lineTo(-U*0.06,  U*0.24);
+  ctx.closePath();
+  ctx.fillStyle = '#ffe000';
+  ctx.fill();
+  ctx.strokeStyle = '#c89000';
+  ctx.lineWidth = Math.max(0.6, U * 0.05);
+  ctx.lineJoin = 'round';
+  ctx.stroke();
   ctx.restore();
 }
 
