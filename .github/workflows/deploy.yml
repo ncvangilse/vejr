@@ -1,5 +1,5 @@
 name: Build & Deploy
-run-name: "[build ${{ github.run_number }}] ${{ github.event.head_commit.message }}"
+run-name: "[build ${{ github.event.head_commit.timestamp }}-${{ github.run_number }}] ${{ github.event.head_commit.message }}"
 
 on:
   push:
