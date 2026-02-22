@@ -4,6 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vejrudsigt</title>
+
+<!-- PWA / Add to Home Screen -->
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vejr">
+<meta name="theme-color" content="#003c8f">
+
+<!-- iOS home screen icons -->
+<link rel="apple-touch-icon" href="icon-assets/icon-180.png">
+<link rel="apple-touch-icon" sizes="120x120" href="icon-assets/icon-120.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icon-assets/icon-152.png">
+<link rel="apple-touch-icon" sizes="167x167" href="icon-assets/icon-167.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-assets/icon-180.png">
+
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1448,6 +1464,13 @@ window.addEventListener('resize', () => {
 });
 
 load('Bogø', 'dmi_seamless');
+
+// Register service worker for PWA / offline support
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,33 @@
+{
+  "name": "Vejrudsigt",
+  "short_name": "Vejr",
+  "description": "Dansk vejrudsigt baseret på DMI data",
+  "start_url": "/vejr/vejr.html",
+  "scope": "/vejr/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#c8d0d8",
+  "theme_color": "#003c8f",
+  "icons": [
+    {
+      "src": "icon-assets/icon-120.png",
+      "sizes": "120x120",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-assets/icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-assets/icon-167.png",
+      "sizes": "167x167",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-assets/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
