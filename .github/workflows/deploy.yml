@@ -1,5 +1,5 @@
 name: Build & Deploy
-run-name: "Deploy build ${{ github.run_number }} — ${{ github.actor }}"
+run-name: "[build #${{ github.run_number }}] Deploy — ${{ github.actor }}"
 
 on:
   push:
@@ -10,6 +10,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 
 # Only one deployment at a time
 concurrency:
@@ -33,6 +34,15 @@ jobs:
           BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
           echo "number=$BUILD" >> $GITHUB_OUTPUT
           echo "Build number: $BUILD"
+
+      - name: Update run title
+        run: |
+          BUILD=${{ steps.build.outputs.number }}
+          curl -s -X PATCH \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} \
+            -d "{\"display_title\": \"[build $BUILD] Deploy — ${{ github.actor }}\"}"
 
       - name: Inject build number
         run: |
