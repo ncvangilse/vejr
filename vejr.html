@@ -23,16 +23,20 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 /* ── Portrait rotation ─────────────────────────────────────────────────────
-   When the screen is taller than it is wide, rotate the entire page 90°
-   so the landscape chart layout always fills the screen properly.
-   We swap width/height so the rotated body covers the full viewport.
+   In portrait mode the #rotator div is fixed to the viewport, rotated 90°
+   and sized to exactly fill the screen (width↔height swapped).
 ──────────────────────────────────────────────────────────────────────────── */
 @media (orientation: portrait) {
-  body {
+  html, body { overflow: hidden; width: 100%; height: 100%; }
+  #rotator {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vh;   /* rotated: logical width = viewport height */
+    height: 100vw;  /* rotated: logical height = viewport width  */
     transform-origin: top left;
-    transform: rotate(90deg) translateY(-100%);
-    width: 100vh;
-    min-height: 100vw;
+    transform: rotate(90deg) translateX(0) translateY(-100%);
+    overflow-y: auto;
     overflow-x: hidden;
   }
 }
@@ -218,6 +222,7 @@ canvas.main-canvas {
 </style>
 </head>
 <body>
+<div id="rotator">
 
 <div id="hover-tooltip"></div>
 
@@ -291,6 +296,8 @@ canvas.main-canvas {
 </div>
 
 <div id="build-number" style="width:100%;max-width:1100px;text-align:right;font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:6px;">build %%BUILD_NUMBER%%</div>
+
+</div> <!-- #rotator -->
 
 <script>
 /* ══════════════════════════════════════════════════
