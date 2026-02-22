@@ -251,7 +251,7 @@ canvas.main-canvas {
 #radar-map {
   width: 100%;
   height: 320px;
-  background: #1a2330;
+  background: #e8e0d8;
   position: relative;
 }
 #radar-loading {
@@ -261,8 +261,8 @@ canvas.main-canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1a2330;
-  color: #8af;
+  background: #e8e0d8;
+  color: #446;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 13px;
   letter-spacing: 0.5px;
@@ -1487,7 +1487,7 @@ if ('serviceWorker' in navigator) {
         dragging: false,      // we handle dragging ourselves
         inertia: false,
       });
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 10
       }).addTo(radarMap);
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
@@ -1572,7 +1572,7 @@ if ('serviceWorker' in navigator) {
       // starts fetching tiles in the background.  Mark each as ready when its
       // tiles finish loading so showFrame can reveal it without blinking.
       radarFrames.forEach((frame, i) => {
-        const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+        const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/1_1.png`;
         const l = L.tileLayer(url, { opacity: 0, maxZoom: 10, tileSize: 256 });
         radarReady.push(false);
         l.on('load', () => {
