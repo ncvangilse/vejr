@@ -288,6 +288,36 @@ canvas.main-canvas {
   min-width: 130px;
   text-align: right;
 }
+
+/* ── Counter-rotate Leaflet controls in portrait so they sit upright ──── */
+@media (orientation: portrait) {
+  /* The control container is sized to the map; rotate it -90° around its
+     own centre so the controls flip back to upright. Then shift it so it
+     still covers the map area (width and height are swapped after rotation,
+     so we translate by the difference). */
+  #radar-map .leaflet-control-container {
+    position: absolute;
+    /* map width = 100vw (after rotator swap), height = 320px */
+    width:  320px;      /* becomes the height after -90° rotation   */
+    height: 100%;       /* becomes the width  after -90° rotation   */
+    transform-origin: top left;
+    transform: rotate(-90deg) translateX(-100%);
+    pointer-events: none;   /* re-enabled per-child below */
+  }
+  #radar-map .leaflet-control-container > * {
+    pointer-events: auto;
+  }
+  /* Swap the corner positions so top-left→bottom-left, top-right→top-left, etc.
+     after the -90° rotation the logical corners are:
+       physical top-left    → logical bottom-left  (use topleft for bottomleft things)
+       physical top-right   → logical top-left     (use topright for topleft things)
+       physical bottom-left → logical bottom-right
+       physical bottom-right→ logical top-right    */
+  #radar-map .leaflet-top.leaflet-left   { top: auto; bottom: 0; left: 0;    right: auto; }
+  #radar-map .leaflet-top.leaflet-right  { top: 0;    bottom: auto; left: 0; right: auto; }
+  #radar-map .leaflet-bottom.leaflet-left  { top: auto; bottom: 0; left: auto; right: 0; }
+  #radar-map .leaflet-bottom.leaflet-right { top: 0;    left: auto; right: 0; bottom: auto; }
+}
 </style>
 </head>
 <body>
