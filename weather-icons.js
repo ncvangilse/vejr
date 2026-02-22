@@ -105,75 +105,64 @@ function _sun(ctx, ox, oy, U) {
   ctx.restore();
 }
 
-// Cloud: classic multi-bump silhouette with flat bottom, rain-darkened fill.
+// Cloud: overlapping filled circles clipped to a flat-bottomed rect.
+// Simplest correct approach — clip does the work, no arc angle math.
 function _cloud(ctx, ox, oy, U, rainAmt) {
   ctx.save(); ctx.translate(ox, oy);
 
   const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
   function lerp(a, b) { return Math.round(a + (b - a) * t); }
-  const bodyCol      = `rgb(${lerp(0xee,0x62)},${lerp(0xf2,0x6a)},${lerp(0xf8,0x72)})`;
-  const undersideCol = `rgb(${lerp(0xa8,0x32)},${lerp(0xb4,0x3e)},${lerp(0xc4,0x4a)})`;
-  const strokeCol    = `rgb(${lerp(0x78,0x24)},${lerp(0x88,0x2e)},${lerp(0x98,0x38)})`;
+  const bodyCol      = `rgb(${lerp(0xee,0x60)},${lerp(0xf2,0x68)},${lerp(0xf8,0x70)})`;
+  const undersideCol = `rgb(${lerp(0xa0,0x30)},${lerp(0xac,0x3c)},${lerp(0xbc,0x48)})`;
+  const strokeCol    = `rgb(${lerp(0x70,0x20)},${lerp(0x80,0x2a)},${lerp(0x92,0x34)})`;
 
-  // Four bumps: far-left small, left-centre medium, right-centre large (peak), far-right medium
   const bumps = [
-    { x: -U*0.50, y:  U*0.08, r: U*0.26 },
-    { x: -U*0.14, y: -U*0.08, r: U*0.38 },
-    { x:  U*0.22, y: -U*0.18, r: U*0.44 },
-    { x:  U*0.56, y:  U*0.00, r: U*0.32 },
+    { x: -U*0.48, y:  U*0.06, r: U*0.27 },
+    { x: -U*0.12, y: -U*0.10, r: U*0.38 },
+    { x:  U*0.24, y: -U*0.20, r: U*0.44 },
+    { x:  U*0.58, y: -U*0.02, r: U*0.32 },
   ];
-  const n      = bumps.length;
-  const bottom = U * 0.36;
+  const bottom = U * 0.34;
+  const top    = -U * 0.68;
+  const left   = bumps[0].x - bumps[0].r - U*0.04;
+  const right  = bumps[3].x + bumps[3].r + U*0.04;
 
-  // For each bump compute the angular range of its exposed top arc.
-  // The hand-off between bump[i] and bump[i+1] happens at the angle
-  // FROM bump[i]'s centre TOWARD bump[i+1]'s centre (the circles overlap
-  // so the silhouette crosses near that direction).
-  // We sweep each arc CLOCKWISE (anticlockwise=false) from endAngle back
-  // to startAngle — i.e. over the top — by using anticlockwise=true and
-  // swapping start/end so we always go over the peak.
-  const sa = [], ea = [];
-  for (let i = 0; i < n; i++) {
-    // angle FROM this bump TOWARD right neighbour = end of this bump's arc
-    ea[i] = (i < n-1)
-      ? Math.atan2(bumps[i+1].y - bumps[i].y, bumps[i+1].x - bumps[i].x)
-      : 0;                           // rightmost: end at 3 o'clock
-    // angle FROM this bump TOWARD left neighbour = start of this bump's arc
-    sa[i] = (i > 0)
-      ? Math.atan2(bumps[i-1].y - bumps[i].y, bumps[i-1].x - bumps[i].x)
-      : Math.PI;                     // leftmost: start at 9 o'clock
+  function fillBumps() {
+    bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
+  }
+  function strokeBumps() {
+    bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); });
   }
 
-  // Trace silhouette: moveTo flat-bottom left, then arc each bump over its top,
-  // then line to flat-bottom right and close.
-  const flatLeft  = bumps[0].x - bumps[0].r * 0.7;
-  const flatRight = bumps[n-1].x + bumps[n-1].r * 0.7;
-
-  ctx.beginPath();
-  ctx.moveTo(flatLeft, bottom);
-  for (let i = 0; i < n; i++) {
-    // Arc from sa[i] to ea[i] going anticlockwise = over the top of the bump
-    ctx.arc(bumps[i].x, bumps[i].y, bumps[i].r, sa[i], ea[i], true);
-  }
-  ctx.lineTo(flatRight, bottom);
-  ctx.closePath();
-
-  // Shadow: same path shifted down
+  // 1. Shadow — bumps shifted down, visible only in a thin band below the body
   ctx.save();
-  ctx.translate(0, U * 0.10);
-  ctx.fillStyle = undersideCol;
-  ctx.fill();
+  ctx.beginPath(); ctx.rect(left, bottom - U*0.14, right - left, U*0.18); ctx.clip();
+  ctx.save(); ctx.translate(0, U*0.12);
+  ctx.fillStyle = undersideCol; fillBumps();
+  ctx.restore(); ctx.restore();
+
+  // 2. Body — bumps clipped to flat-bottom rect
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top); ctx.clip();
+  ctx.fillStyle = bodyCol; fillBumps();
   ctx.restore();
 
-  // Body fill
-  ctx.fillStyle = bodyCol;
-  ctx.fill();
-
-  // Outline
+  // 3. Outline — stroke bumps inside clip, then re-fill body inset to erase interior arcs
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top + U*0.02); ctx.clip();
   ctx.strokeStyle = strokeCol;
-  ctx.lineWidth   = Math.max(0.8, U * 0.07);
-  ctx.lineJoin    = 'round';
-  ctx.stroke();
+  ctx.lineWidth = Math.max(0.9, U * 0.08);
+  ctx.lineJoin = 'round';
+  strokeBumps();
+  ctx.fillStyle = bodyCol;
+  bumps.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r - Math.max(0.7, U*0.05), 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.beginPath(); ctx.moveTo(left + U*0.04, bottom); ctx.lineTo(right - U*0.04, bottom);
+  ctx.strokeStyle = strokeCol; ctx.lineWidth = Math.max(0.9, U*0.08); ctx.stroke();
+  ctx.restore();
 
   ctx.restore();
 }
