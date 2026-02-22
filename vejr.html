@@ -1459,6 +1459,15 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // Re-fit the map whenever the screen rotates or resizes
+  function onOrientationChange() {
+    if (!radarMap) return;
+    // Wait for the CSS rotation transform to finish before invalidating
+    setTimeout(() => radarMap.invalidateSize(), 300);
+  }
+  window.addEventListener('resize', onOrientationChange);
+  screen.orientation?.addEventListener('change', onOrientationChange);
+
   // Expose so the load() function can call it
   window.loadRadar = loadRadar;
 })();
