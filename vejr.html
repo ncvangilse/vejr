@@ -1427,7 +1427,7 @@ if ('serviceWorker' in navigator) {
       //   physical down  (+dy) = visual left  on the map → panBy(+dy, 0)
       // Combined portrait: panBy([+dy, -dx])
       if (isPortrait()) {
-        radarMap.panBy([dy, -dx], { animate: false });
+        radarMap.panBy([-dy, dx], { animate: false });
       } else {
         radarMap.panBy([-dx, -dy], { animate: false });
       }
