@@ -62,8 +62,7 @@ function wmoType(code, timeStr) {
   if (code >= 61 && code <= 65) return 'rain';
   if (code >= 71 && code <= 75) return 'snow';
   if (code >= 80 && code <= 82) return 'shower';
-  if (code >= 95) { console.log(`[weather-icons] THUNDER: code=${code} time=${timeStr}`); return 'thunder'; }
-  console.log(`[weather-icons] wmoType: code=${code} time=${timeStr} → cloud (fallback)`);
+  if (code >= 95) return 'thunder';
   return 'cloud';
 }
 
@@ -89,17 +88,9 @@ function dmiIcon(ctx, type, cx, cy, sz, rainAmt) {
     case 'rain':         _cloud(ctx, 0, -U*0.24, U, r); _rain(ctx, 0, U*0.54, U, 3); break;
     case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U*0.88, r); _rain(ctx, U*0.05, U*0.58, U, 3); break;
     case 'snow':         _cloud(ctx, 0, -U*0.24, U, 0); _snow(ctx, 0, U*0.56, U); break;
-    case 'thunder':
-      console.log(`[weather-icons] drawing thunder: cx=${cx.toFixed(1)} cy=${cy.toFixed(1)} sz=${sz} U=${U} rainAmt=${rainAmt}`);
-      _cloud(ctx, 0, -U*0.30, U, r);
-      console.log(`[weather-icons] cloud done, drawing bolt at oy=${(U*0.36).toFixed(1)}`);
-      _bolt(ctx, 0, U*0.36, U);
-      console.log(`[weather-icons] bolt done`);
-      break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.30, U, r); _bolt(ctx, 0, U*0.36, U); break;
     case 'fog':          _cloud(ctx, 0, -U*0.24, U, 0); _fog(ctx, 0, U*0.48, U); break;
-    default:
-      console.log(`[weather-icons] dmiIcon unknown type="${type}" — falling back to cloud`);
-      _cloud(ctx, 0, 0, U, 0);
+    default:             _cloud(ctx, 0, 0, U, 0);
   }
   ctx.restore();
 }

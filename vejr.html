@@ -929,15 +929,6 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
 let lastData = null;
 
 function renderAll(d) {
-  // Debug: log all time+code pairs so we can see what the API is actually returning
-  console.log('[vejr] weather codes from API:');
-  d.times.forEach((t, i) => {
-    const code = d.codes[i];
-    const flag = code >= 95 ? ' ⚡ THUNDER' : code >= 80 ? ' 🌧 shower' : '';
-    console.log(`  ${t}  code=${code}${flag}`);
-  });
-  console.log('[vejr] unique codes:', [...new Set(d.codes)].sort((a,b)=>a-b).join(', '));
-
   drawTopRow(d.times, d.codes, d.precips);
   drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null);
   drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null);
@@ -964,12 +955,21 @@ async function load(cityName, model) {
       sunTimes[key] = sunriseSunsetHours(key, loc.latitude, loc.longitude);
     }
 
-    // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal
-    const [data, ensData] = await Promise.all([
+    // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
+    // Also fetch ICON weathercodes alongside DMI, because DMI HARMONIE rarely outputs
+    // thunderstorm codes (≥95) — ICON is in the same NWP family and gives proper WMO codes.
+    const iconCodeFetch = (model === 'dmi_seamless')
+      ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
+          .then(r => r.ok ? r.json() : null).catch(() => null)
+      : Promise.resolve(null);
+
+    const [data, ensData, iconData] = await Promise.all([
       fetchWeather(loc.latitude, loc.longitude, model),
       fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null),
+      iconCodeFetch,
     ]);
     const H = data.hourly;
+    const iconCodes = iconData?.hourly?.weathercode || null;
 
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
     const totalH=FORECAST_DAYS*24;
@@ -980,7 +980,13 @@ async function load(cityName, model) {
       gusts.push(H.windgusts_10m[i]);
       winds.push(H.windspeed_10m[i]);
       dirs.push(H.winddirection_10m[i]);
-      codes.push(H.weathercode[i]);
+      // Prefer ICON's weathercode when DMI has a convective shower (80-82) but
+      // ICON says thunder (≥95) — DMI systematically under-reports thunderstorms
+      const dmiCode  = H.weathercode[i];
+      const iconCode = iconCodes ? (iconCodes[i] ?? dmiCode) : dmiCode;
+      const code = (iconCodes && dmiCode >= 80 && dmiCode <= 82 && iconCode >= 95)
+                   ? iconCode : dmiCode;
+      codes.push(code);
     }
 
     // process ensemble percentiles
