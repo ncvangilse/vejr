@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vejrudsigt</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #c8d0d8;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  color: #111;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+}
+#search-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  width: 100%;
+  max-width: 1100px;
+}
+#city-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  border: 2px solid #888;
+  background: #f5f5f0;
+  outline: none;
+}
+#city-input:focus { border-color: #003c8f; }
+#search-btn {
+  padding: 8px 20px;
+  background: #003c8f;
+  color: #fff;
+  border: none;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+#search-btn:hover { background: #0051c4; }
+#model-select {
+  padding: 8px 10px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  border: 2px solid #888;
+  background: #f5f5f0;
+  outline: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#model-select:focus { border-color: #003c8f; }
+
+#forecast-container {
+  background: #e4e9ef;
+  border: 1px solid #a8b0b8;
+  width: 100%;
+  max-width: 1100px;
+  box-shadow: 2px 3px 8px rgba(0,0,0,0.22);
+}
+#header {
+  background: #d8dfe8;
+  border-bottom: 1px solid #a8b0b8;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+#city-name { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+#subtitle  { font-size: 11px; color: #555; margin-top: 2px; }
+#header-right { text-align: right; font-size: 11px; color: #555; }
+.dmi-logo {
+  display: inline-block;
+  background: #003c8f;
+  color: #fff;
+  font-weight: 700;
+  font-size: 10px;
+  padding: 2px 6px;
+  margin-top: 4px;
+  letter-spacing: 1.5px;
+}
+/* chart rows: fixed left axis + fluid canvas */
+.chart-row {
+  display: flex;
+  border-bottom: 1px solid #a8b0b8;
+  background: #d8dfe8;
+  position: relative;
+}
+.chart-row:last-child { border-bottom: none; }
+.y-axis {
+  flex: 0 0 44px;
+  width: 44px;
+  border-right: 1px solid #a8b0b8;
+  background: #d8dfe8;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3px 3px 3px 0;
+  font-size: 9px;
+  font-family: 'IBM Plex Mono', monospace;
+  text-align: right;
+  color: #444;
+  position: relative;
+  z-index: 2;
+}
+.chart-canvas-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.y-axis-right {
+  flex: 0 0 36px;
+  width: 36px;
+  border-left: 1px solid #a8b0b8;
+  background: #d8dfe8;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3px 0 3px 3px;
+  font-size: 9px;
+  font-family: 'IBM Plex Mono', monospace;
+  text-align: left;
+  color: #4466aa;
+  position: relative;
+  z-index: 2;
+}
+canvas.main-canvas {
+  display: block;
+  width: 100%;
+}
+#loading { padding: 40px; text-align: center; font-size: 15px; color: #555; }
+#error-msg {
+  padding: 20px 24px; color: #900; text-align: center;
+  line-height: 1.7; display: none;
+}
+
+/* ── Hover crosshair overlay ── */
+.crosshair-canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ── Tooltip card ── */
+#hover-tooltip {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  background: rgba(18, 26, 38, 0.93);
+  border: 1px solid rgba(120,160,200,0.35);
+  border-radius: 6px;
+  padding: 8px 11px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  color: #e8eef5;
+  pointer-events: none;
+  min-width: 148px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  line-height: 1.55;
+}
+#hover-tooltip .tt-time {
+  font-weight: 700;
+  font-size: 11px;
+  color: #8ab4d4;
+  margin-bottom: 5px;
+  border-bottom: 1px solid rgba(120,160,200,0.2);
+  padding-bottom: 4px;
+}
+#hover-tooltip .tt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+#hover-tooltip .tt-label { color: #8ab4d4; font-size: 10px; }
+#hover-tooltip .tt-val   { font-weight: 600; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="hover-tooltip"></div>
+
+<div id="search-bar">
+  <input id="city-input" type="text" placeholder="Skriv en by, fx København, Aarhus, Oslo, London…" value="Bogø"/>
+  <select id="model-select">
+    <option value="best_match">Bedste match (auto)</option>
+    <option value="dmi_seamless" selected>DMI HARMONIE</option>
+    <option value="icon_seamless">DWD ICON</option>
+    <option value="ecmwf_ifs025">ECMWF IFS</option>
+    <option value="meteofrance_seamless">Météo-France</option>
+    <option value="gfs_seamless">NOAA GFS</option>
+  </select>
+  <button id="search-btn">Vis vejr</button>
+</div>
+
+<div id="forecast-container">
+  <div id="loading">Henter vejrdata…</div>
+  <div id="error-msg">
+    <strong>Netværket er blokeret i denne forhåndsvisning.</strong><br>
+    Download filen og åbn den i din browser — så virker alle byer i verden.<br>
+    <small style="color:#a44">Offline fallback: prøv København, Aarhus, Oslo, Stockholm, Berlin, London, Paris…</small>
+  </div>
+
+  <div id="forecast-content" style="display:none">
+    <div id="header">
+      <div>
+        <div id="city-name">—</div>
+        <div id="subtitle">—</div>
+      </div>
+      <div id="header-right">
+        <div id="updated-text">—</div>
+        <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: henter…</div>
+      </div>
+    </div>
+
+    <!-- All rows rendered via one big canvas approach: separate canvases per row -->
+
+    <!-- Time + icons -->
+    <div class="chart-row" id="row-top">
+      <div class="y-axis" id="ax-top" style="justify-content:flex-end; font-size:8px; color:#778; padding-bottom:3px;"></div>
+      <div class="chart-canvas-wrap" style="position:relative;">
+        <canvas id="c-top" style="display:block;width:100%;"></canvas>
+        <div id="icon-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></div>
+        <canvas id="xh-top" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
+    </div>
+
+    <!-- Temp + precip -->
+    <div class="chart-row">
+      <div class="y-axis" id="ax-temp"></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="c-temp" style="display:block;width:100%;"></canvas>
+        <canvas id="xh-temp" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" id="ax-precip"></div>
+    </div>
+
+    <!-- Wind (Windy-style) -->
+    <div class="chart-row" style="border-bottom:none;">
+      <div class="y-axis" id="ax-wind" style="background:linear-gradient(to bottom,#dde3eb 75%,#1e2a38 75%);"></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="c-wind" style="display:block;width:100%;"></canvas>
+        <canvas id="xh-wind" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════
+   CONFIG
+══════════════════════════════════════════════════ */
+const FORECAST_DAYS = 7;
+const STEP = 3; // every 3 hours
+const DA_DAYS  = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+const DA_DAYS3 = ['søn','man','tir','ons','tor','fre','lør'];
+
+// Basmilius weather icon CDN — best open-source icon set for WMO codes
+const ICON_CDN = 'https://cdn.jsdelivr.net/gh/basmilius/weather-icons@2.0.1/production/fill/svg/';
+const WMO_ICON = {
+  // day versions
+  day: {
+    0:'clear-day', 1:'partly-cloudy-day', 2:'partly-cloudy-day', 3:'overcast',
+    45:'fog', 48:'fog',
+    51:'drizzle', 53:'drizzle', 55:'drizzle',
+    61:'rain', 63:'rain', 65:'rain',
+    71:'snow', 73:'snow', 75:'snow',
+    77:'snow',
+    80:'rain', 81:'rain', 82:'thunderstorms-rain',
+    85:'snow', 86:'snow',
+    95:'thunderstorms', 96:'thunderstorms-rain', 99:'thunderstorms-rain',
+  },
+  // night versions
+  night: {
+    0:'clear-night', 1:'partly-cloudy-night', 2:'partly-cloudy-night', 3:'overcast',
+    45:'fog', 48:'fog',
+    51:'drizzle', 53:'drizzle', 55:'drizzle',
+    61:'rain', 63:'rain', 65:'rain',
+    71:'snow', 73:'snow', 75:'snow',
+    77:'snow',
+    80:'rain', 81:'rain', 82:'thunderstorms-rain',
+    85:'snow', 86:'snow',
+    95:'thunderstorms', 96:'thunderstorms-rain', 99:'thunderstorms-rain',
+  }
+};
+function wmoIconUrl(code, timeStr) {
+  const night = timeStr && isNight(timeStr);
+  const map = night ? WMO_ICON.night : WMO_ICON.day;
+  const name = map[code] || (night ? 'partly-cloudy-night' : 'partly-cloudy-day');
+  return ICON_CDN + name + '.svg';
+}
+const DA_MON   = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+
+/* ══════════════════════════════════════════════════
+   DMI-STYLE ICON DRAWING
+   Each icon is drawn into a square region (x,y,size)
+   WMO codes → icon type
+══════════════════════════════════════════════════ */
+// ── Solar position ────────────────────────────────
+// Returns { sunrise, sunset } as decimal hours (local solar time)
+// using the NOAA simplified algorithm. Accurate to ±1–2 min.
+function sunriseSunsetHours(dateStr, lat, lon) {
+  const date   = new Date(dateStr + 'T12:00:00Z');
+  const JD     = date.getTime() / 86400000 + 2440587.5;
+  const n      = JD - 2451545.0;
+  const L      = (280.460 + 0.9856474 * n) % 360;
+  const g      = (357.528 + 0.9856003 * n) % 360;
+  const gR     = g * Math.PI / 180;
+  const lambda = L + 1.915 * Math.sin(gR) + 0.020 * Math.sin(2 * gR);
+  const lambdaR = lambda * Math.PI / 180;
+  const sinDec = Math.sin(23.439 * Math.PI / 180) * Math.sin(lambdaR);
+  const dec    = Math.asin(sinDec);
+  const latR   = lat * Math.PI / 180;
+  const cosH   = (Math.sin(-0.8333 * Math.PI / 180) - Math.sin(latR) * sinDec)
+                 / (Math.cos(latR) * Math.cos(dec));
+  if (cosH > 1)  return { sunrise: 12, sunset: 12 };  // polar night
+  if (cosH < -1) return { sunrise:  0, sunset: 24 };  // midnight sun
+  const H      = Math.acos(cosH) * 180 / Math.PI;
+  // equation of time (minutes)
+  const f      = (279.575 + 0.9856474 * n) * Math.PI / 180;
+  const EqT    = (-104.5 * Math.sin(f) + 596.9 * Math.cos(f)
+                  - 4.1 * Math.sin(2*f) - 12.79 * Math.cos(2*f)
+                  - 429.3 * Math.sin(3*f) - 2.0  * Math.cos(3*f)
+                  + 19.3 * Math.sin(4*f)) / 3600;
+  const UTC_off = lon / 15;
+  const noon   = 12 - EqT - UTC_off;
+  return { sunrise: noon - H / 15, sunset: noon + H / 15 };
+}
+
+// Populated by load() with { "YYYY-MM-DD": { sunrise, sunset } }
+let sunTimes = {};
+
+function isNight(timeStr) {
+  if (typeof timeStr !== 'string') return false;
+  const dateKey = timeStr.slice(0, 10);          // "YYYY-MM-DD"
+  const h = parseFloat(timeStr.slice(11, 13))    // integer hour
+          + parseFloat(timeStr.slice(14, 16)) / 60;
+  const st = sunTimes[dateKey];
+  if (!st) {
+    // fallback if sunTimes not yet populated
+    return h < 6 || h >= 20;
+  }
+  return h < st.sunrise || h >= st.sunset;
+}
+
+function wmoType(code, timeStr) {
+  const night = timeStr && isNight(timeStr);
+  if (code === 0) return night ? 'night_clear' : 'sun';
+  if (code === 1) return night ? 'night_partly' : 'sun_cloud';
+  if (code === 2) return 'cloud_sun';
+  if (code === 3) return 'cloud';
+  if (code >= 45 && code <= 48) return 'fog';
+  if (code >= 51 && code <= 55) return 'drizzle';
+  if (code >= 61 && code <= 65) return 'rain';
+  if (code >= 71 && code <= 75) return 'snow';
+  if (code >= 80 && code <= 82) return 'shower';
+  if (code >= 95) return 'thunder';
+  return 'cloud';
+}
+
+// ═══════════════════════════════════════════════════
+//  DMI-accurate icon drawing
+//  sz = full icon cell height (ICON_H)
+//  All proportions derived from studying the real DMI GIFs
+// ═══════════════════════════════════════════════════
+function dmiIcon(ctx, type, cx, cy, sz) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  // DMI icons sit in a small box — sun radius ~35% of half-height
+  const U = sz * 0.5; // unit = half cell height
+  switch(type) {
+    case 'sun':          _sun(ctx, 0, 0, U); break;
+    case 'night_clear':  _stars(ctx, U); break;
+    case 'sun_cloud':    _sun(ctx, -U*0.45, -U*0.42, U*0.60); _cloud(ctx, U*0.10, U*0.18, U); break;
+    case 'night_partly': _stars(ctx, U*0.55, -U*0.50, -U*0.38); _cloud(ctx, U*0.10, U*0.20, U); break;
+    case 'cloud_sun':    _sun(ctx, -U*0.48, -U*0.44, U*0.52); _cloud(ctx, U*0.05, U*0.10, U*1.02); break;
+    case 'cloud':        _cloud(ctx, 0, 0, U*1.02); break;
+    case 'drizzle':      _cloud(ctx, 0, -U*0.22, U); _rain(ctx, 0, U*0.52, U, 2); break;
+    case 'rain':         _cloud(ctx, 0, -U*0.22, U); _rain(ctx, 0, U*0.52, U, 3); break;
+    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U); _rain(ctx, U*0.05, U*0.56, U, 3); break;
+    case 'snow':         _cloud(ctx, 0, -U*0.22, U); _snow(ctx, 0, U*0.54, U); break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.22, U*1.02); _bolt(ctx, 0, U*0.38, U); break;
+    case 'fog':          _cloud(ctx, 0, -U*0.22, U); _fog(ctx, 0, U*0.46, U); break;
+    default:             _cloud(ctx, 0, 0, U*1.02);
+  }
+  ctx.restore();
+}
+
+// Sun: small yellow disc, 8 straight short rays
+function _sun(ctx, ox, oy, U) {
+  ctx.save(); ctx.translate(ox, oy);
+  const disc = U * 0.36;  // disc radius
+  const ri   = disc + U * 0.06;
+  const ro   = disc + U * 0.30;
+  ctx.strokeStyle = '#e8a000';
+  ctx.lineWidth   = Math.max(0.8, U * 0.09);
+  ctx.lineCap     = 'butt';
+  for (let i=0; i<8; i++) {
+    const a = i/8 * Math.PI*2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*ri, Math.sin(a)*ri);
+    ctx.lineTo(Math.cos(a)*ro, Math.sin(a)*ro);
+    ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(0,0,disc,0,Math.PI*2);
+  ctx.fillStyle='#ffd700'; ctx.fill();
+  ctx.strokeStyle='#cc8800'; ctx.lineWidth=Math.max(0.5, U*0.05); ctx.stroke();
+  ctx.restore();
+}
+
+// Cloud: DMI flat blob — wide, low, grey bottom, white top
+// Key: TWO rounded bumps on top, very flat aspect ratio (~2.2:1 w/h)
+function _cloud(ctx, ox, oy, U) {
+  ctx.save(); ctx.translate(ox, oy);
+  const w = U * 1.50, h = U * 0.62;
+  // grey underside
+  ctx.beginPath(); _cloudShape(ctx, 0, h*0.10, w, h);
+  ctx.fillStyle='#b0b8c2'; ctx.fill();
+  // white body
+  ctx.beginPath(); _cloudShape(ctx, 0, 0, w, h);
+  ctx.fillStyle='#edf1f6'; ctx.fill();
+  ctx.strokeStyle='#8898a8'; ctx.lineWidth=Math.max(0.5, U*0.05); ctx.stroke();
+  ctx.restore();
+}
+
+function _cloudShape(ctx, ox, oy, w, h) {
+  const x = ox-w/2, y = oy-h/2;
+  const bR = h*0.24;  // bottom-corner radius
+  const lR = h*0.46;  // left top bump
+  const rR = h*0.34;  // right top bump
+  ctx.moveTo(x+bR, y+h);
+  ctx.lineTo(x+w-bR, y+h);
+  ctx.arcTo(x+w,    y+h,    x+w,    y+h-bR, bR);
+  ctx.arcTo(x+w,    y+rR*0.3, x+w-rR, y+rR*0.3, rR);
+  ctx.arcTo(x+w*0.58, y,    x+w*0.58-lR*0.4, y+lR*0.5, lR*0.92);
+  ctx.arcTo(x+bR,   y+h*0.1, x+bR,   y+h-bR, bR*0.9);
+  ctx.arcTo(x,      y+h-bR,  x+bR,   y+h,    bR);
+  ctx.closePath();
+}
+
+// Rain: short diagonal lines
+function _rain(ctx, ox, oy, U, n) {
+  ctx.save(); ctx.translate(ox, oy);
+  ctx.strokeStyle='#2255aa'; ctx.lineWidth=Math.max(0.8,U*0.08); ctx.lineCap='round';
+  const sp=U*0.28, x0=-(n-1)/2*sp;
+  for(let i=0;i<n;i++){const x=x0+i*sp;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x-U*0.07,U*0.30);ctx.stroke();}
+  ctx.restore();
+}
+
+// Snow
+function _snow(ctx, ox, oy, U) {
+  ctx.save(); ctx.translate(ox, oy);
+  ctx.strokeStyle='#6699cc'; ctx.lineWidth=Math.max(0.8,U*0.08); ctx.lineCap='round';
+  for(let i=0;i<3;i++){
+    const x=(i-1)*U*0.30;
+    ctx.beginPath();ctx.moveTo(x,-U*0.20);ctx.lineTo(x,U*0.20);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x-U*0.12,-U*0.10);ctx.lineTo(x,0);ctx.lineTo(x+U*0.12,-U*0.10);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x-U*0.12,U*0.10);ctx.lineTo(x,0);ctx.lineTo(x+U*0.12,U*0.10);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Lightning bolt
+function _bolt(ctx, ox, oy, U) {
+  ctx.save(); ctx.translate(ox, oy);
+  ctx.beginPath();
+  ctx.moveTo(U*0.10,0); ctx.lineTo(-U*0.05,U*0.20); ctx.lineTo(U*0.05,U*0.20); ctx.lineTo(-U*0.10,U*0.42);
+  ctx.strokeStyle='#f0c000'; ctx.lineWidth=Math.max(1.2,U*0.12); ctx.lineJoin='round'; ctx.lineCap='round'; ctx.stroke();
+  ctx.restore();
+}
+
+// Fog
+function _fog(ctx, ox, oy, U) {
+  ctx.save(); ctx.translate(ox, oy);
+  ctx.strokeStyle='#aab4be'; ctx.lineWidth=Math.max(0.8,U*0.09); ctx.lineCap='round';
+  for(let i=0;i<2;i++){const y=i*U*0.24;ctx.beginPath();ctx.moveTo(-U*0.42,y);ctx.lineTo(U*0.42,y);ctx.stroke();}
+  ctx.restore();
+}
+
+// Night stars: scattered 4-pt sparkle stars, gold, no moon
+function _stars(ctx, U, ox=0, oy=0) {
+  ctx.save(); ctx.translate(ox, oy);
+  // 4 stars of varying size — matches DMI scattered star pattern
+  [
+    {x:-U*0.40, y:-U*0.44, r:U*0.26},
+    {x: U*0.36, y:-U*0.24, r:U*0.19},
+    {x: U*0.08, y: U*0.40, r:U*0.15},
+    {x:-U*0.16, y: U*0.10, r:U*0.12},
+  ].forEach(({x,y,r})=>{
+    ctx.save(); ctx.translate(x,y);
+    ctx.beginPath();
+    for(let i=0;i<8;i++){
+      const a=i/8*Math.PI*2-Math.PI/2;
+      const rr=i%2===0?r:r*0.25;  // very sharp inner = very pointy tips
+      i===0?ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+    }
+    ctx.closePath();
+    ctx.fillStyle='#f8d400'; ctx.fill();
+    ctx.strokeStyle='#c89400'; ctx.lineWidth=Math.max(0.4,r*0.08); ctx.stroke();
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+/* ══════════════════════════════════════════════════
+   GEOCODING
+══════════════════════════════════════════════════ */
+async function geocode(city) {
+  const enc = encodeURIComponent(city);
+  try {
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${enc}&count=1&language=da&format=json`);
+    if (r.ok) {
+      const d = await r.json();
+      if (d.results?.length) {
+        const l = d.results[0];
+        return {name:l.name, latitude:l.latitude, longitude:l.longitude, country_code:l.country_code};
+      }
+    }
+  } catch(e){}
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${enc}&format=json&limit=1&addressdetails=1`, {headers:{'Accept-Language':'da,en'}});
+    if (r.ok) {
+      const d = await r.json();
+      if (d.length) {
+        const l = d[0];
+        const name = l.address?.city || l.address?.town || l.address?.village || l.display_name.split(',')[0];
+        return {name, latitude:+l.lat, longitude:+l.lon, country_code:(l.address?.country_code||'').toUpperCase()};
+      }
+    }
+  } catch(e){}
+  const FB = {
+    'kobenhavn':{name:'København',latitude:55.6761,longitude:12.5683,country_code:'DK'},
+    'copenhagen':{name:'København',latitude:55.6761,longitude:12.5683,country_code:'DK'},
+    'aarhus':{name:'Aarhus',latitude:56.1629,longitude:10.2039,country_code:'DK'},
+    'odense':{name:'Odense',latitude:55.4038,longitude:10.4024,country_code:'DK'},
+    'aalborg':{name:'Aalborg',latitude:57.0488,longitude:9.9217,country_code:'DK'},
+    'oslo':{name:'Oslo',latitude:59.9139,longitude:10.7522,country_code:'NO'},
+    'stockholm':{name:'Stockholm',latitude:59.3293,longitude:18.0686,country_code:'SE'},
+    'hamburg':{name:'Hamburg',latitude:53.5753,longitude:10.0153,country_code:'DE'},
+    'berlin':{name:'Berlin',latitude:52.5244,longitude:13.4105,country_code:'DE'},
+    'london':{name:'London',latitude:51.5085,longitude:-0.1257,country_code:'GB'},
+    'paris':{name:'Paris',latitude:48.8534,longitude:2.3488,country_code:'FR'},
+    'amsterdam':{name:'Amsterdam',latitude:52.374,longitude:4.8897,country_code:'NL'},
+    'new york':{name:'New York',latitude:40.7143,longitude:-74.006,country_code:'US'},
+    'tokyo':{name:'Tokyo',latitude:35.6895,longitude:139.6917,country_code:'JP'},
+  };
+  const key = city.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const hit = FB[key] || Object.entries(FB).find(([k])=>k.includes(key)||key.includes(k))?.[1];
+  if (hit) return hit;
+  throw new Error('City not found');
+}
+
+async function fetchWeather(lat, lon, model) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+    + `&hourly=temperature_2m,precipitation,windspeed_10m,windgusts_10m,winddirection_10m,weathercode`
+    + `&forecast_days=${FORECAST_DAYS}&timezone=auto&windspeed_unit=ms`
+    + (model && model !== 'best_match' ? `&models=${model}` : '');
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('fetch failed');
+  return r.json();
+}
+
+async function fetchEnsemble(lat, lon, model) {
+  // Map deterministic model to nearest supported ensemble model
+  const ENS_MAP = {
+    'best_match':          'icon_seamless',
+    'dmi_seamless':        'icon_seamless',   // DMI has no ensemble; use ICON (same NWP family)
+    'icon_seamless':       'icon_seamless',
+    'ecmwf_ifs025':        'ecmwf_ifs04',
+    'meteofrance_seamless':'icon_seamless',
+    'gfs_seamless':        'gfs025',
+  };
+  const ensModel = ENS_MAP[model] || 'icon_seamless';
+  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}`
+    + `&hourly=temperature_2m,windspeed_10m,precipitation`
+    + `&models=${ensModel}`
+    + `&forecast_days=${FORECAST_DAYS}&timezone=auto&windspeed_unit=ms`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('ensemble fetch failed');
+  return r.json();
+}
+
+// Given the ensemble hourly object, extract p10/p50/p90 arrays for a variable, sampled at STEP
+function ensemblePercentiles(H, varPrefix) {
+  const memberKeys = Object.keys(H).filter(k => k.startsWith(varPrefix + '_member'));
+  if (!memberKeys.length) return null;
+
+  const p10 = [], p50 = [], p90 = [];
+  const totalH = FORECAST_DAYS * 24;
+  for (let i = 0; i < Math.min(totalH, H[memberKeys[0]].length); i += STEP) {
+    const vals = memberKeys.map(k => H[k][i]).filter(v => v != null).sort((a,b) => a-b);
+    if (!vals.length) { p10.push(null); p50.push(null); p90.push(null); continue; }
+    p10.push(vals[Math.floor(vals.length * 0.10)]);
+    p50.push(vals[Math.floor(vals.length * 0.50)]);
+    p90.push(vals[Math.floor(vals.length * 0.90)]);
+  }
+  return { p10, p50, p90 };
+}
+
+/* ══════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════ */
+function dayDivs(times) {
+  const d=[];
+  for(let i=1;i<times.length;i++)
+    if(new Date(times[i]).getDate()!==new Date(times[i-1]).getDate()) d.push(i);
+  return d;
+}
+
+function drawDayDividers(ctx, divs, n, W, H, drawLabel, times) {
+  const colW = W/n;
+  ctx.save();
+  ctx.strokeStyle = '#667788';
+  ctx.lineWidth = 1;
+  divs.forEach(i => {
+    const x = i * colW;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    if (drawLabel && times) {
+      const segs = [0,...divs,times.length];
+      // handled outside
+    }
+  });
+  ctx.restore();
+}
+
+function resolveDPI(canvas, cssW, cssH) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return ctx;
+}
+
+/* ══════════════════════════════════════════════════
+   DRAW TOP ROW (time axis + icons + UV + wind dirs)
+══════════════════════════════════════════════════ */
+function drawTopRow(times, codes) {
+  const canvas = document.getElementById('c-top');
+  const wrap   = canvas.parentElement;
+  const cssW   = wrap.clientWidth;
+  const n      = times.length;
+
+  const ICON_H   = 36;
+  const TIME_H   = 18;
+  const cssH     = TIME_H + ICON_H;
+
+  const ctx = resolveDPI(canvas, cssW, cssH);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const colW = cssW / n;
+  const divs = dayDivs(times);
+
+  /* ---- time axis ---- */
+  ctx.fillStyle = '#d8dfe8';
+  ctx.fillRect(0, 0, cssW, TIME_H);
+  ctx.strokeStyle = '#c0c8d0';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(0,TIME_H); ctx.lineTo(cssW,TIME_H); ctx.stroke();
+
+  // day segments & names
+  const segs = [0,...divs,n];
+  for(let s=0;s<segs.length-1;s++){
+    const midX = ((segs[s]+segs[s+1])/2) * colW;
+    ctx.fillStyle = '#222';
+    ctx.font = `700 11px 'IBM Plex Sans', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(DA_DAYS[new Date(times[segs[s]]).getDay()], midX, TIME_H/2);
+  }
+
+  // hour ticks 6,12,18
+  times.forEach((t,i)=>{
+    const h = new Date(t).getHours();
+    if(h===0||h%6!==0) return;
+    const x = (i+0.5)*colW;
+    ctx.fillStyle = '#556';
+    ctx.font = `10px 'IBM Plex Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(h, x, TIME_H/2);
+  });
+
+  /* ---- day dividers through time axis ---- */
+  ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
+  divs.forEach(i=>{
+    const x = i*colW;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,TIME_H); ctx.stroke();
+  });
+
+  /* ---- icon row ---- */
+  const iconY = TIME_H;
+  ctx.fillStyle = '#dde3eb';
+  ctx.fillRect(0, iconY, cssW, ICON_H);
+
+  // day dividers
+  divs.forEach(i=>{
+    const x = i*colW;
+    ctx.strokeStyle='#667788'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,iconY); ctx.lineTo(x,iconY+ICON_H); ctx.stroke();
+  });
+
+  // night tint
+  times.forEach((t,i)=>{
+    if(isNight(t)){
+      ctx.fillStyle='rgba(20,40,90,0.07)';
+      ctx.fillRect(i*colW, iconY, colW, ICON_H);
+    }
+  });
+
+  // icons — drawn on canvas
+  codes.forEach((c,i)=>{
+    dmiIcon(ctx, wmoType(c, times[i]), (i+0.5)*colW, iconY + ICON_H/2, ICON_H);
+  });
+
+  // set axis label
+  document.getElementById('ax-top').textContent = '';
+}
+
+/* ══════════════════════════════════════════════════
+   DRAW TEMP + PRECIP
+══════════════════════════════════════════════════ */
+function drawTemp(times, temps, precips, ensTemp, ensPrecip) {
+  const canvas = document.getElementById('c-temp');
+  const wrap   = canvas.parentElement;
+  const cssW   = wrap.clientWidth;
+  const cssH   = 130;
+  const ctx    = resolveDPI(canvas, cssW, cssH);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const n = times.length;
+  const colW = cssW / n;
+  const padT=8, padB=8, ch=cssH-padT-padB;
+  const tmin=Math.floor(Math.min(...temps)/5)*5;
+  const tmax=Math.ceil( Math.max(...temps)/5)*5;
+  const tRange=tmax-tmin;
+  const ty=t=>padT+(1-(t-tmin)/tRange)*ch;
+  const cx2=i=>(i+0.5)*colW;
+
+  const divs=dayDivs(times);
+  const levels=[]; for(let t=tmin;t<=tmax;t+=5) levels.push(t);
+
+  // grid
+  levels.forEach(t=>{
+    const y=ty(t);
+    ctx.strokeStyle=t===0?'#99aacc':'#c4cad2';
+    ctx.lineWidth=t===0?1:0.5;
+    ctx.setLineDash(t===0?[4,4]:[]);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cssW,y); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // day dividers
+  divs.forEach(i=>{
+    const x=i*colW;
+    ctx.strokeStyle='#667788'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cssH); ctx.stroke();
+  });
+
+  // ensemble uncertainty band — drawn before precip bars and temp line
+  if (ensTemp) {
+    const pts90 = ensTemp.p90.map((v,i) => v != null ? {x: cx2(i), y: ty(v)} : null).filter(Boolean);
+    const pts10 = ensTemp.p10.map((v,i) => v != null ? {x: cx2(i), y: ty(v)} : null).filter(Boolean);
+    if (pts90.length > 1 && pts10.length > 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(pts90[0].x, pts90[0].y);
+      pts90.forEach(p => ctx.lineTo(p.x, p.y));
+      for (let i = pts10.length - 1; i >= 0; i--) ctx.lineTo(pts10[i].x, pts10[i].y);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(180,60,20,0.18)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // precip bars
+  const maxP = Math.max(...precips, ensPrecip ? Math.max(...ensPrecip.p90.filter(v=>v!=null)) : 0, 2);
+  const bw = colW * 0.55;
+  const bh = (p) => Math.max(2, (p / maxP) * ch * 0.45);
+
+  // p90 uncertainty bar — same width as p50 bar, very light blue, behind p50 bar
+  if (ensPrecip) {
+    ensPrecip.p90.forEach((p90val, i) => {
+      if (!p90val || p90val < 0.05) return;
+      ctx.fillStyle = 'rgba(100,160,255,0.30)';
+      ctx.fillRect(cx2(i) - bw/2, cssH - padB - bh(p90val), bw, bh(p90val));
+    });
+  }
+
+  // p50 bar — light blue solid
+  precips.forEach((p, i) => {
+    if (p < 0.05) return;
+    ctx.fillStyle = '#4466aa';
+    ctx.fillRect(cx2(i) - bw/2, cssH - padB - bh(p), bw, bh(p));
+  });
+
+  // temp line — red above 0°C, blue below, split exactly at zero crossings
+  ctx.lineWidth = 2; ctx.setLineDash([]);
+  const TEMP_ABOVE = '#cc2200';
+  const TEMP_BELOW = '#4488ff';
+  const y0 = ty(0); // pixel y of the zero line
+
+  for (let i = 0; i < temps.length - 1; i++) {
+    const t0 = temps[i], t1 = temps[i+1];
+    const x0 = cx2(i),   x1 = cx2(i+1);
+    const py0 = ty(t0),  py1 = ty(t1);
+
+    if ((t0 >= 0 && t1 >= 0) || (t0 < 0 && t1 < 0)) {
+      // no crossing — single colour
+      ctx.strokeStyle = t0 >= 0 ? TEMP_ABOVE : TEMP_BELOW;
+      ctx.beginPath(); ctx.moveTo(x0, py0); ctx.lineTo(x1, py1); ctx.stroke();
+    } else {
+      // zero crossing — split at the interpolated x,y
+      const frac = t0 / (t0 - t1);           // fraction along segment where temp=0
+      const xMid = x0 + frac * (x1 - x0);
+
+      // first half
+      ctx.strokeStyle = t0 >= 0 ? TEMP_ABOVE : TEMP_BELOW;
+      ctx.beginPath(); ctx.moveTo(x0, py0); ctx.lineTo(xMid, y0); ctx.stroke();
+      // second half
+      ctx.strokeStyle = t1 >= 0 ? TEMP_ABOVE : TEMP_BELOW;
+      ctx.beginPath(); ctx.moveTo(xMid, y0); ctx.lineTo(x1, py1); ctx.stroke();
+    }
+  }
+
+  // temp axis labels (left)
+  const ax=document.getElementById('ax-temp');
+  ax.innerHTML='';
+  [...levels].reverse().forEach(t=>{
+    const sp=document.createElement('span');
+    sp.textContent=(t>=0?'+':'')+t+'°C';
+    sp.style.color=t===0?'#7799cc':'#444';
+    ax.appendChild(sp);
+  });
+
+  // precip axis labels (right) — scale matches bar height mapping: maxP → ch*0.45
+  const axP = document.getElementById('ax-precip');
+  axP.innerHTML = '';
+  // choose a round step: 1mm steps up to 5, then 2mm, then 5mm
+  const pStep = maxP > 10 ? 5 : maxP > 4 ? 2 : 1;
+  const pMax  = Math.ceil(maxP / pStep) * pStep;
+  // precip bar top pixel for a given mm value (same formula as bar drawing)
+  const py = p => cssH - padB - (p / maxP) * ch * 0.45;
+  // build levels from pMax down to 0
+  const pLevels = [];
+  for (let p = pMax; p >= 0; p -= pStep) pLevels.push(p);
+  pLevels.forEach(p => {
+    const sp = document.createElement('span');
+    sp.textContent = p + (p === pMax ? 'mm' : '');
+    sp.style.color = '#4466aa';
+    // position absolutely so it aligns with the bar scale
+    sp.style.position = 'absolute';
+    sp.style.top = (py(p) / cssH * 100).toFixed(1) + '%';
+    sp.style.transform = 'translateY(-50%)';
+    sp.style.left = '3px';
+    sp.style.lineHeight = '1';
+    axP.appendChild(sp);
+  });
+  axP.style.position = 'relative';
+}
+
+/* ══════════════════════════════════════════════════
+   WINDY-STYLE WIND COLOUR HELPERS
+══════════════════════════════════════════════════ */
+// Custom wind colour scale: [speed m/s, r, g, b, alpha]
+//  0  → transparent
+//  3  → light blue
+//  6  → green
+//  9  → orange
+// 12  → red
+// 15+ → purple
+const WINDY_RAMP = [
+  [ 0, 130, 190, 255, 0.00],
+  [ 3, 100, 180, 255, 0.85],
+  [ 6,  50, 200,  80, 1.00],
+  [ 9, 255, 160,  20, 1.00],
+  [12, 220,  30,  30, 1.00],
+  [15, 160,  30, 220, 1.00],
+  [30, 120,   0, 180, 1.00],  // deep purple for extreme speeds
+];
+function windColor(ms) {
+  const r = WINDY_RAMP;
+  if (ms <= r[0][0]) return [r[0][1], r[0][2], r[0][3], r[0][4]];
+  for (let i = 1; i < r.length; i++) {
+    if (ms <= r[i][0]) {
+      const t = (ms - r[i-1][0]) / (r[i][0] - r[i-1][0]);
+      return [
+        Math.round(r[i-1][1] + (r[i][1] - r[i-1][1]) * t),
+        Math.round(r[i-1][2] + (r[i][2] - r[i-1][2]) * t),
+        Math.round(r[i-1][3] + (r[i][3] - r[i-1][3]) * t),
+        +(r[i-1][4]          + (r[i][4] - r[i-1][4]) * t).toFixed(3),
+      ];
+    }
+  }
+  const last = r[r.length-1]; return [last[1], last[2], last[3], last[4]];
+}
+// alpha param overrides the ramp alpha only when explicitly passed
+function windColorStr(ms, alphaOverride) {
+  const [r, g, b, a] = windColor(ms);
+  const alpha = alphaOverride !== undefined ? alphaOverride : a;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// Compass label from degrees
+function degToCompass(d){
+  const pts=['N','NØ','Ø','SØ','S','SV','V','NV'];
+  return pts[Math.round(d/45)%8];
+}
+
+// Draw a wind barb arrow (from-direction, Windy-style coloured filled arrowhead)
+function drawWindArrow(ctx, cx, cy, deg, speed, size) {
+  const col = windColorStr(speed);
+  const rad = (deg - 180) * Math.PI / 180; // arrow points in the direction the wind is GOING TO
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rad);
+  // shaft
+  ctx.strokeStyle = col;
+  ctx.lineWidth = Math.max(1, size * 0.18);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.55);
+  ctx.lineTo(0,  size * 0.55);
+  ctx.stroke();
+  // arrowhead (filled triangle at tip = wind destination)
+  const aw = size * 0.35, ah = size * 0.38;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.55 - ah);
+  ctx.lineTo(-aw/2, -size * 0.55);
+  ctx.lineTo( aw/2, -size * 0.55);
+  ctx.closePath();
+  ctx.fillStyle = col;
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ══════════════════════════════════════════════════
+   DRAW WIND  (Windy-style)
+══════════════════════════════════════════════════ */
+function drawWind(times, gusts, winds, dirs, ensWind) {
+  const canvas = document.getElementById('c-wind');
+  const wrap   = canvas.parentElement;
+  const cssW   = wrap.clientWidth;
+  const WIND_H = 110;  // chart
+  const DIR_H  = 36;   // direction row
+  const cssH   = WIND_H + DIR_H;
+  const ctx    = resolveDPI(canvas, cssW, cssH);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const n=times.length;
+  const colW=cssW/n;
+  const divs=dayDivs(times);
+
+  // Defensive clamp: gusts must always be >= mean wind (bad API data can violate this)
+  const safeGusts = gusts.map((g, i) => Math.max(g, winds[i]));
+
+  /* ══ 1. WIND CHART ══ */
+  const cY     = 0;
+  const padT   = 6;
+  const chartH = WIND_H - padT;
+  const maxW   = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
+  const wy     = v => cY + padT + (1 - v / maxW) * chartH;
+  const base   = wy(0);
+  const cx2    = i => (i + 0.5) * colW;
+  const wLevels = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
+
+  // background
+  ctx.fillStyle = '#dde3eb';
+  ctx.fillRect(0, cY, cssW, WIND_H);
+
+  // grid lines — every 5 m/s, all land exactly on multiples of 5
+  wLevels.forEach(v => {
+    const y = wy(v);
+    ctx.strokeStyle = 'rgba(180,190,200,0.7)';
+    ctx.lineWidth   = 0.5;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // day dividers
+  divs.forEach(i => {
+    const x = i * colW;
+    ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
+  });
+
+  // FILLED GUST AREA — base → gust line → base
+  const gustGrad = ctx.createLinearGradient(0, 0, cssW, 0);
+  safeGusts.forEach((g, i) => gustGrad.addColorStop(i / (n - 1), windColorStr(g)));
+  ctx.fillStyle = gustGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx2(0), base);
+  safeGusts.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
+  ctx.lineTo(cx2(n - 1), base);
+  ctx.closePath();
+  ctx.fill();
+
+  // FILLED WIND SPEED AREA
+  const windGrad = ctx.createLinearGradient(0, 0, cssW, 0);
+  winds.forEach((w, i) => windGrad.addColorStop(i / (n - 1), windColorStr(w)));
+  ctx.fillStyle = windGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx2(0), base);
+  winds.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
+  ctx.lineTo(cx2(n - 1), base);
+  ctx.closePath();
+  ctx.fill();
+
+  // ENSEMBLE UNCERTAINTY BAND — drawn on top of fills, semi-transparent
+  if (ensWind) {
+    const pts90 = ensWind.p90.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
+    const pts10 = ensWind.p10.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
+    if (pts90.length > 1 && pts10.length > 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(pts90[0].x, pts90[0].y);
+      pts90.forEach(p => ctx.lineTo(p.x, p.y));
+      for (let i = pts10.length - 1; i >= 0; i--) ctx.lineTo(pts10[i].x, pts10[i].y);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // GUST LINE — thin solid white
+  ctx.strokeStyle = 'rgba(255,255,255,0.70)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+  ctx.beginPath();
+  safeGusts.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
+  ctx.stroke();
+
+  // WIND LINE — solid white
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  winds.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
+  ctx.stroke();
+
+
+  // axis labels — bottom to top (0 at bottom, maxW at top)
+  const ax = document.getElementById('ax-wind');
+  ax.innerHTML = '';
+  [...wLevels].reverse().forEach(v => {
+    const sp = document.createElement('span');
+    sp.textContent = v;
+    sp.style.color = windColorStr(v);
+    sp.style.fontWeight = '600';
+    ax.appendChild(sp);
+  });
+
+  /* ══ 3. DIRECTION ROW ══ */
+  const dirY = WIND_H;
+  // background — dark like Windy
+  ctx.fillStyle = '#1e2a38';
+  ctx.fillRect(0, dirY, cssW, DIR_H);
+  ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.lineWidth=0.5;
+  ctx.beginPath(); ctx.moveTo(0,dirY); ctx.lineTo(cssW,dirY); ctx.stroke();
+
+  divs.forEach(i=>{
+    const x=i*colW;
+    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,dirY); ctx.lineTo(x,dirY+DIR_H); ctx.stroke();
+  });
+
+  const arrowSize = Math.min(colW * 0.62, 14);
+  dirs.forEach((deg, i) => {
+    const cx3 = (i+0.5)*colW;
+    const cy3 = dirY + DIR_H/2 - 3;
+    drawWindArrow(ctx, cx3, cy3, deg, winds[i], arrowSize);
+    // compass label below arrow
+    ctx.font = `${Math.min(colW*0.45,8)}px 'IBM Plex Mono',monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(200,220,255,0.75)';
+    ctx.fillText(degToCompass(deg), cx3, dirY + DIR_H - 10);
+  });
+}
+
+/* ══════════════════════════════════════════════════
+   RENDER ALL
+══════════════════════════════════════════════════ */
+let lastData = null;
+
+function renderAll(d) {
+  drawTopRow(d.times, d.codes);
+  drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null);
+  drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null);
+}
+
+/* ══════════════════════════════════════════════════
+   LOAD
+══════════════════════════════════════════════════ */
+async function load(cityName, model) {
+  model = model || 'best_match';
+  document.getElementById('loading').style.display='block';
+  document.getElementById('forecast-content').style.display='none';
+  document.getElementById('error-msg').style.display='none';
+
+  try {
+    const loc  = await geocode(cityName);
+
+    // Pre-compute sunrise/sunset for every date in the forecast window
+    sunTimes = {};
+    for (let d = 0; d < FORECAST_DAYS + 1; d++) {
+      const date = new Date();
+      date.setDate(date.getDate() + d);
+      const key = date.toISOString().slice(0, 10);
+      sunTimes[key] = sunriseSunsetHours(key, loc.latitude, loc.longitude);
+    }
+
+    // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal
+    const [data, ensData] = await Promise.all([
+      fetchWeather(loc.latitude, loc.longitude, model),
+      fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null),
+    ]);
+    const H = data.hourly;
+
+    const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
+    const totalH=FORECAST_DAYS*24;
+    for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP){
+      times.push(H.time[i]);
+      temps.push(H.temperature_2m[i]);
+      precips.push(H.precipitation[i]);
+      gusts.push(H.windgusts_10m[i]);
+      winds.push(H.windspeed_10m[i]);
+      dirs.push(H.winddirection_10m[i]);
+      codes.push(H.weathercode[i]);
+    }
+
+    // process ensemble percentiles
+    const MODEL_LABEL = {
+      'best_match':          'Auto',
+      'dmi_seamless':        'DMI HARMONIE',
+      'icon_seamless':       'DWD ICON',
+      'ecmwf_ifs025':        'ECMWF IFS',
+      'meteofrance_seamless':'Météo-France',
+      'gfs_seamless':        'NOAA GFS',
+    };
+    const ENS_LABEL = {
+      'best_match':          'ICON-EPS',
+      'dmi_seamless':        'ICON-EPS',
+      'icon_seamless':       'ICON-EPS',
+      'ecmwf_ifs025':        'IFS-EPS',
+      'meteofrance_seamless':'ICON-EPS',
+      'gfs_seamless':        'GFS-EPS',
+    };
+    const modelLabel = MODEL_LABEL[model] || model;
+    const ensLabel   = ENS_LABEL[model]   || 'ensemble';
+
+    let ensTemp = null, ensWind = null, ensPrecip = null;
+    const ensStatus = document.getElementById('ens-status');
+    if (ensData && ensData.hourly) {
+      ensTemp   = ensemblePercentiles(ensData.hourly, 'temperature_2m');
+      ensWind   = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
+      ensPrecip = ensemblePercentiles(ensData.hourly, 'precipitation');
+
+      // Replace deterministic lines with ensemble median (p50) — guaranteed centred in band
+      if (ensTemp   && ensTemp.p50.every(v => v != null))
+        for (let i = 0; i < temps.length;   i++) temps[i]   = ensTemp.p50[i];
+      if (ensWind   && ensWind.p50.every(v => v != null))
+        for (let i = 0; i < winds.length;   i++) winds[i]   = ensWind.p50[i];
+      if (ensPrecip && ensPrecip.p50.every(v => v != null))
+        for (let i = 0; i < precips.length; i++) precips[i] = ensPrecip.p50[i];
+
+      const memberCount = Object.keys(ensData.hourly).filter(k => k.startsWith('temperature_2m_member')).length;
+      ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
+      ensStatus.style.color = '#5a9';
+    } else {
+      ensStatus.textContent = `${modelLabel} — ensemble ikke tilgængeligt`;
+      ensStatus.style.color = '#a77';
+    }
+
+    document.getElementById('city-name').textContent =
+      loc.name+(loc.country_code?', '+loc.country_code:'');
+    const t0=new Date(times[0]),t1=new Date(times[times.length-1]);
+    document.getElementById('subtitle').textContent =
+      `Udsigt fra ${DA_DAYS3[t0.getDay()]} kl. ${t0.getHours()} til ${DA_DAYS3[t1.getDay()]} kl. ${t1.getHours()}`;
+    const now=new Date();
+    document.getElementById('updated-text').textContent =
+      `Opdateret ${now.getDate()}. ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
+
+    document.getElementById('loading').style.display='none';
+    document.getElementById('forecast-content').style.display='block';
+
+    lastData = {times, temps, precips, gusts, winds, dirs, codes, ensTemp, ensWind, ensPrecip};
+
+    // slight delay so layout paints before we measure canvas width
+    requestAnimationFrame(()=>requestAnimationFrame(()=>renderAll(lastData)));
+
+  } catch(e) {
+    console.error(e);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('error-msg').style.display='block';
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   HOVER CROSSHAIR + TOOLTIP
+══════════════════════════════════════════════════ */
+const XH_CANVASES = ['xh-top','xh-temp','xh-wind'];
+
+function clearCrosshairs() {
+  XH_CANVASES.forEach(id => {
+    const c = document.getElementById(id);
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+  });
+}
+
+// map each crosshair canvas id to its paired main canvas id
+const XH_PAIR = { 'xh-top':'c-top', 'xh-temp':'c-temp', 'xh-wind':'c-wind' };
+
+function drawCrosshairs(fracX, idx) {
+  if (!lastData) return;
+  const d = lastData;
+
+  // Re-derive the same y-mappings used by the draw functions
+  // — Temp row —
+  const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
+  const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
+  const tmin = Math.floor(Math.min(...d.temps) / 5) * 5;
+  const tmax = Math.ceil( Math.max(...d.temps) / 5) * 5;
+  const tRange = tmax - tmin;
+  const tempDotY = TEMP_padT + (1 - (d.temps[idx] - tmin) / tRange) * TEMP_ch;
+
+  // — Wind row —
+  const WIND_H = 110, WIND_padT = 6;
+  const WIND_chartH = WIND_H - WIND_padT;
+  const safeGusts = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
+  const maxW = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
+  const windDotY = WIND_padT + (1 - d.winds[idx] / maxW) * WIND_chartH;
+
+  // dot config per canvas: null = no dot
+  const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-wind': windDotY };
+
+  XH_CANVASES.forEach(id => {
+    const c   = document.getElementById(id);
+    const ref = document.getElementById(XH_PAIR[id]);
+    if (!c || !ref) return;
+
+    const dpr  = window.devicePixelRatio || 1;
+    // Use the main canvas's rendered pixel dimensions (set by resolveDPI)
+    // divided back to CSS pixels — this is always correct after renderAll()
+    const cssW = ref.width  / dpr;
+    const cssH = ref.height / dpr;
+    if (cssW === 0 || cssH === 0) return;
+
+    c.width  = ref.width;
+    c.height = ref.height;
+    c.style.width  = cssW + 'px';
+    c.style.height = cssH + 'px';
+
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const x = fracX * cssW;
+
+    // vertical dashed line
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, cssH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // dot — only where defined
+    const dotY = DOT_Y[id];
+    if (dotY !== null) {
+      const dotCol = (id === 'xh-temp') ? (d.temps[idx] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
+      ctx.fillStyle   = dotCol;
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath();
+      ctx.arc(x, dotY, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  });
+}
+
+function showTooltip(idx, mouseX, mouseY) {
+  if (!lastData) return;
+  const d = lastData;
+  const tip = document.getElementById('hover-tooltip');
+
+  const t    = new Date(d.times[idx]);
+  const day  = DA_DAYS[t.getDay()];
+  const h    = t.getHours().toString().padStart(2,'0');
+  const temp = d.temps[idx];
+  const prec = d.precips[idx];
+  const wind = d.winds[idx];
+  const gust = Math.max(d.gusts[idx], wind);
+  const dir  = d.dirs[idx];
+  const code = d.codes[idx];
+
+  const windCol = windColorStr(wind);
+  const gustCol = windColorStr(gust);
+
+  // ensemble uncertainty at this index
+  const tp10 = d.ensTemp ? d.ensTemp.p10[idx] : null;
+  const tp90 = d.ensTemp ? d.ensTemp.p90[idx] : null;
+  const wp10 = d.ensWind   ? d.ensWind.p10[idx]   : null;
+  const wp90 = d.ensWind   ? d.ensWind.p90[idx]   : null;
+  const pp10 = d.ensPrecip ? d.ensPrecip.p10[idx] : null;
+  const pp90 = d.ensPrecip ? d.ensPrecip.p90[idx] : null;
+  const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
+  const tempUncRow  = (tp10 != null && tp90 != null)
+    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>`
+    : '';
+  const windUncRow  = (wp10 != null && wp90 != null)
+    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#aaa;font-size:10px">${fmt(wp10,false)} → ${fmt(wp90,false)}</span></div>`
+    : '';
+  const precipUncRow = (pp10 != null && pp90 != null)
+    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#6aaee8;font-size:10px">${pp10.toFixed(1)} → ${pp90.toFixed(1)} mm</span></div>`
+    : '';
+
+  // weather description from WMO code
+  const WMO_DESC = {
+    0:'Klart',1:'Overvejende klart',2:'Delvist skyet',3:'Overskyet',
+    45:'Tåge',48:'Rimtåge',
+    51:'Let støvregn',53:'Støvregn',55:'Tæt støvregn',
+    61:'Let regn',63:'Regn',65:'Kraftig regn',
+    71:'Let sne',73:'Sne',75:'Kraftig sne',77:'Kornhagl',
+    80:'Regnbyger',81:'Kraftige regnbyger',82:'Voldsomme regnbyger',
+    85:'Snebyger',86:'Kraftige snebyger',
+    95:'Tordenvejr',96:'Tordenvejr m. hagl',99:'Tordenvejr m. kraftigt hagl',
+  };
+  const desc = WMO_DESC[code] || 'Ukendt';
+
+  tip.innerHTML = `
+    <div class="tt-time">${day} kl. ${h}:00</div>
+    <div class="tt-row" style="margin-bottom:4px">
+      <span class="tt-label">🌤</span>
+      <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-label">Temp</span>
+      <span class="tt-val" style="color:${temp>=0?'#ff8866':'#88aaff'}">${temp>=0?'+':''}${temp.toFixed(1)}°C</span>
+    </div>
+    ${tempUncRow}
+    <div class="tt-row">
+      <span class="tt-label">Nedbør</span>
+      <span class="tt-val" style="color:#4466aa">${prec.toFixed(1)} mm</span>
+    </div>
+    ${precipUncRow}
+    <div class="tt-row">
+      <span class="tt-label">Vind</span>
+      <span class="tt-val" style="color:${windCol}">${wind.toFixed(1)} m/s</span>
+    </div>
+    ${windUncRow}
+    <div class="tt-row">
+      <span class="tt-label">Vindstød</span>
+      <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-label">Retning</span>
+      <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
+    </div>`;
+
+  tip.style.display = 'block';
+
+  // position: follow mouse, flip left if near right edge
+  const tw = 185, th = 200;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let tx = mouseX + 14;
+  let ty = mouseY - 20;
+  if (tx + tw > vw - 8) tx = mouseX - tw - 14;
+  if (ty + th > vh - 8) ty = vh - th - 8;
+  if (ty < 8) ty = 8;
+  tip.style.left = tx + 'px';
+  tip.style.top  = ty + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('hover-tooltip').style.display = 'none';
+  clearCrosshairs();
+}
+
+// Attach mouse listeners to the whole forecast-content area
+function attachHoverListeners() {
+  const content = document.getElementById('forecast-content');
+
+  content.addEventListener('mousemove', e => {
+    if (!lastData) return;
+
+    // find which canvas-wrap was hit to get the x offset
+    const wrap = e.target.closest('.chart-canvas-wrap');
+    if (!wrap) { hideTooltip(); return; }
+
+    const rect  = wrap.getBoundingClientRect();
+    const relX  = e.clientX - rect.left;
+    const fracX = Math.max(0, Math.min(1, relX / rect.width));
+    const n     = lastData.times.length;
+    const idx   = Math.min(n - 1, Math.floor(fracX * n));
+    // snap fracX to centre of column for crosshair
+    const snapFrac = (idx + 0.5) / n;
+
+    drawCrosshairs(snapFrac, idx);
+    showTooltip(idx, e.clientX, e.clientY);
+  });
+
+  content.addEventListener('mouseleave', hideTooltip);
+}
+
+attachHoverListeners();
+
+function getModel() { return document.getElementById('model-select').value; }
+
+document.getElementById('search-btn').addEventListener('click', () => {
+  const v = document.getElementById('city-input').value.trim();
+  if (v) load(v, getModel());
+});
+document.getElementById('city-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('search-btn').click();
+});
+document.getElementById('model-select').addEventListener('change', () => {
+  const v = document.getElementById('city-input').value.trim();
+  if (v) load(v, getModel());
+});
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastData) renderAll(lastData); }, 100);
+});
+
+load('Bogø', 'dmi_seamless');
+</script>
+</body>
+</html>
