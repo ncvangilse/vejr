@@ -329,7 +329,7 @@ canvas.main-canvas {
 <div id="hover-tooltip"></div>
 
 <div id="search-bar">
-  <input id="city-input" type="text" placeholder="Skriv en by, fx København, Aarhus, Oslo, London…" value="Bogø"/>
+  <input id="city-input" type="text" placeholder="Skriv en by, fx København, Aarhus, Oslo, London…"/>
   <select id="model-select">
     <option value="best_match">Bedste match (auto)</option>
     <option value="dmi_seamless" selected>DMI HARMONIE</option>
@@ -1516,16 +1516,88 @@ attachHoverListeners();
 
 function getModel() { return document.getElementById('model-select').value; }
 
+/* ══════════════════════════════════════════════════
+   URL ↔ search-bar synchronisation
+   ?q=CityName  keeps the location bookmarkable/shareable.
+   If no ?q= param and input is empty, fall back to
+   the browser's Geolocation API.
+══════════════════════════════════════════════════ */
+function getQParam() {
+  return new URLSearchParams(window.location.search).get('q') || '';
+}
+
+function setQParam(city) {
+  const url = new URL(window.location.href);
+  if (city) {
+    url.searchParams.set('q', city);
+  } else {
+    url.searchParams.delete('q');
+  }
+  window.history.replaceState(null, '', url.toString());
+}
+
+function setLoadingMsg(msg) {
+  const el = document.getElementById('loading');
+  if (el) el.textContent = msg;
+}
+
+async function loadByCoords(lat, lon, model) {
+  model = model || getModel();
+  setLoadingMsg('Henter din placering…');
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('forecast-content').style.display = 'none';
+  document.getElementById('error-msg').style.display = 'none';
+
+  let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
+      { headers: { 'Accept-Language': 'da,en' } }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      displayName = d.address?.city || d.address?.town || d.address?.village
+                    || d.display_name.split(',')[0];
+    }
+  } catch(e) { /* keep coordinate fallback */ }
+
+  document.getElementById('city-input').value = displayName;
+  setQParam(displayName);
+  await load(displayName, model);
+}
+
+async function tryGeolocation(model) {
+  if (!navigator.geolocation) {
+    await load('Bogø', model);
+    return;
+  }
+  setLoadingMsg('Finder din placering…');
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('forecast-content').style.display = 'none';
+  document.getElementById('error-msg').style.display = 'none';
+
+  navigator.geolocation.getCurrentPosition(
+    pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, model),
+    _err => load('Bogø', model),
+    { timeout: 8000, maximumAge: 300000 }
+  );
+}
+
+async function loadAndSync(city, model) {
+  setQParam(city);
+  await load(city, model);
+}
+
 document.getElementById('search-btn').addEventListener('click', () => {
   const v = document.getElementById('city-input').value.trim();
-  if (v) load(v, getModel());
+  if (v) loadAndSync(v, getModel());
 });
 document.getElementById('city-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('search-btn').click();
 });
 document.getElementById('model-select').addEventListener('change', () => {
   const v = document.getElementById('city-input').value.trim();
-  if (v) load(v, getModel());
+  if (v) loadAndSync(v, getModel());
 });
 
 let resizeTimer;
@@ -1534,7 +1606,23 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => { if (lastData) renderAll(lastData); }, 100);
 });
 
-load('Bogø', 'dmi_seamless');
+// ── Initial load: URL param → typed value → geolocation → default ──────────
+(function initialLoad() {
+  const model = getModel();
+  const qParam = getQParam();
+  if (qParam) {
+    document.getElementById('city-input').value = qParam;
+    load(qParam, model);
+  } else {
+    const typed = document.getElementById('city-input').value.trim();
+    if (typed) {
+      setQParam(typed);
+      load(typed, model);
+    } else {
+      tryGeolocation(model);
+    }
+  }
+})();
 
 // Register service worker for PWA / offline support
 if ('serviceWorker' in navigator) {
