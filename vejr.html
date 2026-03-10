@@ -31,7 +31,13 @@
    In portrait mode the #rotator div is fixed to the viewport, rotated 90°
    and sized to exactly fill the screen (width↔height swapped).
 ──────────────────────────────────────────────────────────────────────────── */
-#rotator { width: 100%; }
+#rotator {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 
 @media (orientation: portrait) {
   html, body { overflow: hidden; width: 100%; height: 100%; }
@@ -49,12 +55,14 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
 body {
   background: #c8d0d8;
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 13px;
   color: #111;
   min-height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -235,6 +243,9 @@ canvas.main-canvas {
   border: 1px solid #a8b0b8;
   box-shadow: 2px 3px 8px rgba(0,0,0,0.22);
   display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 #radar-header {
   background: #d8dfe8;
@@ -246,11 +257,13 @@ canvas.main-canvas {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 #radar-header span { font-size: 10px; font-weight: 400; color: #667; }
 #radar-map {
   width: 100%;
-  height: 320px;
+  flex: 1;
+  min-height: 320px;
   background: #e8e0d8;
   position: relative;
 }
@@ -280,6 +293,7 @@ canvas.main-canvas {
   background: #d8dfe8;
   border-top: 1px solid #a8b0b8;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 #radar-play-btn {
   padding: 4px 14px;
@@ -1792,7 +1806,7 @@ if ('serviceWorker' in navigator) {
       radarFrames = [...past, ...nowcast];
       if (!radarFrames.length) return;
 
-      document.getElementById('radar-section').style.display = 'block';
+      document.getElementById('radar-section').style.display = 'flex';
       initMap(lat, lon);
 
       // Remove any layers from a previous load
