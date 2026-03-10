@@ -815,13 +815,14 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip) {
 // 12  → red
 // 15+ → purple
 const WINDY_RAMP = [
-  [ 0, 130, 190, 255, 0.00],
-  [ 3, 100, 180, 255, 0.85],
-  [ 6,  50, 200,  80, 1.00],
-  [ 9, 255, 160,  20, 1.00],
-  [12, 220,  30,  30, 1.00],
-  [15, 160,  30, 220, 1.00],
-  [30, 120,   0, 180, 1.00],  // deep purple for extreme speeds
+  [ 0, 130, 190, 255, 0.00],  //  0 m/s → fully transparent
+  [ 2, 130, 190, 255, 0.00],  //  2 m/s → still transparent
+  [ 4, 100, 180, 255, 0.85],  //  4 m/s → light blue
+  [ 7,  50, 200,  80, 1.00],  //  7 m/s → green
+  [10, 255, 160,  20, 1.00],  // 10 m/s → orange
+  [13, 220,  30,  30, 1.00],  // 13 m/s → red
+  [16, 160,  30, 220, 1.00],  // 16 m/s → purple
+  [30, 120,   0, 180, 1.00],  // 30 m/s → deep purple (extreme)
 ];
 function windColor(ms) {
   const r = WINDY_RAMP;
