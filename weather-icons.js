@@ -72,13 +72,13 @@ function dmiIcon(ctx, type, cx, cy, sz, rainAmt, wmoCode) {
     case 'night_partly': _stars(ctx, U); _cloud(ctx, U*0.30, U*0.25, U*0.72, 0, 0.82); break;
     case 'cloud_sun':    _sun(ctx, 0, 0, U); _cloud(ctx, U*0.20, U*0.20, U*0.88, 0, 0.82); break;
     case 'night_cloud':  _stars(ctx, U); _cloud(ctx, U*0.20, U*0.20, U*0.88, 0, 0.82); break;
-    case 'cloud':        _cloud(ctx, 0, 0, U, 0); break;
-    case 'drizzle':      _cloud(ctx, 0, -U*0.24, U, er); _rain(ctx, 0, U*0.54, U, 2); break;
-    case 'rain':         _cloud(ctx, 0, -U*0.24, U, er); _rain(ctx, 0, U*0.54, U, 3); break;
-    case 'shower':       _sun(ctx, 0, 0, U); _cloud(ctx, U*0.20, U*0.15, U*0.82, er, 0.82); _rain(ctx, U*0.20, U*0.62, U*0.82, 3); break;
-    case 'snow':         _cloud(ctx, 0, -U*0.24, U, 0); _snow(ctx, 0, U*0.56, U); break;
-    case 'thunder':      _cloud(ctx, 0, -U*0.30, U, er); _bolt(ctx, 0, U*0.36, U); break;
-    case 'fog':          _cloud(ctx, 0, -U*0.24, U, 0); _fog(ctx, 0, U*0.48, U); break;
+    case 'cloud':        _cloud(ctx, 0, 0, U*0.85, 0); break;
+    case 'drizzle':      _cloud(ctx, 0, -U*0.05, U*0.85, er); _rain(ctx, 0, U*0.36, U, 2); break;
+    case 'rain':         _cloud(ctx, 0, -U*0.05, U*0.85, er); _rain(ctx, 0, U*0.36, U, 3); break;
+    case 'shower':       _sun(ctx, 0, 0, U); _cloud(ctx, U*0.20, U*0.10, U*0.82, er, 0.82); _rain(ctx, U*0.20, U*0.50, U*0.82, 3); break;
+    case 'snow':         _cloud(ctx, 0, -U*0.10, U*0.85, 0); _snow(ctx, 0, U*0.44, U); break;
+    case 'thunder':      _cloud(ctx, 0, -U*0.16, U*0.85, er); _bolt(ctx, 0, U*0.26, U); break;
+    case 'fog':          _cloud(ctx, 0, -U*0.05, U*0.85, 0); _fog(ctx, 0, U*0.38, U); break;
     default:             _cloud(ctx, 0, 0, U, 0);
   }
   ctx.restore();
@@ -231,7 +231,7 @@ function _bolt(ctx, ox, oy, U) {
 function _fog(ctx, ox, oy, U) {
   ctx.save(); ctx.translate(ox, oy);
   ctx.strokeStyle='#aab4be'; ctx.lineWidth=Math.max(0.8,U*0.09); ctx.lineCap='round';
-  for(let i=0;i<2;i++){const y=i*U*0.24;ctx.beginPath();ctx.moveTo(-U*0.42,y);ctx.lineTo(U*0.42,y);ctx.stroke();}
+  for(let i=0;i<2;i++){const y=i*U*0.20;ctx.beginPath();ctx.moveTo(-U*0.42,y);ctx.lineTo(U*0.42,y);ctx.stroke();}
   ctx.restore();
 }
 
