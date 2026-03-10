@@ -7,7 +7,14 @@
 <link rel="icon" href="favicon.ico">
 
 <!-- PWA / Add to Home Screen -->
-<link rel="manifest" href="manifest.json">
+<script>
+  // Only attach manifest on real deployments — avoids 404 noise in local dev server
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    const l = document.createElement('link');
+    l.rel = 'manifest'; l.href = 'manifest.json';
+    document.head.appendChild(l);
+  }
+</script>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -260,6 +267,17 @@ canvas.main-canvas {
   flex-shrink: 0;
 }
 #radar-header span { font-size: 10px; font-weight: 400; color: #667; }
+#radar-tile-counter {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: #334;
+  background: rgba(0,0,0,0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.3s;
+}
+#radar-tile-counter.warn  { color: #c07000; background: rgba(192,112,0,0.12); }
+#radar-tile-counter.limit { color: #cc2200; background: rgba(204,34,0,0.12); font-weight: 700; }
 #radar-map {
   width: 100%;
   flex: 1;
@@ -424,7 +442,8 @@ canvas.main-canvas {
 <!-- ── RainViewer Radar ─────────────────────────────────────────────── -->
 <div id="radar-section">
   <div id="radar-header">
-    Radar – nedbør
+    <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – nedbør</span>
+    <span id="radar-tile-counter" title="Tile-forespørgsler i dag (max ~1000)">0 / 1000 tiles</span>
     <span id="radar-source-label">RainViewer</span>
   </div>
   <div id="radar-map">
@@ -869,7 +888,7 @@ function degToCompass(d){
 
 // Draw a wind direction arrow (from-direction → going-to direction)
 function drawWindArrow(ctx, cx, cy, deg, speed, size) {
-  const col = windColorStr(speed);
+  const col = windColorStr(speed, 1);
   const rad = (deg - 180) * Math.PI / 180; // arrow points in the direction the wind is GOING TO
   ctx.save();
   ctx.translate(cx, cy);
@@ -1651,13 +1670,20 @@ if ('serviceWorker' in navigator) {
    RAINVIEWER RADAR
 ══════════════════════════════════════════════════ */
 (function () {
-  let radarMap = null;
-  let radarLayer = null;
-  let radarFrames = [];
-  let radarIdx = 0;
+  let radarMap     = null;
+  let radarFrames  = [];
+  let radarIdx     = 0;
   let radarPlaying = false;
-  let radarTimer = null;
-  const PLAY_INTERVAL = 500; // ms between frames
+  let playTimeout  = null;
+  const PLAY_INTERVAL = 600;
+
+  // One single tile layer — URL is swapped per frame.
+  // We keep a second "staging" layer that pre-loads the next frame
+  // while the current one is displayed.
+  let currentLayer  = null; // visible layer
+  let stagingLayer  = null; // loading the next frame in background
+  let stagingIdx    = -1;   // which frame is staged
+  let stagingReady  = false;// staging layer has all tiles loaded
 
   const slider    = document.getElementById('radar-slider');
   const playBtn   = document.getElementById('radar-play-btn');
@@ -1665,142 +1691,255 @@ if ('serviceWorker' in navigator) {
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
 
-  // ── Rotation-aware drag — direct implementation ────────────────────────────
-  // Leaflet's built-in drag reads raw clientX/clientY and also applies a
-  // _parentScale correction that misfires inside a CSS-rotated container.
-  // Instead we disable Leaflet's dragging entirely and implement our own
-  // pointer listeners that call radarMap.panBy() directly with the correct
-  // axis-swapped deltas.  This gives 1-px-per-px tracking with no scaling
-  // artefacts in both portrait and landscape.
+  // ── Rotation-aware drag ────────────────────────────────────────────────────
   function attachMapDrag(mapEl) {
     const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
     let dragging = false, lastX = 0, lastY = 0;
-
-    function onStart(x, y) {
-      dragging = true;
-      lastX = x; lastY = y;
-    }
+    function onStart(x, y) { dragging = true; lastX = x; lastY = y; }
     function onMove(x, y) {
       if (!dragging || !radarMap) return;
-      const dx = x - lastX;
-      const dy = y - lastY;
+      const dx = x - lastX, dy = y - lastY;
       lastX = x; lastY = y;
-      // panBy([px,py]) subtracts (px,py) from the map pane position, so:
-      //   panBy([-dx,-dy]) makes the content follow the finger 1:1.
-      //
-      // In portrait the #rotator is CSS-rotated 90° CW, so physical axes map to
-      // visual map axes as follows:
-      //   physical right (+dx) = visual down  on the map → panBy(0, -dx)
-      //   physical down  (+dy) = visual left  on the map → panBy(+dy, 0)
-      // Combined portrait: panBy([+dy, -dx])
-      if (isPortrait()) {
-        radarMap.panBy([-dy, dx], { animate: false });
-      } else {
-        radarMap.panBy([-dx, -dy], { animate: false });
-      }
+      if (isPortrait()) radarMap.panBy([-dy,  dx], { animate: false });
+      else              radarMap.panBy([-dx, -dy], { animate: false });
     }
     function onEnd() { dragging = false; }
-
-    // Touch
-    mapEl.addEventListener('touchstart', e => {
-      e.preventDefault();
-      const t = e.touches[0];
-      onStart(t.clientX, t.clientY);
-    }, { passive: false });
-    mapEl.addEventListener('touchmove', e => {
-      e.preventDefault();
-      const t = e.touches[0];
-      onMove(t.clientX, t.clientY);
-    }, { passive: false });
-    mapEl.addEventListener('touchend', onEnd);
+    mapEl.addEventListener('touchstart',  e => { e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    mapEl.addEventListener('touchmove',   e => { e.preventDefault(); onMove(e.touches[0].clientX,  e.touches[0].clientY); }, { passive: false });
+    mapEl.addEventListener('touchend',    onEnd);
     mapEl.addEventListener('touchcancel', onEnd);
-
-    // Mouse
-    mapEl.addEventListener('mousedown', e => {
-      e.preventDefault();
-      onStart(e.clientX, e.clientY);
-    });
-    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
-    window.addEventListener('mouseup', onEnd);
+    mapEl.addEventListener('mousedown',   e => { e.preventDefault(); onStart(e.clientX, e.clientY); });
+    window.addEventListener('mousemove',  e => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup',    onEnd);
   }
-  // ────────────────────────────────────────────────────────────────────────────
 
+  // ── Daily tile-request counter (persisted in localStorage) ───────────────
+  const COUNTER_KEY = 'rvTileCount';
+  const DATE_KEY    = 'rvTileDate';
+  const LIMIT       = 1000;
+
+  function todayStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  }
+
+  function getCount() {
+    if (localStorage.getItem(DATE_KEY) !== todayStr()) {
+      localStorage.setItem(DATE_KEY, todayStr());
+      localStorage.setItem(COUNTER_KEY, '0');
+    }
+    return parseInt(localStorage.getItem(COUNTER_KEY) || '0', 10);
+  }
+
+  function bumpCount() {
+    const n = getCount() + 1;
+    localStorage.setItem(COUNTER_KEY, String(n));
+    updateCounterDisplay(n);
+  }
+
+  function updateCounterDisplay(n) {
+    const el = document.getElementById('radar-tile-counter');
+    if (!el) return;
+    el.textContent = `${n} / ${LIMIT} tiles`;
+    el.className = n >= LIMIT ? 'limit' : n >= LIMIT * 0.8 ? 'warn' : '';
+  }
+
+  // Initialise display on load
+  updateCounterDisplay(getCount());
+
+  // ── Tile URL for a frame ───────────────────────────────────────────────────
+  function frameUrl(frame) {
+    return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/0_1.png`;
+  }
+
+  // ── Rate-limit state ───────────────────────────────────────────────────────
+  let rateLimited    = false;
+  let rateLimitTimer = null;
+
+  function setRateLimited() {
+    if (rateLimited) return;
+    rateLimited = true;
+    // Drop whatever is loading right now
+    dropStaging();
+    clearTimeout(playTimeout);
+    // Show warning in counter
+    const el = document.getElementById('radar-tile-counter');
+    if (el) { el.textContent = '429 – vent 60s'; el.className = 'limit'; }
+    // Try again after 60s
+    rateLimitTimer = setTimeout(() => {
+      rateLimited = false;
+      const el2 = document.getElementById('radar-tile-counter');
+      if (el2) updateCounterDisplay(getCount());
+      // Resume from current frame
+      if (radarPlaying) goToFrame(radarIdx);
+    }, 60000);
+  }
+
+  // ── Create a tile layer, fire onReady() when all viewport tiles loaded ──────
+  function makeLayer(frame, opacity, onReady, counted) {
+    const l = L.tileLayer(frameUrl(frame), {
+      opacity, tileSize: 256, maxZoom: 10,
+      keepBuffer: 0, updateWhenIdle: true,
+    });
+    let pending = 0;
+    let errors  = 0;
+    l.on('tileloadstart', () => { pending++; if (counted) bumpCount(); });
+    l.on('tileload', () => {
+      errors = 0; // successful load resets error streak
+      if (--pending === 0 && onReady) { onReady(); onReady = null; }
+    });
+    l.on('tileerror', () => {
+      errors++;
+      if (errors >= 3) setRateLimited(); // 3+ consecutive errors → assume 429
+      if (--pending === 0 && onReady) { onReady(); onReady = null; }
+    });
+    return l;
+  }
+
+  // ── Discard the staging layer cleanly ─────────────────────────────────────
+  function dropStaging() {
+    if (stagingLayer) { radarMap.removeLayer(stagingLayer); stagingLayer = null; }
+    stagingIdx   = -1;
+    stagingReady = false;
+  }
+
+  // ── Map init ───────────────────────────────────────────────────────────────
   function initMap(lat, lon) {
     if (!radarMap) {
       radarMap = L.map('radar-map', {
-        zoomControl: false,
-        attributionControl: false,
-        dragging: false,      // we handle dragging ourselves
-        inertia: false,
+        zoomControl: false, attributionControl: false,
+        dragging: false, inertia: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 10
+        maxZoom: 10,
       }).addTo(radarMap);
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
-
       attachMapDrag(document.getElementById('radar-map'));
+
+      let moveDebounce = null;
+      radarMap.on('movestart', () => {
+        // Kill background staging immediately — stops those tile requests cold
+        dropStaging();
+        clearTimeout(moveDebounce);
+      });
+      radarMap.on('moveend', () => {
+        // Wait for the pan to fully settle, then re-stage the next frame.
+        // currentLayer stays on the map — Leaflet loads its new tiles naturally.
+        clearTimeout(moveDebounce);
+        moveDebounce = setTimeout(() => {
+          if (radarFrames.length && currentLayer) {
+            stageFrame((radarIdx + 1) % radarFrames.length, false);
+          }
+        }, 400);
+      });
     }
     radarMap.setView([lat, lon], 7);
   }
 
-  let radarLayers  = [];   // one L.tileLayer per frame, pre-added at opacity 0
-  let radarReady   = [];   // parallel boolean array: true when tiles are loaded
-
+  // ── Loading overlay ────────────────────────────────────────────────────────
   function hideLoadingOverlay() {
     const el = document.getElementById('radar-loading');
-    if (el) {
-      el.classList.add('hidden');
-      // Remove from DOM after fade so it can't block pointer events
-      setTimeout(() => el.remove(), 500);
-    }
+    if (el) { el.classList.add('hidden'); setTimeout(() => el.remove(), 500); }
   }
 
-  function showFrame(idx) {
-    if (!radarFrames.length || !radarMap) return;
-
-    // Hide previous frame
-    if (radarLayer) radarLayer.setOpacity(0);
-
-    // Show new frame only if tiles are loaded; otherwise leave map as-is
-    radarLayer = radarLayers[idx];
-    if (radarLayer && radarReady[idx]) {
-      radarLayer.setOpacity(0.65);
-      hideLoadingOverlay();
-    }
-
-    const d = new Date(radarFrames[idx].time * 1000);
-    const pad = n => String(n).padStart(2,'0');
+  // ── Update label + slider without touching layers ─────────────────────────
+  function updateLabel(idx) {
+    const d   = new Date(radarFrames[idx].time * 1000);
+    const pad = n => String(n).padStart(2, '0');
     timeLabel.textContent = `${d.getDate()}. ${DA_MON[d.getMonth()]} ${d.getHours()}:${pad(d.getMinutes())}`;
     slider.value = idx;
   }
 
-  function nextFrame() {
-    radarIdx = (radarIdx + 1) % radarFrames.length;
-    showFrame(radarIdx);
+  // ── Swap staging layer → current, then pre-stage next frame ───────────────
+  let autoStartOnFirstCommit = false;
+
+  function commitStaged() {
+    if (stagingIdx !== radarIdx) return;
+    if (currentLayer) {
+      currentLayer.setOpacity(0);
+      const old = currentLayer;
+      setTimeout(() => radarMap.removeLayer(old), 50);
+    }
+    stagingLayer.setOpacity(0.65);
+    currentLayer = stagingLayer;
+    stagingLayer = null;
+    stagingIdx   = -1;
+    stagingReady = false;
+    hideLoadingOverlay();
+
+    if (autoStartOnFirstCommit) {
+      autoStartOnFirstCommit = false;
+      radarPlaying = true;
+      playBtn.textContent = '⏸ Pause';
+    }
+    if (radarPlaying) {
+      playTimeout = setTimeout(() => advanceFrame(), PLAY_INTERVAL);
+    }
+    stageFrame((radarIdx + 1) % radarFrames.length, false);
   }
 
+  function stageFrame(idx, urgent) {
+    if (rateLimited) return;
+    if (stagingIdx === idx) {
+      if (urgent && stagingReady) commitStaged();
+      return;
+    }
+    dropStaging();
+    stagingIdx   = idx;
+    stagingLayer = makeLayer(radarFrames[idx], 0, () => {
+      stagingReady = true;
+      if (urgent && stagingIdx === idx) commitStaged();
+    }, urgent); // only count tiles for frames we're about to show
+    stagingLayer.addTo(radarMap);
+  }
+
+  // ── Advance to the next frame in playback ─────────────────────────────────
+  function advanceFrame() {
+    const next = (radarIdx + 1) % radarFrames.length;
+    goToFrame(next);
+  }
+
+  // ── Go to a specific frame ─────────────────────────────────────────────────
+  function goToFrame(idx) {
+    if (rateLimited) return;
+    radarIdx = idx;
+    updateLabel(idx);
+    clearTimeout(playTimeout);
+
+    if (stagingIdx === idx && stagingReady) {
+      // Already pre-loaded — show it immediately
+      commitStaged();
+    } else {
+      // Need to load it — stage urgently
+      stageFrame(idx, true);
+    }
+  }
+
+  // ── Play / pause ───────────────────────────────────────────────────────────
   function togglePlay() {
     radarPlaying = !radarPlaying;
     playBtn.textContent = radarPlaying ? '⏸ Pause' : '▶ Afspil';
     if (radarPlaying) {
-      radarTimer = setInterval(nextFrame, PLAY_INTERVAL);
+      clearTimeout(playTimeout);
+      advanceFrame();
     } else {
-      clearInterval(radarTimer);
+      clearTimeout(playTimeout);
     }
   }
 
   slider.addEventListener('input', () => {
-    radarIdx = +slider.value;
-    showFrame(radarIdx);
+    clearTimeout(playTimeout);
+    goToFrame(+slider.value);
   });
   playBtn.addEventListener('click', togglePlay);
 
+  // ── Main load ──────────────────────────────────────────────────────────────
   async function loadRadar(lat, lon) {
     try {
       const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' });
       if (!r.ok) return;
-      const data = await r.json();
+      const data    = await r.json();
       const past    = data.radar?.past    || [];
       const nowcast = data.radar?.nowcast || [];
       radarFrames = [...past, ...nowcast];
@@ -1809,51 +1948,37 @@ if ('serviceWorker' in navigator) {
       document.getElementById('radar-section').style.display = 'flex';
       initMap(lat, lon);
 
-      // Remove any layers from a previous load
-      radarLayers.forEach(l => radarMap.removeLayer(l));
-      radarLayers = [];
-      radarReady  = [];
-
-      // Create all layers at opacity 0 and add them immediately so the browser
-      // starts fetching tiles in the background.  Mark each as ready when its
-      // tiles finish loading so showFrame can reveal it without blinking.
-      radarFrames.forEach((frame, i) => {
-        const url = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/0_1.png`;
-        const l = L.tileLayer(url, { opacity: 0, maxZoom: 10, tileSize: 256 });
-        radarReady.push(false);
-        l.on('load', () => {
-          radarReady[i] = true;
-          // If this is the currently displayed frame, reveal it now
-          if (i === radarIdx) showFrame(radarIdx);
-        });
-        l.addTo(radarMap);
-        radarLayers.push(l);
-      });
-      radarLayer = null;
+      // Tear down previous state
+      clearTimeout(playTimeout);
+      radarPlaying = false;
+      playBtn.textContent = '▶ Afspil';
+      if (currentLayer) { radarMap.removeLayer(currentLayer); currentLayer = null; }
+      if (stagingLayer) { radarMap.removeLayer(stagingLayer); stagingLayer = null; }
+      stagingIdx = -1; stagingReady = false;
 
       slider.max = radarFrames.length - 1;
       radarIdx   = past.length - 1;
-      showFrame(radarIdx);  // will show immediately if tiles already cached
+      updateLabel(radarIdx);
 
-      setTimeout(() => radarMap.invalidateSize(), 50);
+      setTimeout(() => {
+        radarMap.invalidateSize();
+        autoStartOnFirstCommit = true;
+        stageFrame(radarIdx, true);
+      }, 50);
 
-      // Auto-start playback immediately — frames show as they become ready
-      if (!radarPlaying) togglePlay();
-    } catch(e) {
+    } catch (e) {
       console.warn('Radar load failed', e);
     }
   }
 
-  // Re-fit the map whenever the screen rotates or resizes
+  // ── Resize / orientation ───────────────────────────────────────────────────
   function onOrientationChange() {
     if (!radarMap) return;
-    // Wait for the CSS rotation transform to finish before invalidating
     setTimeout(() => radarMap.invalidateSize(), 300);
   }
   window.addEventListener('resize', onOrientationChange);
   screen.orientation?.addEventListener('change', onOrientationChange);
 
-  // Expose so the load() function can call it
   window.loadRadar = loadRadar;
 })();
 </script>

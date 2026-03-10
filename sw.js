@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-%%BUILD_NUMBER%%';
+const CACHE_NAME = 'vejr-%%BUILD_NUMBER%%-2';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
@@ -41,7 +41,8 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('nominatim') ||
     url.hostname.includes('rainviewer.com')
   ) {
-    event.respondWith(fetch(event.request));
+    // Tile images are not CORS-enabled — let them pass through as-is
+    // without re-fetching through the SW (which would enforce CORS)
     return;
   }
 
