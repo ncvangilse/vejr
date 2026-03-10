@@ -25,7 +25,7 @@ function wmoType(code, timeStr) {
   const night = timeStr && isNight(timeStr);
   if (code === 0) return night ? 'night_clear' : 'sun';
   if (code === 1) return night ? 'night_partly' : 'sun_cloud';
-  if (code === 2) return 'cloud_sun';
+  if (code === 2) return night ? 'night_cloud'  : 'cloud_sun';
   if (code === 3) return 'cloud';
   if (code >= 45 && code <= 48) return 'fog';
   if (code >= 51 && code <= 55) return 'drizzle';
@@ -68,13 +68,14 @@ function dmiIcon(ctx, type, cx, cy, sz, rainAmt, wmoCode) {
   switch(type) {
     case 'sun':          _sun(ctx, 0, 0, U); break;
     case 'night_clear':  _stars(ctx, U); break;
-    case 'sun_cloud':    _sun(ctx, -U*0.44, -U*0.44, U*0.58); _cloud(ctx, U*0.14, U*0.22, U*0.68, 0); break;
-    case 'night_partly': _stars(ctx, U*0.60, -U*0.50, -U*0.40); _cloud(ctx, U*0.14, U*0.24, U*0.68, 0); break;
-    case 'cloud_sun':    _sun(ctx, -U*0.46, -U*0.46, U*0.52); _cloud(ctx, U*0.05, U*0.08, U*0.90, 0); break;
+    case 'sun_cloud':    _sun(ctx, 0, 0, U); _cloud(ctx, U*0.30, U*0.25, U*0.72, 0, 0.82); break;
+    case 'night_partly': _stars(ctx, U); _cloud(ctx, U*0.30, U*0.25, U*0.72, 0, 0.82); break;
+    case 'cloud_sun':    _sun(ctx, 0, 0, U); _cloud(ctx, U*0.20, U*0.20, U*0.88, 0, 0.82); break;
+    case 'night_cloud':  _stars(ctx, U); _cloud(ctx, U*0.20, U*0.20, U*0.88, 0, 0.82); break;
     case 'cloud':        _cloud(ctx, 0, 0, U, 0); break;
     case 'drizzle':      _cloud(ctx, 0, -U*0.24, U, er); _rain(ctx, 0, U*0.54, U, 2); break;
     case 'rain':         _cloud(ctx, 0, -U*0.24, U, er); _rain(ctx, 0, U*0.54, U, 3); break;
-    case 'shower':       _sun(ctx, -U*0.44, -U*0.52, U*0.50); _cloud(ctx, U*0.05, U*0.02, U*0.88, er); _rain(ctx, U*0.05, U*0.58, U, 3); break;
+    case 'shower':       _sun(ctx, 0, 0, U); _cloud(ctx, U*0.20, U*0.15, U*0.82, er, 0.82); _rain(ctx, U*0.20, U*0.62, U*0.82, 3); break;
     case 'snow':         _cloud(ctx, 0, -U*0.24, U, 0); _snow(ctx, 0, U*0.56, U); break;
     case 'thunder':      _cloud(ctx, 0, -U*0.30, U, er); _bolt(ctx, 0, U*0.36, U); break;
     case 'fog':          _cloud(ctx, 0, -U*0.24, U, 0); _fog(ctx, 0, U*0.48, U); break;
@@ -106,10 +107,9 @@ function _sun(ctx, ox, oy, U) {
 }
 
 // Cloud: overlapping filled circles clipped to a flat-bottomed rect.
-// Simplest correct approach — clip does the work, no arc angle math.
-function _cloud(ctx, ox, oy, U, rainAmt) {
-  ctx.save(); ctx.translate(ox, oy);
-
+// Rendered into an offscreen canvas at full opacity, then composited with alpha,
+// so translucency works without interior arc artefacts.
+function _cloud(ctx, ox, oy, U, rainAmt, alpha = 1) {
   const t = (rainAmt > 0) ? Math.min(1, rainAmt / 6) : 0;
   function lerp(a, b) { return Math.round(a + (b - a) * t); }
   const bodyCol      = `rgb(${lerp(0xee,0x60)},${lerp(0xf2,0x68)},${lerp(0xf8,0x70)})`;
@@ -126,44 +126,60 @@ function _cloud(ctx, ox, oy, U, rainAmt) {
   const top    = -U * 0.68;
   const left   = bumps[0].x - bumps[0].r - U*0.04;
   const right  = bumps[3].x + bumps[3].r + U*0.04;
+  const lw     = Math.max(0.9, U * 0.08);
+
+  // Draw into an offscreen canvas so we can composite with alpha cleanly
+  const pad  = lw + 2;
+  const cw   = Math.ceil(right - left + pad * 2);
+  const ch   = Math.ceil(bottom - top + pad * 2);
+  const offX = -(left - pad);   // origin offset: cloud coords → offscreen pixel coords
+  const offY = -(top  - pad);
+
+  const off = document.createElement('canvas');
+  off.width  = cw;
+  off.height = ch;
+  const c = off.getContext('2d');
+  c.translate(offX, offY);
 
   function fillBumps() {
-    bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
-  }
-  function strokeBumps() {
-    bumps.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke(); });
+    bumps.forEach(b => { c.beginPath(); c.arc(b.x, b.y, b.r, 0, Math.PI*2); c.fill(); });
   }
 
-  // 1. Shadow — bumps shifted down, visible only in a thin band below the body
-  ctx.save();
-  ctx.beginPath(); ctx.rect(left, bottom - U*0.14, right - left, U*0.18); ctx.clip();
-  ctx.save(); ctx.translate(0, U*0.12);
-  ctx.fillStyle = undersideCol; fillBumps();
-  ctx.restore(); ctx.restore();
+  // 1. Shadow
+  c.save();
+  c.beginPath(); c.rect(left, bottom - U*0.14, right - left, U*0.18); c.clip();
+  c.save(); c.translate(0, U*0.12);
+  c.fillStyle = undersideCol; fillBumps();
+  c.restore(); c.restore();
 
-  // 2. Body — bumps clipped to flat-bottom rect
-  ctx.save();
-  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top); ctx.clip();
-  ctx.fillStyle = bodyCol; fillBumps();
-  ctx.restore();
+  // 2. Body fill clipped to flat-bottom rect
+  c.save();
+  c.beginPath(); c.rect(left, top, right - left, bottom - top); c.clip();
+  c.fillStyle = bodyCol; fillBumps();
+  c.restore();
 
-  // 3. Outline — stroke bumps inside clip, then re-fill body inset to erase interior arcs
-  ctx.save();
-  ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top + U*0.02); ctx.clip();
-  ctx.strokeStyle = strokeCol;
-  ctx.lineWidth = Math.max(0.9, U * 0.08);
-  ctx.lineJoin = 'round';
-  strokeBumps();
-  ctx.fillStyle = bodyCol;
+  // 3. Outline: stroke all bumps, then re-fill body inset to erase interior arcs
+  c.save();
+  c.beginPath(); c.rect(left, top, right - left, bottom - top + U*0.02); c.clip();
+  c.strokeStyle = strokeCol;
+  c.lineWidth = lw;
+  c.lineJoin = 'round';
+  bumps.forEach(b => { c.beginPath(); c.arc(b.x, b.y, b.r, 0, Math.PI*2); c.stroke(); });
+  // Re-fill slightly inset to erase interior stroke lines
+  c.fillStyle = bodyCol;
   bumps.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r - Math.max(0.7, U*0.05), 0, Math.PI*2);
-    ctx.fill();
+    c.beginPath(); c.arc(b.x, b.y, b.r - lw * 0.5, 0, Math.PI*2); c.fill();
   });
-  ctx.beginPath(); ctx.moveTo(left + U*0.04, bottom); ctx.lineTo(right - U*0.04, bottom);
-  ctx.strokeStyle = strokeCol; ctx.lineWidth = Math.max(0.9, U*0.08); ctx.stroke();
-  ctx.restore();
+  // Bottom flat edge
+  c.beginPath(); c.moveTo(left + U*0.04, bottom); c.lineTo(right - U*0.04, bottom);
+  c.strokeStyle = strokeCol; c.lineWidth = lw; c.stroke();
+  c.restore();
 
+  // Composite the offscreen cloud onto the main canvas with the requested alpha
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.globalAlpha *= alpha;
+  ctx.drawImage(off, left - pad, top - pad);
   ctx.restore();
 }
 

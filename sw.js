@@ -34,8 +34,13 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Network-only: weather APIs
-  if (url.hostname.includes('dmi.dk') || url.hostname.includes('open-meteo.com') || url.hostname.includes('nominatim')) {
+  // Network-only: weather APIs and radar data (must always be live)
+  if (
+    url.hostname.includes('dmi.dk') ||
+    url.hostname.includes('open-meteo.com') ||
+    url.hostname.includes('nominatim') ||
+    url.hostname.includes('rainviewer.com')
+  ) {
     event.respondWith(fetch(event.request));
     return;
   }

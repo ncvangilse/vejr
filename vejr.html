@@ -384,9 +384,19 @@ canvas.main-canvas {
       <div class="y-axis-right" id="ax-precip"></div>
     </div>
 
-    <!-- Wind (Windy-style) -->
+    <!-- Wind direction row -->
     <div class="chart-row" style="border-bottom:none;">
-      <div class="y-axis" id="ax-wind" style="background:linear-gradient(to bottom,#dde3eb 75%,#1e2a38 75%);"></div>
+      <div class="y-axis" id="ax-dir" style="background:#1e2a38;"></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="c-dir" style="display:block;width:100%;"></canvas>
+        <canvas id="xh-dir" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
+    </div>
+
+    <!-- Wind speed/gust (Windy-style) -->
+    <div class="chart-row" style="border-bottom:none;">
+      <div class="y-axis" id="ax-wind"></div>
       <div class="chart-canvas-wrap">
         <canvas id="c-wind" style="display:block;width:100%;"></canvas>
         <canvas id="xh-wind" class="crosshair-canvas"></canvas>
@@ -419,7 +429,7 @@ canvas.main-canvas {
 
 </div> <!-- #rotator -->
 
-<script src="weather-icons.js?v=2"></script>
+<script src="weather-icons.js?v=8"></script>
 <script>
 /* ══════════════════════════════════════════════════
    CONFIG
@@ -503,7 +513,7 @@ async function fetchEnsemble(lat, lon, model) {
   };
   const ensModel = ENS_MAP[model] || 'icon_seamless';
   const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}`
-    + `&hourly=temperature_2m,windspeed_10m,precipitation`
+    + `&hourly=temperature_2m,windspeed_10m,windgusts_10m,precipitation`
     + `&models=${ensModel}`
     + `&forecast_days=${FORECAST_DAYS}&timezone=auto&windspeed_unit=ms`;
   const r = await fetch(url);
@@ -664,8 +674,9 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip) {
   const n = times.length;
   const colW = cssW / n;
   const padT=8, padB=8, ch=cssH-padT-padB;
-  const tmin=Math.floor(Math.min(...temps)/5)*5;
-  const tmax=Math.ceil( Math.max(...temps)/5)*5;
+  let tmin=Math.floor(Math.min(...temps)/5)*5;
+  let tmax=Math.ceil( Math.max(...temps)/5)*5;
+  if (tmax-tmin < 15) { const mid=(tmin+tmax)/2; tmin=Math.floor((mid-7.5)/5)*5; tmax=tmin+15; }
   const tRange=tmax-tmin;
   const ty=t=>padT+(1-(t-tmin)/tRange)*ch;
   const cx2=i=>(i+0.5)*colW;
@@ -841,27 +852,32 @@ function degToCompass(d){
   return pts[Math.round(d/45)%8];
 }
 
-// Draw a wind barb arrow (from-direction, Windy-style coloured filled arrowhead)
+// Draw a wind direction arrow (from-direction → going-to direction)
 function drawWindArrow(ctx, cx, cy, deg, speed, size) {
   const col = windColorStr(speed);
   const rad = (deg - 180) * Math.PI / 180; // arrow points in the direction the wind is GOING TO
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rad);
-  // shaft
+
+  // shaft — thicker for readability
+  const shaftTop = -size * 0.18;   // shaft ends just below arrowhead base
+  const shaftBot =  size * 0.50;
   ctx.strokeStyle = col;
-  ctx.lineWidth = Math.max(1, size * 0.18);
+  ctx.lineWidth = Math.max(1.5, size * 0.20);
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(0, -size * 0.55);
-  ctx.lineTo(0,  size * 0.55);
+  ctx.moveTo(0, shaftBot);
+  ctx.lineTo(0, shaftTop);
   ctx.stroke();
-  // arrowhead (filled triangle at tip = wind destination)
-  const aw = size * 0.35, ah = size * 0.38;
+
+  // arrowhead — big filled triangle (wide base, long tip)
+  const aw = size * 0.72;   // base width
+  const ah = size * 0.58;   // height
   ctx.beginPath();
-  ctx.moveTo(0, -size * 0.55 - ah);
-  ctx.lineTo(-aw/2, -size * 0.55);
-  ctx.lineTo( aw/2, -size * 0.55);
+  ctx.moveTo(0,      -size * 0.18 - ah);   // tip
+  ctx.lineTo(-aw/2,  -size * 0.18);         // base left
+  ctx.lineTo( aw/2,  -size * 0.18);         // base right
   ctx.closePath();
   ctx.fillStyle = col;
   ctx.fill();
@@ -869,15 +885,70 @@ function drawWindArrow(ctx, cx, cy, deg, speed, size) {
 }
 
 /* ══════════════════════════════════════════════════
+   KITESURFING OPTIMAL WINDOW
+   Speed: 7–9 m/s  |  Direction: E (90°) or W (270°) ± 22°
+══════════════════════════════════════════════════ */
+function isKiteDir(deg) {
+  // Normalise to 0–360
+  const d = ((deg % 360) + 360) % 360;
+  // East band: 68°–112°  |  West band: 248°–292°
+  return (d >= 68 && d <= 112) || (d >= 248 && d <= 292);
+}
+function isKiteOptimal(speed, deg, timeStr) {
+  return speed >= 7 && speed <= 9 && isKiteDir(deg) && !isNight(timeStr);
+}
+
+/* ══════════════════════════════════════════════════
+   DRAW WIND DIRECTION ROW
+══════════════════════════════════════════════════ */
+function drawWindDir(times, winds, dirs) {
+  const canvas = document.getElementById('c-dir');
+  const wrap   = canvas.parentElement;
+  const cssW   = wrap.clientWidth;
+  const DIR_H  = 46;
+  const ctx    = resolveDPI(canvas, cssW, DIR_H);
+  ctx.clearRect(0, 0, cssW, DIR_H);
+
+  const n     = times.length;
+  const colW  = cssW / n;
+  const divs  = dayDivs(times);
+
+  // dark background
+  ctx.fillStyle = '#1e2a38';
+  ctx.fillRect(0, 0, cssW, DIR_H);
+
+  // day dividers
+  divs.forEach(i => {
+    const x = i * colW;
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
+  });
+
+  // KITE highlight — teal glow on columns where speed AND direction are optimal AND daylight
+  dirs.forEach((deg, i) => {
+    if (!isKiteOptimal(winds[i], deg, times[i])) return;
+    ctx.fillStyle = 'rgba(0,220,180,0.28)';
+    ctx.fillRect(i * colW, 0, colW, DIR_H);
+  });
+
+  // arrows + compass labels
+  const arrowSize = Math.min(colW * 0.72, 22);
+  dirs.forEach((deg, i) => {
+    const cx = (i + 0.5) * colW;
+    const cy = DIR_H / 2 - 3;
+    drawWindArrow(ctx, cx, cy, deg, winds[i], arrowSize);
+  });
+}
+
+/* ══════════════════════════════════════════════════
    DRAW WIND  (Windy-style)
 ══════════════════════════════════════════════════ */
-function drawWind(times, gusts, winds, dirs, ensWind) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   const canvas = document.getElementById('c-wind');
   const wrap   = canvas.parentElement;
   const cssW   = wrap.clientWidth;
-  const WIND_H = 110;  // chart
-  const DIR_H  = 36;   // direction row
-  const cssH   = WIND_H + DIR_H;
+  const WIND_H = 130;  // chart (includes 24px kite-icon strip at top)
+  const cssH   = WIND_H;
   const ctx    = resolveDPI(canvas, cssW, cssH);
   ctx.clearRect(0,0,cssW,cssH);
 
@@ -888,19 +959,45 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
   // Defensive clamp: gusts must always be >= mean wind (bad API data can violate this)
   const safeGusts = gusts.map((g, i) => Math.max(g, winds[i]));
 
+  // Include ensemble gust p90 in the y-axis ceiling so the band never clips
+  const ensGustP90Max = ensGust ? Math.max(...ensGust.p90.filter(v => v != null)) : 0;
+
   /* ══ 1. WIND CHART ══ */
-  const cY     = 0;
-  const padT   = 6;
-  const chartH = WIND_H - padT;
-  const maxW   = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
-  const wy     = v => cY + padT + (1 - v / maxW) * chartH;
-  const base   = wy(0);
-  const cx2    = i => (i + 0.5) * colW;
+  const cY      = 0;
+  const KITE_H  = 24;          // reserved strip at the top for kite icons
+  const padT    = KITE_H + 4;  // wind fills start below the icon strip
+  const chartH  = WIND_H - padT;
+  const maxW    = Math.ceil(Math.max(...safeGusts, ensGustP90Max, 5) / 5) * 5;
+  const wy      = v => cY + padT + (1 - v / maxW) * chartH;
+  const base    = wy(0);
+  const cx2     = i => (i + 0.5) * colW;
   const wLevels = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
 
   // background
   ctx.fillStyle = '#dde3eb';
   ctx.fillRect(0, cY, cssW, WIND_H);
+
+  // KITE OPTIMAL SPEED BAND — subtle horizontal stripe for 7–9 m/s
+  const yKiteTop = wy(9);
+  const yKiteBot = wy(7);
+  ctx.fillStyle = 'rgba(0,200,160,0.13)';
+  ctx.fillRect(0, yKiteTop, cssW, yKiteBot - yKiteTop);
+  // thin border lines at 7 and 9 m/s
+  ctx.strokeStyle = 'rgba(0,200,160,0.45)';
+  ctx.lineWidth = 0.75;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(0, yKiteTop); ctx.lineTo(cssW, yKiteTop); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, yKiteBot); ctx.lineTo(cssW, yKiteBot); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // KITE OPTIMAL COLUMNS — teal column highlight
+  if (lastData) {
+    winds.forEach((w, i) => {
+      if (!isKiteOptimal(w, lastData.dirs[i], lastData.times[i])) return;
+      ctx.fillStyle = 'rgba(0,220,180,0.18)';
+      ctx.fillRect(i * colW, cY, colW, WIND_H);
+    });
+  }
 
   // grid lines — every 5 m/s, all land exactly on multiples of 5
   wLevels.forEach(v => {
@@ -918,6 +1015,23 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
     ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
   });
+
+  // ENSEMBLE GUST UNCERTAINTY BAND (p10→p90) — drawn first, behind everything
+  if (ensGust) {
+    const gpts90 = ensGust.p90.map((v,i) => v != null ? {x: cx2(i), y: wy(Math.max(v, winds[i]))} : null).filter(Boolean);
+    const gpts10 = ensGust.p10.map((v,i) => v != null ? {x: cx2(i), y: wy(Math.max(v, winds[i]))} : null).filter(Boolean);
+    if (gpts90.length > 1 && gpts10.length > 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(gpts90[0].x, gpts90[0].y);
+      gpts90.forEach(p => ctx.lineTo(p.x, p.y));
+      for (let i = gpts10.length - 1; i >= 0; i--) ctx.lineTo(gpts10[i].x, gpts10[i].y);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(180,100,20,0.18)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
 
   // FILLED GUST AREA — base → gust line → base
   const gustGrad = ctx.createLinearGradient(0, 0, cssW, 0);
@@ -941,7 +1055,7 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
   ctx.closePath();
   ctx.fill();
 
-  // ENSEMBLE UNCERTAINTY BAND — drawn on top of fills, semi-transparent
+  // ENSEMBLE WIND SPEED UNCERTAINTY BAND — drawn on top of fills, semi-transparent
   if (ensWind) {
     const pts90 = ensWind.p90.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
     const pts10 = ensWind.p10.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
@@ -970,6 +1084,37 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
   winds.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
   ctx.stroke();
 
+  // 🪁 KITE ICONS — drawn in the reserved top strip, always above the wind fills
+  if (lastData) {
+    const ICON_SIZE = 14;
+    const PILL_H    = KITE_H - 4;          // pill fits neatly in the strip
+    const PILL_W    = PILL_H + 4;
+    const PILL_Y    = cY + 2;
+    const iconCY    = PILL_Y + PILL_H / 2; // vertical centre of pill
+    ctx.font = `${ICON_SIZE}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    winds.forEach((w, i) => {
+      if (!isKiteOptimal(w, lastData.dirs[i], lastData.times[i])) return;
+      const x  = cx2(i);
+      const px = x - PILL_W / 2;
+      const r  = PILL_H / 2;
+      // teal pill
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,180,140,0.82)';
+      ctx.beginPath();
+      ctx.moveTo(px + r, PILL_Y);
+      ctx.arcTo(px + PILL_W, PILL_Y,          px + PILL_W, PILL_Y + PILL_H, r);
+      ctx.arcTo(px + PILL_W, PILL_Y + PILL_H, px,          PILL_Y + PILL_H, r);
+      ctx.arcTo(px,          PILL_Y + PILL_H, px,          PILL_Y,          r);
+      ctx.arcTo(px,          PILL_Y,          px + PILL_W, PILL_Y,          r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillText('🪁', x, iconCY);
+    });
+  }
+
 
   // axis labels — bottom to top (0 at bottom, maxW at top)
   const ax = document.getElementById('ax-wind');
@@ -979,34 +1124,12 @@ function drawWind(times, gusts, winds, dirs, ensWind) {
     sp.textContent = v;
     sp.style.color = windColorStr(v);
     sp.style.fontWeight = '600';
+    // Mark the kite-optimal speed range on the axis
+    if (v === 9 || v === 7) {
+      sp.style.color = '#00c8a0';
+      sp.title = v === 9 ? 'Kite max 9 m/s' : 'Kite min 7 m/s';
+    }
     ax.appendChild(sp);
-  });
-
-  /* ══ 3. DIRECTION ROW ══ */
-  const dirY = WIND_H;
-  // background — dark like Windy
-  ctx.fillStyle = '#1e2a38';
-  ctx.fillRect(0, dirY, cssW, DIR_H);
-  ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.lineWidth=0.5;
-  ctx.beginPath(); ctx.moveTo(0,dirY); ctx.lineTo(cssW,dirY); ctx.stroke();
-
-  divs.forEach(i=>{
-    const x=i*colW;
-    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(x,dirY); ctx.lineTo(x,dirY+DIR_H); ctx.stroke();
-  });
-
-  const arrowSize = Math.min(colW * 0.62, 14);
-  dirs.forEach((deg, i) => {
-    const cx3 = (i+0.5)*colW;
-    const cy3 = dirY + DIR_H/2 - 3;
-    drawWindArrow(ctx, cx3, cy3, deg, winds[i], arrowSize);
-    // compass label below arrow
-    ctx.font = `${Math.min(colW*0.45,8)}px 'IBM Plex Mono',monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = 'rgba(200,220,255,0.75)';
-    ctx.fillText(degToCompass(deg), cx3, dirY + DIR_H - 10);
   });
 }
 
@@ -1018,7 +1141,8 @@ let lastData = null;
 function renderAll(d) {
   drawTopRow(d.times, d.codes, d.precips);
   drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null);
-  drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null);
+  drawWindDir(d.times, d.winds, d.dirs);
+  drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null);
 }
 
 /* ══════════════════════════════════════════════════
@@ -1098,11 +1222,12 @@ async function load(cityName, model) {
     const modelLabel = MODEL_LABEL[model] || model;
     const ensLabel   = ENS_LABEL[model]   || 'ensemble';
 
-    let ensTemp = null, ensWind = null, ensPrecip = null;
+    let ensTemp = null, ensWind = null, ensGust = null, ensPrecip = null;
     const ensStatus = document.getElementById('ens-status');
     if (ensData && ensData.hourly) {
       ensTemp   = ensemblePercentiles(ensData.hourly, 'temperature_2m');
       ensWind   = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
+      ensGust   = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
       ensPrecip = ensemblePercentiles(ensData.hourly, 'precipitation');
 
       // Replace deterministic lines with ensemble median (p50) — guaranteed centred in band
@@ -1110,6 +1235,8 @@ async function load(cityName, model) {
         for (let i = 0; i < temps.length;   i++) temps[i]   = ensTemp.p50[i];
       if (ensWind   && ensWind.p50.every(v => v != null))
         for (let i = 0; i < winds.length;   i++) winds[i]   = ensWind.p50[i];
+      if (ensGust   && ensGust.p50.every(v => v != null))
+        for (let i = 0; i < gusts.length;   i++) gusts[i]   = ensGust.p50[i];
       if (ensPrecip && ensPrecip.p50.every(v => v != null))
         for (let i = 0; i < precips.length; i++) precips[i] = ensPrecip.p50[i];
 
@@ -1133,7 +1260,7 @@ async function load(cityName, model) {
     document.getElementById('loading').style.display='none';
     document.getElementById('forecast-content').style.display='block';
 
-    lastData = {times, temps, precips, gusts, winds, dirs, codes, ensTemp, ensWind, ensPrecip};
+    lastData = {times, temps, precips, gusts, winds, dirs, codes, ensTemp, ensWind, ensGust, ensPrecip};
 
     // Double rAF ensures layout is complete before measuring canvas width
     requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
@@ -1151,7 +1278,7 @@ async function load(cityName, model) {
 /* ══════════════════════════════════════════════════
    HOVER CROSSHAIR + TOOLTIP
 ══════════════════════════════════════════════════ */
-const XH_CANVASES = ['xh-top','xh-temp','xh-wind'];
+const XH_CANVASES = ['xh-top','xh-temp','xh-dir','xh-wind'];
 
 function clearCrosshairs() {
   XH_CANVASES.forEach(id => {
@@ -1163,7 +1290,7 @@ function clearCrosshairs() {
 }
 
 // map each crosshair canvas id to its paired main canvas id
-const XH_PAIR = { 'xh-top':'c-top', 'xh-temp':'c-temp', 'xh-wind':'c-wind' };
+const XH_PAIR = { 'xh-top':'c-top', 'xh-temp':'c-temp', 'xh-dir':'c-dir', 'xh-wind':'c-wind' };
 
 function drawCrosshairs(fracX, idx) {
   if (!lastData) return;
@@ -1173,20 +1300,21 @@ function drawCrosshairs(fracX, idx) {
   // — Temp row —
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
-  const tmin = Math.floor(Math.min(...d.temps) / 5) * 5;
-  const tmax = Math.ceil( Math.max(...d.temps) / 5) * 5;
+  let tmin = Math.floor(Math.min(...d.temps) / 5) * 5;
+  let tmax = Math.ceil( Math.max(...d.temps) / 5) * 5;
+  if (tmax - tmin < 15) { const mid = (tmin + tmax) / 2; tmin = Math.floor((mid - 7.5) / 5) * 5; tmax = tmin + 15; }
   const tRange = tmax - tmin;
   const tempDotY = TEMP_padT + (1 - (d.temps[idx] - tmin) / tRange) * TEMP_ch;
 
   // — Wind row —
-  const WIND_H = 110, WIND_padT = 6;
+  const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH = WIND_H - WIND_padT;
   const safeGusts = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
   const maxW = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
   const windDotY = WIND_padT + (1 - d.winds[idx] / maxW) * WIND_chartH;
 
   // dot config per canvas: null = no dot
-  const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-wind': windDotY };
+  const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
 
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
@@ -1262,6 +1390,8 @@ function showTooltip(idx) {
   const tp90 = d.ensTemp ? d.ensTemp.p90[idx] : null;
   const wp10 = d.ensWind   ? d.ensWind.p10[idx]   : null;
   const wp90 = d.ensWind   ? d.ensWind.p90[idx]   : null;
+  const gp10 = d.ensGust   ? d.ensGust.p10[idx]   : null;
+  const gp90 = d.ensGust   ? d.ensGust.p90[idx]   : null;
   const pp10 = d.ensPrecip ? d.ensPrecip.p10[idx] : null;
   const pp90 = d.ensPrecip ? d.ensPrecip.p90[idx] : null;
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
@@ -1270,6 +1400,9 @@ function showTooltip(idx) {
     : '';
   const windUncRow  = (wp10 != null && wp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#aaa;font-size:10px">${fmt(wp10,false)} → ${fmt(wp90,false)}</span></div>`
+    : '';
+  const gustUncRow  = (gp10 != null && gp90 != null)
+    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#cc9966;font-size:10px">${fmt(gp10,false)} → ${fmt(gp90,false)}</span></div>`
     : '';
   const precipUncRow = (pp10 != null && pp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#6aaee8;font-size:10px">${pp10.toFixed(1)} → ${pp90.toFixed(1)} mm</span></div>`
@@ -1288,10 +1421,18 @@ function showTooltip(idx) {
   };
   const desc = WMO_DESC[code] || 'Ukendt';
 
+  const kiteRow = isKiteOptimal(wind, dir, d.times[idx])
+    ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurf-vind</div>`
+    : '';
+
   tip.innerHTML = `
     <div class="tt-time">${day} kl. ${h}:00</div>
+    ${kiteRow}
     <div class="tt-row" style="margin-bottom:4px;align-items:center;">
-      <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;flex:0 0 32px;"></canvas>
+      <div style="position:relative;flex:0 0 32px;width:32px;height:32px;">
+        <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;"></canvas>
+        ${isKiteOptimal(wind, dir, d.times[idx]) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
+      </div>
       <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
     </div>
     <div class="tt-row">
@@ -1313,6 +1454,7 @@ function showTooltip(idx) {
       <span class="tt-label">Vindstød</span>
       <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
     </div>
+    ${gustUncRow}
     <div class="tt-row">
       <span class="tt-label">Retning</span>
       <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
@@ -1552,7 +1694,7 @@ if ('serviceWorker' in navigator) {
 
   async function loadRadar(lat, lon) {
     try {
-      const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+      const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' });
       if (!r.ok) return;
       const data = await r.json();
       const past    = data.radar?.past    || [];
