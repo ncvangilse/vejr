@@ -278,6 +278,10 @@
       if (!radarFrames.length) return;
 
       document.getElementById('radar-section').style.display = 'flex';
+
+      // initMap must run after the section is visible so Leaflet can
+      // measure the container dimensions correctly on first init.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       initMap(lat, lon);
 
       clearTimeout(playTimeout);
@@ -291,11 +295,9 @@
       radarIdx   = past.length - 1;
       updateLabel(radarIdx);
 
-      setTimeout(() => {
-        radarMap.invalidateSize();
-        autoStartOnFirstCommit = true;
-        stageFrame(radarIdx, true);
-      }, 50);
+      radarMap.invalidateSize();
+      autoStartOnFirstCommit = true;
+      stageFrame(radarIdx, true);
 
     } catch (e) {
       console.warn('Radar load failed', e);
@@ -312,4 +314,6 @@
 
   window.loadRadar = loadRadar;
 })();
+
+
 
