@@ -1718,6 +1718,9 @@ if ('serviceWorker' in navigator) {
   const DATE_KEY    = 'rvTileDate';
   const LIMIT       = 1000;
 
+  // De-duplicate tile URLs so browser-cached tiles don't re-increment the counter
+  const _seenTiles = new Set();
+
   function todayStr() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -1731,7 +1734,9 @@ if ('serviceWorker' in navigator) {
     return parseInt(localStorage.getItem(COUNTER_KEY) || '0', 10);
   }
 
-  function bumpCount() {
+  function bumpCountIfNew(url) {
+    if (_seenTiles.has(url)) return; // already counted this session
+    _seenTiles.add(url);
     const n = getCount() + 1;
     localStorage.setItem(COUNTER_KEY, String(n));
     updateCounterDisplay(n);
@@ -1775,22 +1780,67 @@ if ('serviceWorker' in navigator) {
     }, 60000);
   }
 
+  // ── Safe tile layer: guards _tileOnError against removed tiles ──────────────
+  const SafeTileLayer = L.TileLayer.extend({
+    // Override so a removed tile never crashes Leaflet's error handler
+    _tileOnError(done, tile, e) {
+      if (!tile || !tile.el) return;
+      try { L.TileLayer.prototype._tileOnError.call(this, done, tile, e); }
+      catch (_) { /* tile was removed while loading */ }
+    },
+  });
+
+  // ── Probe a single tile URL to detect 429 (img tags hide the HTTP status) ──
+  let _probing = false;
+  let _everLoadedTile = false; // set to true once any tile loads successfully
+  function probe429(url) {
+    if (_probing || rateLimited) return;
+    _probing = true;
+    fetch(url, { cache: 'no-store', mode: 'cors' })
+      .then(r => {
+        _probing = false;
+        if (r.status === 429) setRateLimited();
+        // other status → not rate limited (maybe transient error)
+      })
+      .catch(() => {
+        _probing = false;
+        // fetch failed entirely — RainViewer omits CORS headers on 429 responses,
+        // causing a network error in CORS mode. Only treat as 429 if we've
+        // successfully loaded tiles before (i.e., not just an offline situation).
+        if (_everLoadedTile) setRateLimited();
+      });
+  }
+
   // ── Create a tile layer, fire onReady() when all viewport tiles loaded ──────
-  function makeLayer(frame, opacity, onReady, counted) {
-    const l = L.tileLayer(frameUrl(frame), {
+  function makeLayer(frame, opacity, onReady) {
+    const l = new SafeTileLayer(frameUrl(frame), {
       opacity, tileSize: 256, maxZoom: 10,
       keepBuffer: 0, updateWhenIdle: true,
     });
-    let pending = 0;
-    let errors  = 0;
-    l.on('tileloadstart', () => { pending++; if (counted) bumpCount(); });
-    l.on('tileload', () => {
-      errors = 0; // successful load resets error streak
+    let pending  = 0;
+    let errors   = 0;
+    let probeUrl = null;
+    l.on('tileloadstart', (e) => {
+      pending++;
+      // Save one concrete tile URL for probing in case of errors
+      if (!probeUrl && e.coords) {
+        try { probeUrl = l.getTileUrl(e.coords); } catch (_) {}
+      }
+    });
+    l.on('tileload', (e) => {
+      errors = 0;
+      _everLoadedTile = true;
+      // Count only unique tile URLs — strips query params to avoid counting
+      // the same tile twice due to cache-busting params (e.g. live-reload)
+      if (e.tile && e.tile.src) {
+        const cleanUrl = e.tile.src.split('?')[0];
+        bumpCountIfNew(cleanUrl);
+      }
       if (--pending === 0 && onReady) { onReady(); onReady = null; }
     });
-    l.on('tileerror', () => {
+    l.on('tileerror', (e) => {
       errors++;
-      if (errors >= 3) setRateLimited(); // 3+ consecutive errors → assume 429
+      if (errors === 3 && probeUrl) probe429(probeUrl);
       if (--pending === 0 && onReady) { onReady(); onReady = null; }
     });
     return l;
@@ -1890,7 +1940,7 @@ if ('serviceWorker' in navigator) {
     stagingLayer = makeLayer(radarFrames[idx], 0, () => {
       stagingReady = true;
       if (urgent && stagingIdx === idx) commitStaged();
-    }, urgent); // only count tiles for frames we're about to show
+    });
     stagingLayer.addTo(radarMap);
   }
 

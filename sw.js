@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-%%BUILD_NUMBER%%-2';
+const CACHE_NAME = 'vejr-%%BUILD_NUMBER%%-3';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
