@@ -624,8 +624,8 @@ canvas.main-canvas {
 
     <div class="kite-field">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-        <input type="checkbox" id="kite-daylight-input" style="width:15px;height:15px;accent-color:#00c890;cursor:pointer;">
-        KUN DAGSLYS (ingen nat-timer)
+        <input type="checkbox" id="kite-at-night-input" style="width:15px;height:15px;accent-color:#00c890;cursor:pointer;">
+        TILLAD NAT-TIMER (kite_at_night)
       </label>
     </div>
 
@@ -680,7 +680,7 @@ function parseKiteParams() {
   if (p.has('kite_max'))     cfg.max     = parseFloat(p.get('kite_max'))  || cfg.max;
   if (p.has('kite_dirs'))    cfg.dirs    = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v));
   if (p.has('kite_tol'))     cfg.tol     = parseFloat(p.get('kite_tol'))  ?? cfg.tol;
-  if (p.has('kite_daylight')) cfg.daylight = p.get('kite_daylight') !== '0';
+  if (p.has('kite_at_night')) cfg.daylight = p.get('kite_at_night') !== '0' ? false : true;
   return cfg;
 }
 
@@ -696,8 +696,8 @@ function setKiteParams(cfg) {
   const defDirs = def.dirs.slice().sort((a,b)=>a-b).join(',');
   if (dirsStr !== defDirs) url.searchParams.set('kite_dirs', dirsStr); else url.searchParams.delete('kite_dirs');
   if (cfg.tol  !== def.tol)  url.searchParams.set('kite_tol',  cfg.tol);  else url.searchParams.delete('kite_tol');
-  if (cfg.daylight !== def.daylight) url.searchParams.set('kite_daylight', cfg.daylight ? '1' : '0');
-  else url.searchParams.delete('kite_daylight');
+  if (cfg.daylight !== def.daylight) url.searchParams.set('kite_at_night', '1');
+  else url.searchParams.delete('kite_at_night');
   window.history.replaceState(null, '', url.toString());
 }
 
@@ -1789,7 +1789,7 @@ function getModel() { return document.getElementById('model-select').value; }
   const minInput      = document.getElementById('kite-min-input');
   const maxInput      = document.getElementById('kite-max-input');
   const tolInput      = document.getElementById('kite-tol-input');
-  const daylightInput = document.getElementById('kite-daylight-input');
+  const daylightInput = document.getElementById('kite-at-night-input');
   const dirGrid       = document.getElementById('kite-dir-grid');
   const applyBtn      = document.getElementById('kite-modal-apply');
   const cancelBtn     = document.getElementById('kite-modal-cancel');
@@ -1810,7 +1810,7 @@ function getModel() { return document.getElementById('model-select').value; }
     minInput.value      = cfg.min;
     maxInput.value      = cfg.max;
     tolInput.value      = cfg.tol;
-    daylightInput.checked = cfg.daylight;
+    daylightInput.checked = !cfg.daylight;
     dirGrid.querySelectorAll('.kite-dir-btn').forEach(btn => {
       btn.classList.toggle('active', cfg.dirs.includes(+btn.dataset.deg));
     });
@@ -1823,7 +1823,7 @@ function getModel() { return document.getElementById('model-select').value; }
       max:     parseFloat(maxInput.value) || KITE_DEFAULTS.max,
       dirs:    dirs.length ? dirs : KITE_DEFAULTS.dirs,
       tol:     parseFloat(tolInput.value) ?? KITE_DEFAULTS.tol,
-      daylight: daylightInput.checked,
+      daylight: !daylightInput.checked,
     };
   }
 
