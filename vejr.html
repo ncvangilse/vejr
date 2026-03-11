@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="da">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Vejrudsigt</title>
+<title>Weather Forecast</title>
 <link rel="icon" href="favicon.ico">
 
 <!-- PWA / Add to Home Screen -->
@@ -21,7 +21,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Vejr">
+<meta name="apple-mobile-web-app-title" content="Weather">
 <meta name="theme-color" content="#003c8f">
 
 <!-- iOS home screen icons -->
@@ -490,25 +490,25 @@ canvas.main-canvas {
 <div id="hover-tooltip"></div>
 
 <div id="search-bar">
-  <input id="city-input" type="text" placeholder="Skriv en by, fx København, Aarhus, Oslo, London…"/>
+  <input id="city-input" type="text" placeholder="Enter a city, e.g. Copenhagen, London, Paris, Oslo…"/>
   <select id="model-select">
-    <option value="best_match">Bedste match (auto)</option>
+    <option value="best_match">Best match (auto)</option>
     <option value="dmi_seamless" selected>DMI HARMONIE</option>
     <option value="icon_seamless">DWD ICON</option>
     <option value="ecmwf_ifs025">ECMWF IFS</option>
     <option value="meteofrance_seamless">Météo-France</option>
     <option value="gfs_seamless">NOAA GFS</option>
   </select>
-  <button id="search-btn">Vis vejr</button>
-  <button id="kite-cfg-btn" title="Kitesurf-indstillinger">⚙ 🪁</button>
+  <button id="search-btn">Show weather</button>
+  <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
 </div>
 
 <div id="forecast-container">
-  <div id="loading">Henter vejrdata…</div>
+  <div id="loading">Loading weather data…</div>
   <div id="error-msg">
-    <strong>Netværket er blokeret i denne forhåndsvisning.</strong><br>
-    Download filen og åbn den i din browser — så virker alle byer i verden.<br>
-    <small style="color:#a44">Offline fallback: prøv København, Aarhus, Oslo, Stockholm, Berlin, London, Paris…</small>
+    <strong>The network is blocked in this preview.</strong><br>
+    Download the file and open it in your browser — then all cities in the world will work.<br>
+    <small style="color:#a44">Offline fallback: try Copenhagen, Aarhus, Oslo, Stockholm, Berlin, London, Paris…</small>
   </div>
 
   <div id="forecast-content" style="display:none">
@@ -519,7 +519,7 @@ canvas.main-canvas {
       </div>
       <div id="header-right">
         <div id="updated-text">—</div>
-        <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: henter…</div>
+        <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
       </div>
     </div>
 
@@ -572,19 +572,19 @@ canvas.main-canvas {
 <!-- ── RainViewer Radar ─────────────────────────────────────────────── -->
 <div id="radar-section">
   <div id="radar-header">
-    <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – nedbør</span>
-    <span id="radar-tile-counter" title="Tile-forespørgsler i dag (max ~1000)">0 / 1000 tiles</span>
+    <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – precipitation</span>
+    <span id="radar-tile-counter" title="Tile requests today (max ~1000)">0 / 1000 tiles</span>
     <span id="radar-source-label">RainViewer</span>
   </div>
   <div id="radar-map">
-    <div id="radar-loading">Indlæser radar…</div>
+    <div id="radar-loading">Loading radar…</div>
   </div>
   <div id="radar-controls">
-    <button id="radar-play-btn">▶ Afspil</button>
+    <button id="radar-play-btn">▶ Play</button>
     <input id="radar-slider" type="range" min="0" value="0" step="1">
     <div id="radar-time-label">—</div>
-    <button class="radar-zoom-btn" id="radar-zoom-in"  title="Zoom ind">+</button>
-    <button class="radar-zoom-btn" id="radar-zoom-out" title="Zoom ud">−</button>
+    <button class="radar-zoom-btn" id="radar-zoom-in"  title="Zoom in">+</button>
+    <button class="radar-zoom-btn" id="radar-zoom-out" title="Zoom out">−</button>
   </div>
 </div>
 
@@ -595,10 +595,10 @@ canvas.main-canvas {
 <!-- ── Kite config modal (outside #rotator so position:fixed works) ──────── -->
 <div id="kite-modal-overlay">
   <div id="kite-modal">
-    <h2>🪁 Kitesurf-grænser</h2>
+    <h2>🪁 Kitesurfing limits</h2>
 
     <div class="kite-field">
-      <label>VINDHASTIGHED (m/s)</label>
+      <label>WIND SPEED (m/s)</label>
       <div class="kite-field-row">
         <input type="number" id="kite-min-input" min="0" max="50" step="0.5">
         <span class="kite-field-unit">min</span>
@@ -608,14 +608,14 @@ canvas.main-canvas {
     </div>
 
     <div class="kite-field">
-      <label>VINDRETNING (tilladt) — vælg én eller flere</label>
+      <label>WIND DIRECTION (allowed) — select one or more</label>
       <div class="kite-dir-grid" id="kite-dir-grid">
         <!-- filled by JS -->
       </div>
     </div>
 
     <div class="kite-field">
-      <label>RETNINGS-TOLERANCE (± grader)</label>
+      <label>DIRECTION TOLERANCE (± degrees)</label>
       <div class="kite-field-row">
         <input type="number" id="kite-tol-input" min="0" max="90" step="5">
         <span class="kite-field-unit">°</span>
@@ -625,14 +625,14 @@ canvas.main-canvas {
     <div class="kite-field">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
         <input type="checkbox" id="kite-at-night-input" style="width:15px;height:15px;accent-color:#00c890;cursor:pointer;">
-        TILLAD NAT-TIMER (kite_at_night)
+        ALLOW NIGHT HOURS (kite_at_night)
       </label>
     </div>
 
     <div class="kite-modal-actions">
-      <button id="kite-modal-reset">Nulstil</button>
-      <button id="kite-modal-cancel">Annuller</button>
-      <button id="kite-modal-apply">Anvend</button>
+      <button id="kite-modal-reset">Reset</button>
+      <button id="kite-modal-cancel">Cancel</button>
+      <button id="kite-modal-apply">Apply</button>
     </div>
   </div>
 </div>
@@ -644,10 +644,10 @@ canvas.main-canvas {
 ══════════════════════════════════════════════════ */
 const FORECAST_DAYS = 7;
 const STEP = 3; // every 3 hours
-const DA_DAYS  = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
-const DA_DAYS3 = ['søn','man','tir','ons','tor','fre','lør'];
+const DA_DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DA_DAYS3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-const DA_MON   = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+const DA_MON   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 /* ══════════════════════════════════════════════════
    KITE CONFIG  (read from URL, defaults if absent)
@@ -664,13 +664,13 @@ const KITE_DEFAULTS = {
 // Direction preset options shown in the dialog
 const DIR_PRESETS = [
   { label: 'N',  deg: 0   },
-  { label: 'NØ', deg: 45  },
-  { label: 'Ø',  deg: 90  },
-  { label: 'SØ', deg: 135 },
+  { label: 'NE', deg: 45  },
+  { label: 'E',  deg: 90  },
+  { label: 'SE', deg: 135 },
   { label: 'S',  deg: 180 },
-  { label: 'SV', deg: 225 },
-  { label: 'V',  deg: 270 },
-  { label: 'NV', deg: 315 },
+  { label: 'SW', deg: 225 },
+  { label: 'W',  deg: 270 },
+  { label: 'NW', deg: 315 },
 ];
 
 function parseKiteParams() {
@@ -707,7 +707,7 @@ function setKiteParams(cfg) {
 async function geocode(city) {
   const enc = encodeURIComponent(city);
   try {
-    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${enc}&count=1&language=da&format=json`);
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${enc}&count=1&language=en&format=json`);
     if (r.ok) {
       const d = await r.json();
       if (d.results?.length) {
@@ -718,7 +718,7 @@ async function geocode(city) {
   } catch(e){}
 
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${enc}&format=json&limit=1&addressdetails=1`, {headers:{'Accept-Language':'da,en'}});
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${enc}&format=json&limit=1&addressdetails=1`, {headers:{'Accept-Language':'en'}});
     if (r.ok) {
       const d = await r.json();
       if (d.length) {
@@ -729,8 +729,8 @@ async function geocode(city) {
     }
   } catch(e){}
   const FB = {
-    'kobenhavn':{name:'København',latitude:55.6761,longitude:12.5683,country_code:'DK'},
-    'copenhagen':{name:'København',latitude:55.6761,longitude:12.5683,country_code:'DK'},
+    'kobenhavn':{name:'Copenhagen',latitude:55.6761,longitude:12.5683,country_code:'DK'},
+    'copenhagen':{name:'Copenhagen',latitude:55.6761,longitude:12.5683,country_code:'DK'},
     'aarhus':{name:'Aarhus',latitude:56.1629,longitude:10.2039,country_code:'DK'},
     'odense':{name:'Odense',latitude:55.4038,longitude:10.4024,country_code:'DK'},
     'aalborg':{name:'Aalborg',latitude:57.0488,longitude:9.9217,country_code:'DK'},
@@ -1109,7 +1109,7 @@ function windColorStr(ms, alphaOverride) {
 
 // Compass label from degrees
 function degToCompass(d){
-  const pts=['N','NØ','Ø','SØ','S','SV','V','NV'];
+  const pts=['N','NE','E','SE','S','SW','W','NW'];
   return pts[Math.round(d/45)%8];
 }
 
@@ -1391,8 +1391,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
     // Mark the kite-optimal speed range on the axis
     if (v === KITE_CFG.max || v === KITE_CFG.min) {
       sp.style.color = '#00c8a0';
-      sp.title = v === KITE_CFG.max ? `Kite max ${KITE_CFG.max} m/s` : `Kite min ${KITE_CFG.min} m/s`;
-    }
+      sp.title = v === KITE_CFG.max ? `Kite max ${KITE_CFG.max} m/s` : `Kite min ${KITE_CFG.min} m/s`;    }
     ax.appendChild(sp);
   });
 }
@@ -1508,7 +1507,7 @@ async function load(cityName, model) {
       ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
       ensStatus.style.color = '#5a9';
     } else {
-      ensStatus.textContent = `${modelLabel} — ensemble ikke tilgængeligt`;
+      ensStatus.textContent = `${modelLabel} — ensemble not available`;
       ensStatus.style.color = '#a77';
     }
 
@@ -1516,10 +1515,10 @@ async function load(cityName, model) {
       loc.name+(loc.country_code?', '+loc.country_code:'');
     const t0=new Date(times[0]),t1=new Date(times[times.length-1]);
     document.getElementById('subtitle').textContent =
-      `Udsigt fra ${DA_DAYS3[t0.getDay()]} kl. ${t0.getHours()} til ${DA_DAYS3[t1.getDay()]} kl. ${t1.getHours()}`;
+      `Forecast from ${DA_DAYS3[t0.getDay()]} at ${t0.getHours()}:00 to ${DA_DAYS3[t1.getDay()]} at ${t1.getHours()}:00`;
     const now=new Date();
     document.getElementById('updated-text').textContent =
-      `Opdateret ${now.getDate()}. ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
+      `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
 
     document.getElementById('loading').style.display='none';
     document.getElementById('forecast-content').style.display='block';
@@ -1675,23 +1674,23 @@ function showTooltip(idx) {
 
   // weather description from WMO code
   const WMO_DESC = {
-    0:'Klart',1:'Overvejende klart',2:'Delvist skyet',3:'Overskyet',
-    45:'Tåge',48:'Rimtåge',
-    51:'Let støvregn',53:'Støvregn',55:'Tæt støvregn',
-    61:'Let regn',63:'Regn',65:'Kraftig regn',
-    71:'Let sne',73:'Sne',75:'Kraftig sne',77:'Kornhagl',
-    80:'Regnbyger',81:'Kraftige regnbyger',82:'Voldsomme regnbyger',
-    85:'Snebyger',86:'Kraftige snebyger',
-    95:'Tordenvejr',96:'Tordenvejr m. hagl',99:'Tordenvejr m. kraftigt hagl',
+    0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',
+    45:'Fog',48:'Rime fog',
+    51:'Light drizzle',53:'Drizzle',55:'Dense drizzle',
+    61:'Light rain',63:'Rain',65:'Heavy rain',
+    71:'Light snow',73:'Snow',75:'Heavy snow',77:'Snow grains',
+    80:'Rain showers',81:'Heavy rain showers',82:'Violent rain showers',
+    85:'Snow showers',86:'Heavy snow showers',
+    95:'Thunderstorm',96:'Thunderstorm w/ hail',99:'Thunderstorm w/ heavy hail',
   };
-  const desc = WMO_DESC[code] || 'Ukendt';
+  const desc = WMO_DESC[code] || 'Unknown';
 
   const kiteRow = isKiteOptimal(wind, dir, d.times[idx])
-    ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurf-vind</div>`
+    ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>`
     : '';
 
   tip.innerHTML = `
-    <div class="tt-time">${day} kl. ${h}:00</div>
+    <div class="tt-time">${day} at ${h}:00</div>
     ${kiteRow}
     <div class="tt-row" style="margin-bottom:4px;align-items:center;">
       <div style="position:relative;flex:0 0 32px;width:32px;height:32px;">
@@ -1706,22 +1705,22 @@ function showTooltip(idx) {
     </div>
     ${tempUncRow}
     <div class="tt-row">
-      <span class="tt-label">Nedbør</span>
+      <span class="tt-label">Precip</span>
       <span class="tt-val" style="color:#4466aa">${prec.toFixed(1)} mm</span>
     </div>
     ${precipUncRow}
     <div class="tt-row">
-      <span class="tt-label">Vind</span>
+      <span class="tt-label">Wind</span>
       <span class="tt-val" style="color:${windCol}">${wind.toFixed(1)} m/s</span>
     </div>
     ${windUncRow}
     <div class="tt-row">
-      <span class="tt-label">Vindstød</span>
+      <span class="tt-label">Gusts</span>
       <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
     </div>
     ${gustUncRow}
     <div class="tt-row">
-      <span class="tt-label">Retning</span>
+      <span class="tt-label">Direction</span>
       <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
     </div>`;
 
@@ -1871,7 +1870,7 @@ function setLoadingMsg(msg) {
 
 async function loadByCoords(lat, lon, model) {
   model = model || getModel();
-  setLoadingMsg('Henter din placering…');
+  setLoadingMsg('Fetching your location…');
   document.getElementById('loading').style.display = 'block';
   document.getElementById('forecast-content').style.display = 'none';
   document.getElementById('error-msg').style.display = 'none';
@@ -1880,7 +1879,7 @@ async function loadByCoords(lat, lon, model) {
   try {
     const r = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
-      { headers: { 'Accept-Language': 'da,en' } }
+      { headers: { 'Accept-Language': 'en' } }
     );
     if (r.ok) {
       const d = await r.json();
@@ -1899,7 +1898,7 @@ async function tryGeolocation(model) {
     await load('Bogø', model);
     return;
   }
-  setLoadingMsg('Finder din placering…');
+  setLoadingMsg('Finding your location…');
   document.getElementById('loading').style.display = 'block';
   document.getElementById('forecast-content').style.display = 'none';
   document.getElementById('error-msg').style.display = 'none';
@@ -2062,7 +2061,7 @@ if ('serviceWorker' in navigator) {
     clearTimeout(playTimeout);
     // Show warning in counter
     const el = document.getElementById('radar-tile-counter');
-    if (el) { el.textContent = '429 – vent 60s'; el.className = 'limit'; }
+    if (el) { el.textContent = '429 – wait 60s'; el.className = 'limit'; }
     // Try again after 60s
     rateLimitTimer = setTimeout(() => {
       rateLimited = false;
@@ -2190,7 +2189,7 @@ if ('serviceWorker' in navigator) {
   function updateLabel(idx) {
     const d   = new Date(radarFrames[idx].time * 1000);
     const pad = n => String(n).padStart(2, '0');
-    timeLabel.textContent = `${d.getDate()}. ${DA_MON[d.getMonth()]} ${d.getHours()}:${pad(d.getMinutes())}`;
+    timeLabel.textContent = `${d.getDate()} ${DA_MON[d.getMonth()]} ${d.getHours()}:${pad(d.getMinutes())}`;
     slider.value = idx;
   }
 
@@ -2262,7 +2261,7 @@ if ('serviceWorker' in navigator) {
   // ── Play / pause ───────────────────────────────────────────────────────────
   function togglePlay() {
     radarPlaying = !radarPlaying;
-    playBtn.textContent = radarPlaying ? '⏸ Pause' : '▶ Afspil';
+    playBtn.textContent = radarPlaying ? '⏸ Pause' : '▶ Play';
     if (radarPlaying) {
       clearTimeout(playTimeout);
       advanceFrame();
@@ -2294,7 +2293,7 @@ if ('serviceWorker' in navigator) {
       // Tear down previous state
       clearTimeout(playTimeout);
       radarPlaying = false;
-      playBtn.textContent = '▶ Afspil';
+      playBtn.textContent = '▶ Play';
       if (currentLayer) { radarMap.removeLayer(currentLayer); currentLayer = null; }
       if (stagingLayer) { radarMap.removeLayer(stagingLayer); stagingLayer = null; }
       stagingIdx = -1; stagingReady = false;

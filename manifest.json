@@ -1,7 +1,7 @@
 {
-  "name": "Vejrudsigt",
-  "short_name": "Vejr",
-  "description": "Dansk vejrudsigt baseret på DMI data",
+  "name": "Weather Forecast",
+  "short_name": "Weather",
+  "description": "Weather forecast based on DMI data",
   "start_url": "/vejr/vejr.html",
   "scope": "/vejr/",
   "display": "standalone",
