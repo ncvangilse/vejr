@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Vejrudsigt</title>
 <link rel="icon" href="favicon.ico">
 
@@ -113,6 +116,8 @@ body {
   outline: none;
   cursor: pointer;
   white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
 }
 #model-select:focus { border-color: #003c8f; }
 
@@ -352,6 +357,130 @@ canvas.main-canvas {
 }
 .radar-zoom-btn:hover { background: #0051c4; }
 
+/* ── Kite config button ── */
+#kite-cfg-btn {
+  padding: 8px 14px;
+  background: #1a4a2e;
+  color: #00e8b0;
+  border: 2px solid #00c890;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#kite-cfg-btn:hover { background: #225a38; }
+
+/* ── Kite config modal ── */
+#kite-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  background: rgba(0,0,0,0.55);
+  align-items: center;
+  justify-content: center;
+}
+#kite-modal-overlay.open { display: flex; }
+#kite-modal {
+  background: #1e2a38;
+  border: 1px solid #00c890;
+  border-radius: 6px;
+  padding: 18px 22px 16px;
+  min-width: 280px;
+  max-width: 360px;
+  width: 90vw;
+  color: #e8f5ef;
+  font-family: 'IBM Plex Sans', sans-serif;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+}
+#kite-modal h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #00e8b0;
+  letter-spacing: 0.4px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.kite-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.kite-field label {
+  font-size: 11px;
+  color: #8ab4d4;
+  letter-spacing: 0.3px;
+}
+.kite-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.kite-field input[type="number"] {
+  width: 70px;
+  padding: 5px 7px;
+  background: #141e2a;
+  border: 1px solid #336655;
+  color: #e8f5ef;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  border-radius: 3px;
+  outline: none;
+}
+.kite-field input[type="number"]:focus { border-color: #00c890; }
+.kite-field-unit { font-size: 11px; color: #5a8a7a; }
+.kite-dir-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-top: 4px;
+}
+.kite-dir-btn {
+  padding: 5px 2px;
+  background: #141e2a;
+  border: 1px solid #336655;
+  color: #8ab4d4;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+  text-align: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.kite-dir-btn.active {
+  background: rgba(0,200,160,0.22);
+  border-color: #00c890;
+  color: #00e8b0;
+}
+.kite-dir-btn:hover { border-color: #00c890; }
+.kite-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+.kite-modal-actions button {
+  padding: 7px 18px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+  border: none;
+}
+#kite-modal-cancel { background: #2a3a4a; color: #8ab4d4; }
+#kite-modal-cancel:hover { background: #334455; }
+#kite-modal-apply  { background: #006644; color: #00e8b0; }
+#kite-modal-apply:hover  { background: #007755; }
+#kite-modal-reset  { background: #1a2a38; color: #5a8a7a; border: 1px solid #336655; font-size:11px; padding: 7px 12px; }
+#kite-modal-reset:hover  { color: #8ab4d4; }
 
 </style>
 </head>
@@ -371,6 +500,7 @@ canvas.main-canvas {
     <option value="gfs_seamless">NOAA GFS</option>
   </select>
   <button id="search-btn">Vis vejr</button>
+  <button id="kite-cfg-btn" title="Kitesurf-indstillinger">⚙ 🪁</button>
 </div>
 
 <div id="forecast-container">
@@ -462,6 +592,51 @@ canvas.main-canvas {
 
 </div> <!-- #rotator -->
 
+<!-- ── Kite config modal (outside #rotator so position:fixed works) ──────── -->
+<div id="kite-modal-overlay">
+  <div id="kite-modal">
+    <h2>🪁 Kitesurf-grænser</h2>
+
+    <div class="kite-field">
+      <label>VINDHASTIGHED (m/s)</label>
+      <div class="kite-field-row">
+        <input type="number" id="kite-min-input" min="0" max="50" step="0.5">
+        <span class="kite-field-unit">min</span>
+        <input type="number" id="kite-max-input" min="0" max="50" step="0.5">
+        <span class="kite-field-unit">max</span>
+      </div>
+    </div>
+
+    <div class="kite-field">
+      <label>VINDRETNING (tilladt) — vælg én eller flere</label>
+      <div class="kite-dir-grid" id="kite-dir-grid">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <div class="kite-field">
+      <label>RETNINGS-TOLERANCE (± grader)</label>
+      <div class="kite-field-row">
+        <input type="number" id="kite-tol-input" min="0" max="90" step="5">
+        <span class="kite-field-unit">°</span>
+      </div>
+    </div>
+
+    <div class="kite-field">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="kite-daylight-input" style="width:15px;height:15px;accent-color:#00c890;cursor:pointer;">
+        KUN DAGSLYS (ingen nat-timer)
+      </label>
+    </div>
+
+    <div class="kite-modal-actions">
+      <button id="kite-modal-reset">Nulstil</button>
+      <button id="kite-modal-cancel">Annuller</button>
+      <button id="kite-modal-apply">Anvend</button>
+    </div>
+  </div>
+</div>
+
 <script src="weather-icons.js?v=12"></script>
 <script>
 /* ══════════════════════════════════════════════════
@@ -473,6 +648,58 @@ const DA_DAYS  = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lør
 const DA_DAYS3 = ['søn','man','tir','ons','tor','fre','lør'];
 
 const DA_MON   = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+
+/* ══════════════════════════════════════════════════
+   KITE CONFIG  (read from URL, defaults if absent)
+   URL params: kite_min, kite_max, kite_dirs (comma-separated degrees), kite_tol
+══════════════════════════════════════════════════ */
+const KITE_DEFAULTS = {
+  min:  7,
+  max:  9,
+  dirs: [90, 270],
+  tol:  22,
+  daylight: true,
+};
+
+// Direction preset options shown in the dialog
+const DIR_PRESETS = [
+  { label: 'N',  deg: 0   },
+  { label: 'NØ', deg: 45  },
+  { label: 'Ø',  deg: 90  },
+  { label: 'SØ', deg: 135 },
+  { label: 'S',  deg: 180 },
+  { label: 'SV', deg: 225 },
+  { label: 'V',  deg: 270 },
+  { label: 'NV', deg: 315 },
+];
+
+function parseKiteParams() {
+  const p = new URLSearchParams(window.location.search);
+  const cfg = { ...KITE_DEFAULTS };
+  if (p.has('kite_min'))     cfg.min     = parseFloat(p.get('kite_min'))  || cfg.min;
+  if (p.has('kite_max'))     cfg.max     = parseFloat(p.get('kite_max'))  || cfg.max;
+  if (p.has('kite_dirs'))    cfg.dirs    = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v));
+  if (p.has('kite_tol'))     cfg.tol     = parseFloat(p.get('kite_tol'))  ?? cfg.tol;
+  if (p.has('kite_daylight')) cfg.daylight = p.get('kite_daylight') !== '0';
+  return cfg;
+}
+
+let KITE_CFG = parseKiteParams();
+
+function setKiteParams(cfg) {
+  KITE_CFG = cfg;
+  const url = new URL(window.location.href);
+  const def = KITE_DEFAULTS;
+  if (cfg.min  !== def.min)  url.searchParams.set('kite_min',  cfg.min);  else url.searchParams.delete('kite_min');
+  if (cfg.max  !== def.max)  url.searchParams.set('kite_max',  cfg.max);  else url.searchParams.delete('kite_max');
+  const dirsStr = cfg.dirs.slice().sort((a,b)=>a-b).join(',');
+  const defDirs = def.dirs.slice().sort((a,b)=>a-b).join(',');
+  if (dirsStr !== defDirs) url.searchParams.set('kite_dirs', dirsStr); else url.searchParams.delete('kite_dirs');
+  if (cfg.tol  !== def.tol)  url.searchParams.set('kite_tol',  cfg.tol);  else url.searchParams.delete('kite_tol');
+  if (cfg.daylight !== def.daylight) url.searchParams.set('kite_daylight', cfg.daylight ? '1' : '0');
+  else url.searchParams.delete('kite_daylight');
+  window.history.replaceState(null, '', url.toString());
+}
 
 /* ══════════════════════════════════════════════════
    GEOCODING
@@ -920,16 +1147,19 @@ function drawWindArrow(ctx, cx, cy, deg, speed, size) {
 
 /* ══════════════════════════════════════════════════
    KITESURFING OPTIMAL WINDOW
-   Speed: 7–9 m/s  |  Direction: E (90°) or W (270°) ± 22°
+   Speed and direction are read from KITE_CFG (configurable via URL + dialog)
 ══════════════════════════════════════════════════ */
 function isKiteDir(deg) {
   // Normalise to 0–360
   const d = ((deg % 360) + 360) % 360;
-  // East band: 68°–112°  |  West band: 248°–292°
-  return (d >= 68 && d <= 112) || (d >= 248 && d <= 292);
+  return KITE_CFG.dirs.some(centre => {
+    const diff = Math.abs(((d - centre + 540) % 360) - 180);
+    return diff <= KITE_CFG.tol;
+  });
 }
 function isKiteOptimal(speed, deg, timeStr) {
-  return speed >= 7 && speed <= 9 && isKiteDir(deg) && !isNight(timeStr);
+  if (KITE_CFG.daylight && isNight(timeStr)) return false;
+  return speed >= KITE_CFG.min && speed <= KITE_CFG.max && isKiteDir(deg);
 }
 
 /* ══════════════════════════════════════════════════
@@ -1011,9 +1241,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   ctx.fillStyle = '#dde3eb';
   ctx.fillRect(0, cY, cssW, WIND_H);
 
-  // KITE OPTIMAL SPEED BAND — subtle horizontal stripe for 7–9 m/s
-  const yKiteTop = wy(9);
-  const yKiteBot = wy(7);
+  // KITE OPTIMAL SPEED BAND — subtle horizontal stripe for kite min/max
+  const yKiteTop = wy(KITE_CFG.max);
+  const yKiteBot = wy(KITE_CFG.min);
   ctx.fillStyle = 'rgba(0,200,160,0.13)';
   ctx.fillRect(0, yKiteTop, cssW, yKiteBot - yKiteTop);
   // thin border lines at 7 and 9 m/s
@@ -1159,9 +1389,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
     sp.style.color = windColorStr(v);
     sp.style.fontWeight = '600';
     // Mark the kite-optimal speed range on the axis
-    if (v === 9 || v === 7) {
+    if (v === KITE_CFG.max || v === KITE_CFG.min) {
       sp.style.color = '#00c8a0';
-      sp.title = v === 9 ? 'Kite max 9 m/s' : 'Kite min 7 m/s';
+      sp.title = v === KITE_CFG.max ? `Kite max ${KITE_CFG.max} m/s` : `Kite min ${KITE_CFG.min} m/s`;
     }
     ax.appendChild(sp);
   });
@@ -1551,6 +1781,69 @@ attachHoverListeners();
 
 function getModel() { return document.getElementById('model-select').value; }
 
+/* ══════════════════════════════════════════════════
+   KITE CONFIG DIALOG
+══════════════════════════════════════════════════ */
+(function () {
+  const overlay       = document.getElementById('kite-modal-overlay');
+  const minInput      = document.getElementById('kite-min-input');
+  const maxInput      = document.getElementById('kite-max-input');
+  const tolInput      = document.getElementById('kite-tol-input');
+  const daylightInput = document.getElementById('kite-daylight-input');
+  const dirGrid       = document.getElementById('kite-dir-grid');
+  const applyBtn      = document.getElementById('kite-modal-apply');
+  const cancelBtn     = document.getElementById('kite-modal-cancel');
+  const resetBtn      = document.getElementById('kite-modal-reset');
+  const cfgBtn        = document.getElementById('kite-cfg-btn');
+
+  // Build direction toggle buttons
+  DIR_PRESETS.forEach(({ label, deg }) => {
+    const btn = document.createElement('button');
+    btn.className = 'kite-dir-btn';
+    btn.dataset.deg = deg;
+    btn.textContent = label;
+    btn.addEventListener('click', () => btn.classList.toggle('active'));
+    dirGrid.appendChild(btn);
+  });
+
+  function syncDialogToConfig(cfg) {
+    minInput.value      = cfg.min;
+    maxInput.value      = cfg.max;
+    tolInput.value      = cfg.tol;
+    daylightInput.checked = cfg.daylight;
+    dirGrid.querySelectorAll('.kite-dir-btn').forEach(btn => {
+      btn.classList.toggle('active', cfg.dirs.includes(+btn.dataset.deg));
+    });
+  }
+
+  function readDialogConfig() {
+    const dirs = [...dirGrid.querySelectorAll('.kite-dir-btn.active')].map(b => +b.dataset.deg);
+    return {
+      min:     parseFloat(minInput.value) || KITE_DEFAULTS.min,
+      max:     parseFloat(maxInput.value) || KITE_DEFAULTS.max,
+      dirs:    dirs.length ? dirs : KITE_DEFAULTS.dirs,
+      tol:     parseFloat(tolInput.value) ?? KITE_DEFAULTS.tol,
+      daylight: daylightInput.checked,
+    };
+  }
+
+  cfgBtn.addEventListener('click', () => {
+    syncDialogToConfig(KITE_CFG);
+    overlay.classList.add('open');
+  });
+
+  cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+
+  resetBtn.addEventListener('click', () => syncDialogToConfig(KITE_DEFAULTS));
+
+  applyBtn.addEventListener('click', () => {
+    const cfg = readDialogConfig();
+    setKiteParams(cfg);
+    overlay.classList.remove('open');
+    if (lastData) renderAll(lastData);
+  });
+})();
 /* ══════════════════════════════════════════════════
    URL ↔ search-bar synchronisation
    ?q=CityName  keeps the location bookmarkable/shareable.
