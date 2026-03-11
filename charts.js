@@ -412,11 +412,11 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   const colW=cssW/n;
   const divs=dayDivs(times);
 
-  // Defensive clamp: gusts must always be >= mean wind (bad API data can violate this)
-  const safeGusts = gusts.map((g, i) => Math.max(g, winds[i]));
+  // Defensive clamp: gusts must always be >= mean wind (bad API data or null tail can violate this)
+  const safeGusts = gusts.map((g, i) => (g != null && isFinite(g)) ? Math.max(g, winds[i]) : winds[i]);
 
   // Include ensemble gust p90 in the y-axis ceiling so the band never clips
-  const ensGustP90Max = ensGust ? Math.max(...ensGust.p90.filter(v => v != null)) : 0;
+  const ensGustP90Max = ensGust ? Math.max(...ensGust.p90.filter(v => v != null && v !== undefined)) : 0;
 
   const cY      = 0;
   const KITE_H  = 24;          // reserved strip at the top for kite icons
@@ -470,16 +470,49 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
   });
 
-  // ENSEMBLE GUST UNCERTAINTY BAND
+  // ENSEMBLE GUST UNCERTAINTY BAND — spans full 7 days, clipped to the gust fill area.
   if (ensGust) {
-    const gpts90 = ensGust.p90.map((v,i) => v != null ? {x: cx2(i), y: wy(Math.max(v, winds[i]))} : null).filter(Boolean);
-    const gpts10 = ensGust.p10.map((v,i) => v != null ? {x: cx2(i), y: wy(Math.max(v, winds[i]))} : null).filter(Boolean);
-    if (gpts90.length > 1 && gpts10.length > 1) {
+    // Find the last slot where the ensemble has real p90/p10 gust data.
+    const lastValidIdx = ensGust.p90.reduce((acc, v, i) => v != null ? i : acc, -1);
+
+    // Only draw if the ensemble genuinely provides gust spread (p90 meaningfully above safeGusts median).
+    const validP90 = ensGust.p90.filter(v => v != null);
+    const validP90avg = validP90.length ? validP90.reduce((a,b) => a+b,0) / validP90.length : 0;
+    const safeMid = safeGusts.slice(0, lastValidIdx + 1).reduce((a,b) => a+b, 0) / (lastValidIdx + 1 || 1);
+    const gustsAreReal = lastValidIdx >= 1 && validP90avg > safeMid + 0.3;
+
+    if (gustsAreReal) {
+      // Compute the average absolute spread (half-width) from the valid ensemble region.
+      // Use this to extend the band beyond the ensemble's data cutoff.
+      let sumSpread = 0, spreadCount = 0;
+      for (let i = 0; i <= lastValidIdx; i++) {
+        if (ensGust.p90[i] != null && ensGust.p10[i] != null) {
+          sumSpread += (ensGust.p90[i] - ensGust.p10[i]) / 2;
+          spreadCount++;
+        }
+      }
+      const avgHalfSpread = spreadCount ? sumSpread / spreadCount : 0;
+
+      // Build full-length p90/p10 arrays: ensemble data where available, deterministic ± spread beyond.
+      const allP90 = safeGusts.map((g, i) =>
+        (ensGust.p90[i] != null) ? Math.max(ensGust.p90[i], winds[i]) : g + avgHalfSpread
+      );
+      const allP10 = safeGusts.map((g, i) =>
+        (ensGust.p10[i] != null) ? Math.max(ensGust.p10[i], winds[i] * 0.5) : Math.max(g - avgHalfSpread, winds[i] * 0.5)
+      );
+
       ctx.save();
+      // Clip to the gust fill area so the band never spills above the gust line.
       ctx.beginPath();
-      ctx.moveTo(gpts90[0].x, gpts90[0].y);
-      gpts90.forEach(p => ctx.lineTo(p.x, p.y));
-      for (let i = gpts10.length - 1; i >= 0; i--) ctx.lineTo(gpts10[i].x, gpts10[i].y);
+      ctx.moveTo(cx2(0), base);
+      safeGusts.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
+      ctx.lineTo(cx2(n - 1), base);
+      ctx.closePath();
+      ctx.clip();
+      ctx.beginPath();
+      ctx.moveTo(cx2(0), wy(allP90[0]));
+      allP90.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
+      for (let i = allP10.length - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(allP10[i]));
       ctx.closePath();
       ctx.fillStyle = 'rgba(180,100,20,0.18)';
       ctx.fill();
@@ -510,11 +543,20 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   ctx.fill();
 
   // ENSEMBLE WIND SPEED UNCERTAINTY BAND
+  // Clip to the wind-fill area so the band doesn't darken the gust region above it,
+  // which would create a visible discontinuity where ensemble coverage ends (~day 5.5).
   if (ensWind) {
     const pts90 = ensWind.p90.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
     const pts10 = ensWind.p10.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
     if (pts90.length > 1 && pts10.length > 1) {
       ctx.save();
+      // Clip to the wind-speed filled area (between the wind line and the baseline)
+      ctx.beginPath();
+      ctx.moveTo(cx2(0), base);
+      winds.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
+      ctx.lineTo(cx2(n - 1), base);
+      ctx.closePath();
+      ctx.clip();
       ctx.beginPath();
       ctx.moveTo(pts90[0].x, pts90[0].y);
       pts90.forEach(p => ctx.lineTo(p.x, p.y));

@@ -40,9 +40,11 @@ async function load(cityName, model) {
     for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP){
       times.push(H.time[i]);
       temps.push(H.temperature_2m[i]);
-      precips.push(H.precipitation[i]);
-      gusts.push(H.windgusts_10m[i]);
+      precips.push(H.precipitation[i] ?? 0);
       winds.push(H.windspeed_10m[i]);
+      // Gusts can be null at the far end of some model runs; fall back to wind speed.
+      const rawGust = H.windgusts_10m[i];
+      gusts.push(rawGust != null ? rawGust : H.windspeed_10m[i]);
       dirs.push(H.winddirection_10m[i]);
       // Prefer ICON weathercode when DMI has shower but ICON says thunder
       const dmiCode  = H.weathercode[i];
@@ -76,15 +78,21 @@ async function load(cityName, model) {
       ensWind   = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
       ensGust   = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
       ensPrecip = ensemblePercentiles(ensData.hourly, 'precipitation');
-      // Replace deterministic lines with ensemble median (p50)
-      if (ensTemp   && ensTemp.p50.every(v => v != null))
-        for (let i = 0; i < temps.length;   i++) temps[i]   = ensTemp.p50[i];
-      if (ensWind   && ensWind.p50.every(v => v != null))
-        for (let i = 0; i < winds.length;   i++) winds[i]   = ensWind.p50[i];
-      if (ensGust   && ensGust.p50.every(v => v != null))
-        for (let i = 0; i < gusts.length;   i++) gusts[i]   = ensGust.p50[i];
-      if (ensPrecip && ensPrecip.p50.every(v => v != null))
-        for (let i = 0; i < precips.length; i++) precips[i] = ensPrecip.p50[i];
+      // Replace deterministic slots with ensemble median (p50) where available.
+      // Use slot-by-slot replacement so a null tail in the ensemble (far-future
+      // hours the model hasn't computed yet) doesn't discard the whole array.
+      if (ensTemp)
+        for (let i = 0; i < temps.length;   i++) { if (ensTemp.p50[i]   != null) temps[i]   = ensTemp.p50[i];   }
+      if (ensWind)
+        for (let i = 0; i < winds.length;   i++) { if (ensWind.p50[i]   != null) winds[i]   = ensWind.p50[i];   }
+      // Do NOT replace gusts with ensGust.p50: some ensemble models (e.g. ICON-EPS) return
+      // gusts == wind speed, which would make the gust area invisible. The deterministic gust
+      // from fetchWeather is available for all 7 days and is always the better source.
+      // ensGust is kept only for the p10/p90 uncertainty band drawn in drawWind.
+      if (ensPrecip)
+        for (let i = 0; i < precips.length; i++) { if (ensPrecip.p50[i] != null) precips[i] = ensPrecip.p50[i]; }
+      // Gusts must always be >= mean wind after ensemble wind p50 merge
+      for (let i = 0; i < gusts.length; i++) gusts[i] = Math.max(gusts[i], winds[i]);
       const memberCount = Object.keys(ensData.hourly).filter(k => k.startsWith('temperature_2m_member')).length;
       ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
       ensStatus.style.color = '#5a9';
@@ -139,7 +147,7 @@ function drawCrosshairs(fracX, idx) {
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH   = WIND_H - WIND_padT;
   const safeGusts     = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
-  const ensGustP90Max = d.ensGust ? Math.max(...d.ensGust.p90.filter(v => v != null)) : 0;
+  const ensGustP90Max = d.ensGust ? Math.max(...d.ensGust.p90.filter(v => v != null && v !== undefined)) : 0;
   const maxW          = Math.ceil(Math.max(...safeGusts, ensGustP90Max, 5) / 5) * 5;
   const windDotY      = WIND_padT + (1 - d.winds[idx] / maxW) * WIND_chartH;
   const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
@@ -208,8 +216,8 @@ function showTooltip(idx) {
   const tp90 = d.ensTemp   ? d.ensTemp.p90[idx]   : null;
   const wp10 = d.ensWind   ? d.ensWind.p10[idx]   : null;
   const wp90 = d.ensWind   ? d.ensWind.p90[idx]   : null;
-  const gp10 = d.ensGust   ? d.ensGust.p10[idx]   : null;
-  const gp90 = d.ensGust   ? d.ensGust.p90[idx]   : null;
+  const gp10 = d.ensGust   ? (d.ensGust.p10[idx]   ?? null) : null;
+  const gp90 = d.ensGust   ? (d.ensGust.p90[idx]   ?? null) : null;
   const pp10 = d.ensPrecip ? d.ensPrecip.p10[idx] : null;
   const pp90 = d.ensPrecip ? d.ensPrecip.p90[idx] : null;
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');

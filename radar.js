@@ -82,6 +82,10 @@
     return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/0_1.png`;
   }
 
+  // ── Load-generation counter: incremented on every loadRadar call ─────
+  // Any async callback that captured an older generation is silently dropped.
+  let loadGen = 0;
+
   // ── Rate-limit state ──────────────────────────────────────────────────
   let rateLimited    = false;
   let rateLimitTimer = null;
@@ -91,13 +95,16 @@
     rateLimited = true;
     dropStaging();
     clearTimeout(playTimeout);
+    clearTimeout(rateLimitTimer);
     const el = document.getElementById('radar-tile-counter');
     if (el) { el.textContent = '429 – wait 60s'; el.className = 'limit'; }
+    const genAtLimit = loadGen;
     rateLimitTimer = setTimeout(() => {
       rateLimited = false;
       const el2 = document.getElementById('radar-tile-counter');
       if (el2) updateCounterDisplay(getCount());
-      if (radarPlaying) goToFrame(radarIdx);
+      // Only resume if no newer loadRadar call has taken over.
+      if (radarPlaying && loadGen === genAtLimit) goToFrame(radarIdx);
     }, 60000);
   }
 
@@ -237,8 +244,11 @@
       return;
     }
     dropStaging();
-    stagingIdx   = idx;
+    stagingIdx = idx;
+    const genAtStage = loadGen;
     stagingLayer = makeLayer(radarFrames[idx], 0, () => {
+      // Discard if a newer loadRadar call has replaced the frame list.
+      if (loadGen !== genAtStage) return;
       stagingReady = true;
       if (urgent && stagingIdx === idx) commitStaged();
     });
@@ -268,20 +278,25 @@
 
   // ── Main load ─────────────────────────────────────────────────────────
   async function loadRadar(lat, lon) {
+    const myGen = ++loadGen;
     try {
       const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' });
+      if (myGen !== loadGen) return;  // superseded
       if (!r.ok) return;
       const data    = await r.json();
+      if (myGen !== loadGen) return;  // superseded
       const past    = data.radar?.past    || [];
       const nowcast = data.radar?.nowcast || [];
       radarFrames = [...past, ...nowcast];
       if (!radarFrames.length) return;
 
+      _seenTiles.clear();
       document.getElementById('radar-section').style.display = 'flex';
 
       // initMap must run after the section is visible so Leaflet can
       // measure the container dimensions correctly on first init.
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (myGen !== loadGen) return;  // superseded during rAF delay
       initMap(lat, lon);
 
       clearTimeout(playTimeout);

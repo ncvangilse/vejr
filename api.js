@@ -86,7 +86,9 @@ function ensemblePercentiles(H, varPrefix) {
 
   const p10 = [], p50 = [], p90 = [];
   const totalH = FORECAST_DAYS * 24;
-  for (let i = 0; i < Math.min(totalH, H[memberKeys[0]].length); i += STEP) {
+  // Use the longest member length as the bound so no data from any member is dropped.
+  const maxLen = Math.max(...memberKeys.map(k => H[k].length));
+  for (let i = 0; i < Math.min(totalH, maxLen); i += STEP) {
     const vals = memberKeys.map(k => H[k][i]).filter(v => v != null).sort((a,b) => a-b);
     if (!vals.length) { p10.push(null); p50.push(null); p90.push(null); continue; }
     p10.push(vals[Math.floor(vals.length * 0.10)]);
