@@ -432,17 +432,6 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   ctx.fillStyle = '#dde3eb';
   ctx.fillRect(0, cY, cssW, WIND_H);
 
-  // KITE OPTIMAL SPEED BAND
-  const yKiteTop = wy(KITE_CFG.max);
-  const yKiteBot = wy(KITE_CFG.min);
-  ctx.fillStyle = 'rgba(0,200,160,0.13)';
-  ctx.fillRect(0, yKiteTop, cssW, yKiteBot - yKiteTop);
-  ctx.strokeStyle = 'rgba(0,200,160,0.45)';
-  ctx.lineWidth = 0.75;
-  ctx.setLineDash([3, 3]);
-  ctx.beginPath(); ctx.moveTo(0, yKiteTop); ctx.lineTo(cssW, yKiteTop); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, yKiteBot); ctx.lineTo(cssW, yKiteBot); ctx.stroke();
-  ctx.setLineDash([]);
 
   // KITE OPTIMAL COLUMNS
   if (lastData) {
