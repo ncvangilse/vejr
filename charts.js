@@ -641,6 +641,20 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   _drawEnsBand(ctx, ensWind, cx2, wy, null, 'rgba(0,0,0,0.22)');
 
 
+  // --- wind fill (colour-mapped gradient below wind line) ---
+  if (n > 1) {
+    const grad = ctx.createLinearGradient(0, 0, cssW, 0);
+    winds.forEach((v, i) => grad.addColorStop(i / (n - 1), windColorStr(v, 0.72)));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(cx2(0), wy(winds[0]));
+    for (let i = 1; i < n; i++) ctx.lineTo(cx2(i), wy(winds[i]));
+    ctx.lineTo(cx2(n - 1), base);
+    ctx.lineTo(cx2(0), base);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   // --- wind line ---
   _drawWindLine(ctx, winds, cx2, wy, 'rgba(255,255,255,0.95)', 2);
 
