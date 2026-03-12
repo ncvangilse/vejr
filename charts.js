@@ -152,7 +152,7 @@ function drawTopRow(times, codes, precips) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const cssW   = wrap.clientWidth;
@@ -169,6 +169,14 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip) {
   const tRange=tmax-tmin;
   const ty=t=>padT+(1-(t-tmin)/tRange)*ch;
   const cx2=i=>(i+0.5)*colW;
+
+  // 3hr precip geometry
+  const pTimes = times3h || times;
+  const pPrecips = precips3h || precips;
+  const pEns = ensPrecip3h || ensPrecip;
+  const n3h  = pTimes.length;
+  const colW3h = cssW / n3h;
+  const cx2_3h = i => (i + 0.5) * colW3h;
 
   const divs=dayDivs(times);
   const levels=[]; for(let t=tmin;t<=tmax;t+=5) levels.push(t);
@@ -207,25 +215,25 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip) {
     }
   }
 
-  // precip bars
-  const maxP = Math.max(...precips, ensPrecip ? Math.max(...ensPrecip.p90.filter(v=>v!=null)) : 0, 2);
-  const bw = colW * 0.55;
+  // precip bars — drawn at 3hr resolution
+  const maxP = Math.max(...pPrecips, pEns ? Math.max(...pEns.p90.filter(v=>v!=null)) : 0, 2);
+  const bw = colW3h * 0.55;
   const bh = (p) => Math.max(2, (p / maxP) * ch * 0.45);
 
-  // p90 uncertainty bar — same width as p50 bar, very light blue, behind p50 bar
-  if (ensPrecip) {
-    ensPrecip.p90.forEach((p90val, i) => {
+  // p90 uncertainty bar
+  if (pEns) {
+    pEns.p90.forEach((p90val, i) => {
       if (!p90val || p90val < 0.05) return;
       ctx.fillStyle = 'rgba(100,160,255,0.30)';
-      ctx.fillRect(cx2(i) - bw/2, cssH - padB - bh(p90val), bw, bh(p90val));
+      ctx.fillRect(cx2_3h(i) - bw/2, cssH - padB - bh(p90val), bw, bh(p90val));
     });
   }
 
   // p50 bar — light blue solid
-  precips.forEach((p, i) => {
+  pPrecips.forEach((p, i) => {
     if (p < 0.05) return;
     ctx.fillStyle = '#4466aa';
-    ctx.fillRect(cx2(i) - bw/2, cssH - padB - bh(p), bw, bh(p));
+    ctx.fillRect(cx2_3h(i) - bw/2, cssH - padB - bh(p), bw, bh(p));
   });
 
   // temp line — red above 0°C, blue below, split exactly at zero crossings
@@ -758,7 +766,8 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h)
 ══════════════════════════════════════════════════ */
 function renderAll(d) {
   drawTopRow(d.times, d.codes, d.precips);
-  drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null);
+  drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
+           d.times, d.precips, d.ensPrecip || null);
   drawWindDir(d.times, d.winds, d.dirs);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
            d.times, d.winds);
