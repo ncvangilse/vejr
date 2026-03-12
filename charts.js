@@ -575,11 +575,19 @@ function _drawKiteIcons(ctx, winds, times, dirs, cx2, cY, KITE_H) {
   });
 }
 
-/** Populates the wind axis element with speed ticks coloured by the wind ramp. */
-function _drawWindAxisLabels(wLevels) {
+/** Populates the wind axis element with speed ticks coloured by the wind ramp.
+ *  Labels are positioned absolutely so they align with the canvas grid lines.
+ *  @param {number[]} wLevels  - speed values at which grid lines are drawn
+ *  @param {function} wy       - same mapping function used by the canvas: v → pixel y
+ *  @param {number}   WIND_H   - total canvas CSS height (used to convert px → %)
+ */
+function _drawWindAxisLabels(wLevels, wy, WIND_H) {
   const ax = document.getElementById('ax-wind');
   ax.innerHTML = '';
-  [...wLevels].reverse().forEach(v => {
+  ax.style.position = 'relative';
+  ax.style.display  = 'block';   // replace flex so absolute children work
+
+  wLevels.forEach(v => {
     const sp = document.createElement('span');
     sp.textContent      = v;
     sp.style.color      = windColorStr(v, 1);
@@ -588,6 +596,11 @@ function _drawWindAxisLabels(wLevels) {
       sp.style.color = '#00c8a0';
       sp.title = v === KITE_CFG.max ? `Kite max ${KITE_CFG.max} m/s` : `Kite min ${KITE_CFG.min} m/s`;
     }
+    sp.style.position   = 'absolute';
+    sp.style.right      = '3px';
+    sp.style.top        = (wy(v) / WIND_H * 100).toFixed(2) + '%';
+    sp.style.transform  = 'translateY(-50%)';
+    sp.style.lineHeight = '1';
     ax.appendChild(sp);
   });
 }
@@ -662,7 +675,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   _drawKiteIcons(ctx, winds, times, dirs, cx2, cY, KITE_H);
 
   // --- axis labels ---
-  _drawWindAxisLabels(wLevels);
+  _drawWindAxisLabels(wLevels, wy, WIND_H);
 }
 
 /* ══════════════════════════════════════════════════
