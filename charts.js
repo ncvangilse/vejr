@@ -466,22 +466,28 @@ function _buildExtendedGustBand(ensGust, safeGusts, winds) {
 }
 
 /**
- * Draws the full-width ensemble gust band, clipped to the gust fill area
- * so it never spills above the gust line.
+ * Draws the full-width ensemble gust band, clipped so its bottom never goes
+ * below the ensemble wind p90 line (falling back to deterministic wind).
  */
-function _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, chartTop) {
+function _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx2, wy, chartTop, cssW) {
   if (!ensGust) return;
   const band = _buildExtendedGustBand(ensGust, safeGusts, winds);
   if (!band) return;
   const { allP90, allP10 } = band;
 
+  // Bottom clip boundary: ens wind p90 where available, else deterministic wind
+  const clipBottom = winds.map((w, i) =>
+    (ensWind && ensWind.p90[i] != null) ? ensWind.p90[i] : w
+  );
+
   ctx.save();
-  // Clip to the area between the wind line and the top of the chart,
-  // so the band can freely extend above the gust line.
+  // Clip region: from chartTop down to clipBottom, full canvas width.
   ctx.beginPath();
-  ctx.moveTo(cx2(0), chartTop);
-  ctx.lineTo(cx2(n - 1), chartTop);
-  for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(winds[i]));
+  ctx.moveTo(0,    chartTop);
+  ctx.lineTo(cssW, chartTop);
+  ctx.lineTo(cssW, wy(clipBottom[n - 1]));
+  for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(clipBottom[i]));
+  ctx.lineTo(0, wy(clipBottom[0]));
   ctx.closePath();
   ctx.clip();
 
@@ -495,46 +501,23 @@ function _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, ch
   ctx.restore();
 }
 
-/** Draws the coloured gust-gap polygon (strip between gust line and wind line). */
-function _drawGustGapFill(ctx, safeGusts, winds, n, cssW, cx2, wy) {
-  const grad = n > 1 ? ctx.createLinearGradient(0, 0, cssW, 0) : null;
-  if (grad) safeGusts.forEach((g, i) => grad.addColorStop(i / (n - 1), windColorStr(g, 0.45)));
-  ctx.fillStyle = grad || windColorStr(safeGusts[0], 0.45);
-  ctx.beginPath();
-  ctx.moveTo(cx2(0), wy(safeGusts[0]));
-  for (let i = 1; i < n; i++) ctx.lineTo(cx2(i), wy(safeGusts[i]));
-  for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(winds[i]));
-  ctx.closePath();
-  ctx.fill();
-}
-
 /**
- * Draws a percentile uncertainty band for an ensemble series, clipped to a
- * polygon defined by clipPts (array of {x, y}).
+ * Draws the ensemble wind band — completely unclipped.
  */
-function _drawEnsBand(ctx, ens, cx2, wy, clipPts, fillStyle) {
-  if (!ens) return;
-  const validIdxs = ens.p90
-    .map((v, i) => (v != null && ens.p10[i] != null) ? i : null)
+function _drawEnsWindBand(ctx, ensWind, cx2, wy, fillStyle) {
+  if (!ensWind) return;
+  const validIdxs = ensWind.p90
+    .map((v, i) => (v != null && ensWind.p10[i] != null) ? i : null)
     .filter(i => i !== null);
   if (validIdxs.length < 2) return;
 
-  ctx.save();
-  if (clipPts) {
-    ctx.beginPath();
-    clipPts.forEach(({ x, y }, k) => k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-    ctx.closePath();
-    ctx.clip();
-  }
-
   ctx.beginPath();
-  ctx.moveTo(cx2(validIdxs[0]), wy(ens.p90[validIdxs[0]]));
-  validIdxs.forEach(i => ctx.lineTo(cx2(i), wy(ens.p90[i])));
-  for (let k = validIdxs.length - 1; k >= 0; k--) ctx.lineTo(cx2(validIdxs[k]), wy(ens.p10[validIdxs[k]]));
+  ctx.moveTo(cx2(validIdxs[0]), wy(ensWind.p90[validIdxs[0]]));
+  validIdxs.forEach(i => ctx.lineTo(cx2(i), wy(ensWind.p90[i])));
+  for (let k = validIdxs.length - 1; k >= 0; k--) ctx.lineTo(cx2(validIdxs[k]), wy(ensWind.p10[validIdxs[k]]));
   ctx.closePath();
   ctx.fillStyle = fillStyle;
   ctx.fill();
-  ctx.restore();
 }
 
 /** Draws a simple polyline over a series of values. */
@@ -657,11 +640,11 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
   });
 
-  // --- ensemble gust band (extended full-width, clipped above wind line) ---
-  _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, cY + padT);
+  // --- ensemble gust band (clipped above ens-wind p90) ---
+  _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx2, wy, cY + padT, cssW);
 
   // --- ensemble wind band (unclipped) ---
-  _drawEnsBand(ctx, ensWind, cx2, wy, null, 'rgba(0,0,0,0.22)');
+  _drawEnsWindBand(ctx, ensWind, cx2, wy, 'rgba(0,0,0,0.22)');
 
 
   // --- wind fill (colour-mapped gradient below wind line) ---
