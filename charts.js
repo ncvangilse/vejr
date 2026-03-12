@@ -276,7 +276,10 @@ const WINDY_RAMP = [
   [10, 255, 160,  20, 1.00],  // 10 m/s → orange
   [13, 220,  30,  30, 1.00],  // 13 m/s → red
   [16, 160,  30, 220, 1.00],  // 16 m/s → purple
-  [30, 120,   0, 180, 1.00],  // 30 m/s → deep purple (extreme)
+  [19,  60,  10, 180, 1.00],  // 19 m/s → deep purple → transitioning blue
+  [22,  20,  40, 160, 1.00],  // 22 m/s → dark blue
+  [27, 140, 180, 240, 1.00],  // 27 m/s → light blue
+  [32, 220, 235, 255, 1.00],  // 32 m/s → white-blue (extreme)
 ];
 function windColor(ms) {
   const r = WINDY_RAMP;
@@ -468,6 +471,7 @@ function _buildExtendedGustBand(ensGust, safeGusts, winds) {
 /**
  * Draws the full-width ensemble gust band, clipped so its bottom never goes
  * below the ensemble wind p90 line (falling back to deterministic wind).
+ * The band is coloured by the mean gust speed using the wind colour ramp.
  */
 function _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx2, wy, chartTop, cssW) {
   if (!ensGust) return;
@@ -491,12 +495,19 @@ function _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx
   ctx.closePath();
   ctx.clip();
 
+  // Build a horizontal gradient coloured by the p90 gust speed (top edge of the band).
+  const grad = ctx.createLinearGradient(0, 0, cssW, 0);
+  allP90.forEach((g, i) => {
+    const stop = n > 1 ? i / (n - 1) : 0;
+    grad.addColorStop(stop, windColorStr(g, 0.2));
+  });
+
   ctx.beginPath();
   ctx.moveTo(cx2(0), wy(allP90[0]));
   for (let i = 1; i < n; i++) ctx.lineTo(cx2(i), wy(allP90[i]));
   for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(allP10[i]));
   ctx.closePath();
-  ctx.fillStyle = 'rgba(180,100,20,0.22)';
+  ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
 }
