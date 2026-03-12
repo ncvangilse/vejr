@@ -513,10 +513,12 @@ function _drawEnsBand(ctx, ens, cx2, wy, clipPts, fillStyle) {
   if (validIdxs.length < 2) return;
 
   ctx.save();
-  ctx.beginPath();
-  clipPts.forEach(({ x, y }, k) => k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-  ctx.closePath();
-  ctx.clip();
+  if (clipPts) {
+    ctx.beginPath();
+    clipPts.forEach(({ x, y }, k) => k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.closePath();
+    ctx.clip();
+  }
 
   ctx.beginPath();
   ctx.moveTo(cx2(validIdxs[0]), wy(ens.p90[validIdxs[0]]));
@@ -635,13 +637,8 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   // --- ensemble gust band (extended full-width, clipped above wind line) ---
   _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, cY + padT);
 
-  // --- ensemble wind band (clipped to wind fill area) ---
-  const windFillClip = [
-    { x: cx2(0),     y: base },
-    ...winds.map((v, i) => ({ x: cx2(i), y: wy(v) })),
-    { x: cx2(n - 1), y: base },
-  ];
-  _drawEnsBand(ctx, ensWind, cx2, wy, windFillClip, 'rgba(0,0,0,0.22)');
+  // --- ensemble wind band (unclipped) ---
+  _drawEnsBand(ctx, ensWind, cx2, wy, null, 'rgba(0,0,0,0.22)');
 
 
   // --- wind line ---
