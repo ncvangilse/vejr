@@ -79,8 +79,9 @@ async function fetchEnsemble(lat, lon, model) {
   return r.json();
 }
 
-// Given the ensemble hourly object, extract p10/p50/p90 arrays for a variable, sampled at STEP
-function ensemblePercentiles(H, varPrefix) {
+// Given the ensemble hourly object, extract p10/p50/p90 arrays for a variable, sampled at step (default STEP)
+function ensemblePercentiles(H, varPrefix, step) {
+  step = step || STEP;
   const memberKeys = Object.keys(H).filter(k => k.startsWith(varPrefix + '_member'));
   if (!memberKeys.length) return null;
 
@@ -88,7 +89,7 @@ function ensemblePercentiles(H, varPrefix) {
   const totalH = FORECAST_DAYS * 24;
   // Use the longest member length as the bound so no data from any member is dropped.
   const maxLen = Math.max(...memberKeys.map(k => H[k].length));
-  for (let i = 0; i < Math.min(totalH, maxLen); i += STEP) {
+  for (let i = 0; i < Math.min(totalH, maxLen); i += step) {
     const vals = memberKeys.map(k => H[k][i]).filter(v => v != null).sort((a,b) => a-b);
     if (!vals.length) { p10.push(null); p50.push(null); p90.push(null); continue; }
     p10.push(vals[Math.floor(vals.length * 0.10)]);

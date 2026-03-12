@@ -2,7 +2,8 @@
    CONFIG
 ══════════════════════════════════════════════════ */
 const FORECAST_DAYS = 7;
-const STEP = 3; // every 3 hours
+const STEP   = 3; // every 3 hours  (icons, wind arrows)
+const STEP1H = 1; // every 1 hour   (temperature, wind speed/gust, precip curves)
 const DA_DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DA_DAYS3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DA_MON   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

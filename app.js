@@ -36,6 +36,8 @@ async function load(cityName, model) {
       });
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
+    // 1-hour resolution arrays for smooth curves (temp, wind speed/gust, precip)
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[];
     const totalH=FORECAST_DAYS*24;
     for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP){
       times.push(H.time[i]);
@@ -52,6 +54,14 @@ async function load(cityName, model) {
       const code = (iconCodes && dmiCode >= 80 && dmiCode <= 82 && iconCode >= 95)
                    ? iconCode : dmiCode;
       codes.push(code);
+    }
+    for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP1H){
+      times1h.push(H.time[i]);
+      temps1h.push(H.temperature_2m[i]);
+      precips1h.push(H.precipitation[i] ?? 0);
+      winds1h.push(H.windspeed_10m[i]);
+      const rawGust1h = H.windgusts_10m[i];
+      gusts1h.push(rawGust1h != null ? rawGust1h : H.windspeed_10m[i]);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',
@@ -72,16 +82,22 @@ async function load(cityName, model) {
     const modelLabel = MODEL_LABEL[model] || model;
     const ensLabel   = ENS_LABEL[model]   || 'ensemble';
     let ensTemp = null, ensWind = null, ensGust = null, ensPrecip = null;
+    let ensTemp1h = null, ensWind1h = null, ensGust1h = null, ensPrecip1h = null;
     const ensStatus = document.getElementById('ens-status');
     if (ensData && ensData.hourly) {
       ensTemp   = ensemblePercentiles(ensData.hourly, 'temperature_2m');
       ensWind   = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
       ensGust   = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
       ensPrecip = ensemblePercentiles(ensData.hourly, 'precipitation');
+      ensTemp1h   = ensemblePercentiles(ensData.hourly, 'temperature_2m',   STEP1H);
+      ensWind1h   = ensemblePercentiles(ensData.hourly, 'windspeed_10m',    STEP1H);
+      ensGust1h   = ensemblePercentiles(ensData.hourly, 'windgusts_10m',    STEP1H);
+      ensPrecip1h = ensemblePercentiles(ensData.hourly, 'precipitation',    STEP1H);
       // Snapshot the deterministic gusts BEFORE merging ensemble wind into winds[].
       // The ensemble p50 wind is often higher than the deterministic wind; if we let
       // gusts get clamped against it the gust-wind gap collapses to zero.
       const detGusts = gusts.slice();
+      const detGusts1h = gusts1h.slice();
       // Replace deterministic slots with ensemble median (p50) where available.
       if (ensTemp)
         for (let i = 0; i < temps.length;   i++) { if (ensTemp.p50[i]   != null) temps[i]   = ensTemp.p50[i];   }
@@ -89,9 +105,16 @@ async function load(cityName, model) {
         for (let i = 0; i < winds.length;   i++) { if (ensWind.p50[i]   != null) winds[i]   = ensWind.p50[i];   }
       if (ensPrecip)
         for (let i = 0; i < precips.length; i++) { if (ensPrecip.p50[i] != null) precips[i] = ensPrecip.p50[i]; }
+      if (ensTemp1h)
+        for (let i = 0; i < temps1h.length;   i++) { if (ensTemp1h.p50[i]   != null) temps1h[i]   = ensTemp1h.p50[i];   }
+      if (ensWind1h)
+        for (let i = 0; i < winds1h.length;   i++) { if (ensWind1h.p50[i]   != null) winds1h[i]   = ensWind1h.p50[i];   }
+      if (ensPrecip1h)
+        for (let i = 0; i < precips1h.length; i++) { if (ensPrecip1h.p50[i] != null) precips1h[i] = ensPrecip1h.p50[i]; }
       // Restore deterministic gusts unchanged — they are already >= det wind from the
       // initial data loop, and they must stay above the (now ensemble-merged) wind line.
-      for (let i = 0; i < gusts.length; i++) gusts[i] = Math.max(detGusts[i], winds[i]);
+      for (let i = 0; i < gusts.length;   i++) gusts[i]   = Math.max(detGusts[i],   winds[i]);
+      for (let i = 0; i < gusts1h.length; i++) gusts1h[i] = Math.max(detGusts1h[i], winds1h[i]);
       const memberCount = Object.keys(ensData.hourly).filter(k => k.startsWith('temperature_2m_member')).length;
       ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
       ensStatus.style.color = '#5a9';
@@ -109,7 +132,12 @@ async function load(cityName, model) {
       `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
     document.getElementById('loading').style.display='none';
     document.getElementById('forecast-content').style.display='block';
-    lastData = {times, temps, precips, gusts, winds, dirs, codes, ensTemp, ensWind, ensGust, ensPrecip};
+    lastData = {
+      times, temps, precips, gusts, winds, dirs, codes,
+      ensTemp, ensWind, ensGust, ensPrecip,
+      times1h, temps1h, precips1h, gusts1h, winds1h,
+      ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
+    };
     // Double rAF ensures layout is complete before measuring canvas width
     requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
     // Load RainViewer radar centred on the selected city
@@ -132,23 +160,27 @@ function clearCrosshairs() {
     c.getContext('2d').clearRect(0, 0, c.width, c.height);
   });
 }
-function drawCrosshairs(fracX, idx) {
+function drawCrosshairs(fracX, idx1h, idx3h) {
   if (!lastData) return;
   const d = lastData;
   // Re-derive the same y-mappings used by the draw functions
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
-  let tmin = Math.floor(Math.min(...d.temps) / 5) * 5;
-  let tmax = Math.ceil( Math.max(...d.temps) / 5) * 5;
+  let tmin = Math.floor(Math.min(...d.temps1h) / 5) * 5;
+  let tmax = Math.ceil( Math.max(...d.temps1h) / 5) * 5;
   if (tmax - tmin < 15) { const mid = (tmin + tmax) / 2; tmin = Math.floor((mid - 7.5) / 5) * 5; tmax = tmin + 15; }
   const tRange   = tmax - tmin;
-  const tempDotY = TEMP_padT + (1 - (d.temps[idx] - tmin) / tRange) * TEMP_ch;
+  const tempDotY = TEMP_padT + (1 - (d.temps1h[idx1h] - tmin) / tRange) * TEMP_ch;
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH   = WIND_H - WIND_padT;
-  const safeGusts     = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
+  const safeGusts     = d.gusts1h.map((g, i) => Math.max(g, d.winds1h[i]));
   const maxW          = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
-  const windDotY      = WIND_padT + (1 - d.winds[idx] / maxW) * WIND_chartH;
-  const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
+  const windDotY      = WIND_padT + (1 - d.winds1h[idx1h] / maxW) * WIND_chartH;
+  // xh-top and xh-dir snap to 3hr columns; xh-temp and xh-wind snap to 1hr columns
+  const fracX3h = (idx3h + 0.5) / d.times.length;
+  const fracX1h = (idx1h + 0.5) / d.times1h.length;
+  const DOT_Y   = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
+  const FRAC    = { 'xh-top': fracX3h, 'xh-temp': fracX1h, 'xh-dir': fracX3h, 'xh-wind': fracX1h };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -165,7 +197,7 @@ function drawCrosshairs(fracX, idx) {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.save();
     ctx.scale(dpr, dpr);
-    const x = fracX * cssW;
+    const x = FRAC[id] * cssW;
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([4, 3]);
@@ -173,7 +205,7 @@ function drawCrosshairs(fracX, idx) {
     ctx.setLineDash([]);
     const dotY = DOT_Y[id];
     if (dotY !== null) {
-      const dotCol = (id === 'xh-temp') ? (d.temps[idx] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
+      const dotCol = (id === 'xh-temp') ? (d.temps1h[idx1h] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
       ctx.fillStyle   = dotCol;
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth   = 1;
@@ -195,29 +227,32 @@ const WMO_DESC = {
   85:'Snow showers',86:'Heavy snow showers',
   95:'Thunderstorm',96:'Thunderstorm w/ hail',99:'Thunderstorm w/ heavy hail',
 };
-function showTooltip(idx) {
+function showTooltip(idx1h, idx3h) {
   if (!lastData) return;
   const d = lastData;
   const tip = document.getElementById('hover-tooltip');
-  const t    = new Date(d.times[idx]);
+  // Time label from 1hr array for precision
+  const t    = new Date(d.times1h[idx1h]);
   const day  = DA_DAYS[t.getDay()];
   const h    = t.getHours().toString().padStart(2,'0');
-  const temp = d.temps[idx];
-  const prec = d.precips[idx];
-  const wind = d.winds[idx];
-  const gust = Math.max(d.gusts[idx], wind);
-  const dir  = d.dirs[idx];
-  const code = d.codes[idx];
+  // Curve values from 1hr arrays
+  const temp = d.temps1h[idx1h];
+  const prec = d.precips1h[idx1h];
+  const wind = d.winds1h[idx1h];
+  const gust = Math.max(d.gusts1h[idx1h], wind);
+  // Icon/direction from 3hr arrays
+  const dir  = d.dirs[idx3h];
+  const code = d.codes[idx3h];
   const windCol = windColorStr(wind);
   const gustCol = windColorStr(gust);
-  const tp10 = d.ensTemp   ? d.ensTemp.p10[idx]   : null;
-  const tp90 = d.ensTemp   ? d.ensTemp.p90[idx]   : null;
-  const wp10 = d.ensWind   ? d.ensWind.p10[idx]   : null;
-  const wp90 = d.ensWind   ? d.ensWind.p90[idx]   : null;
-  const gp10 = d.ensGust   ? (d.ensGust.p10[idx]   ?? null) : null;
-  const gp90 = d.ensGust   ? (d.ensGust.p90[idx]   ?? null) : null;
-  const pp10 = d.ensPrecip ? d.ensPrecip.p10[idx] : null;
-  const pp90 = d.ensPrecip ? d.ensPrecip.p90[idx] : null;
+  const tp10 = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
+  const tp90 = d.ensTemp1h   ? d.ensTemp1h.p90[idx1h]   : null;
+  const wp10 = d.ensWind1h   ? d.ensWind1h.p10[idx1h]   : null;
+  const wp90 = d.ensWind1h   ? d.ensWind1h.p90[idx1h]   : null;
+  const gp10 = d.ensGust1h   ? (d.ensGust1h.p10[idx1h]   ?? null) : null;
+  const gp90 = d.ensGust1h   ? (d.ensGust1h.p90[idx1h]   ?? null) : null;
+  const pp10 = d.ensPrecip1h ? d.ensPrecip1h.p10[idx1h] : null;
+  const pp90 = d.ensPrecip1h ? d.ensPrecip1h.p90[idx1h] : null;
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
   const tempUncRow   = (tp10 != null && tp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';
@@ -228,7 +263,7 @@ function showTooltip(idx) {
   const precipUncRow = (pp10 != null && pp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#6aaee8;font-size:10px">${pp10.toFixed(1)} → ${pp90.toFixed(1)} mm</span></div>` : '';
   const desc    = WMO_DESC[code] || 'Unknown';
-  const kiteRow = isKiteOptimal(wind, dir, d.times[idx])
+  const kiteRow = isKiteOptimal(wind, dir, d.times1h[idx1h])
     ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>` : '';
   tip.innerHTML = `
     <div class="tt-time">${day} at ${h}:00</div>
@@ -236,7 +271,7 @@ function showTooltip(idx) {
     <div class="tt-row" style="margin-bottom:4px;align-items:center;">
       <div style="position:relative;flex:0 0 32px;width:32px;height:32px;">
         <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;"></canvas>
-        ${isKiteOptimal(wind, dir, d.times[idx]) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
+        ${isKiteOptimal(wind, dir, d.times1h[idx1h]) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
       </div>
       <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
     </div>
@@ -275,7 +310,7 @@ function showTooltip(idx) {
     iconCanvas.style.height = sz + 'px';
     const ictx = iconCanvas.getContext('2d');
     ictx.scale(dpr, dpr);
-    dmiIcon(ictx, wmoType(code, d.times[idx]), sz / 2, sz / 2, sz, prec, code);
+    dmiIcon(ictx, wmoType(code, d.times1h[idx1h]), sz / 2, sz / 2, sz, prec, code);
   }
 }
 function hideTooltip() {
@@ -293,11 +328,12 @@ function attachHoverListeners() {
     const relX     = portrait ? (e.clientY - rect.top) : (e.clientX - rect.left);
     const span     = portrait ? rect.height : rect.width;
     const fracX    = Math.max(0, Math.min(1, relX / span));
-    const n        = lastData.times.length;
-    const idx      = Math.min(n - 1, Math.floor(fracX * n));
-    const snapFrac = (idx + 0.5) / n;
-    drawCrosshairs(snapFrac, idx);
-    showTooltip(idx);
+    const n1h      = lastData.times1h.length;
+    const n3h      = lastData.times.length;
+    const idx1h    = Math.min(n1h - 1, Math.floor(fracX * n1h));
+    const idx3h    = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    drawCrosshairs(fracX, idx1h, idx3h);
+    showTooltip(idx1h, idx3h);
   });
   content.addEventListener('mouseleave', hideTooltip);
 }

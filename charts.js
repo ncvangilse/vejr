@@ -598,7 +598,9 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 /* ══════════════════════════════════════════════════
    DRAW WIND  (Windy-style)
 ══════════════════════════════════════════════════ */
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
+// times/gusts/winds are 1hr resolution; dirs is 3hr (same as drawWindDir);
+// times3h/winds3h are the 3hr arrays used only for kite highlights & pills.
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const cssW   = canvas.parentElement.clientWidth;
@@ -610,6 +612,13 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   const colW = cssW / n;
   const divs = dayDivs(times);
   const cx2  = i => (i + 0.5) * colW;
+
+  // 3hr kite data (dirs align with times3h)
+  const n3h    = (times3h || times).length;
+  const colW3h = cssW / n3h;
+  const cx2_3h = i => (i + 0.5) * colW3h;
+  const kiteWinds = winds3h || winds;
+  const kiteTimes = times3h || times;
 
   // --- scale ---
   const safeGusts = _safeClampGusts(gusts, winds);
@@ -629,8 +638,14 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   ctx.fillStyle = '#dde3eb';
   ctx.fillRect(0, cY, cssW, WIND_H);
 
-  // --- kite column highlights (behind everything) ---
-  _drawWindKiteColumns(ctx, winds, times, dirs, colW, cY, WIND_H);
+  // --- kite column highlights (behind everything) — drawn at 3hr width ---
+  if (lastData) {
+    kiteWinds.forEach((w, i) => {
+      if (!isKiteOptimal(w, dirs[i], kiteTimes[i])) return;
+      ctx.fillStyle = 'rgba(0,220,180,0.18)';
+      ctx.fillRect(i * colW3h, cY, colW3h, WIND_H);
+    });
+  }
 
   // --- grid & day dividers ---
   _drawWindGrid(ctx, wLevels, wy, cssW);
@@ -664,8 +679,35 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   // --- wind line ---
   _drawWindLine(ctx, winds, cx2, wy, 'rgba(255,255,255,0.95)', 2);
 
-  // --- kite pill icons (top strip) ---
-  _drawKiteIcons(ctx, winds, times, dirs, cx2, cY, KITE_H);
+  // --- kite pill icons (top strip) — drawn at 3hr positions ---
+  if (lastData) {
+    const ICON_SIZE = 14;
+    const PILL_H    = KITE_H - 4;
+    const PILL_W    = PILL_H + 4;
+    const PILL_Y    = cY + 2;
+    const iconCY    = PILL_Y + PILL_H / 2;
+    ctx.font         = `${ICON_SIZE}px sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    kiteWinds.forEach((w, i) => {
+      if (!isKiteOptimal(w, dirs[i], kiteTimes[i])) return;
+      const x  = cx2_3h(i);
+      const px = x - PILL_W / 2;
+      const r  = PILL_H / 2;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,180,140,0.82)';
+      ctx.beginPath();
+      ctx.moveTo(px + r, PILL_Y);
+      ctx.arcTo(px + PILL_W, PILL_Y,          px + PILL_W, PILL_Y + PILL_H, r);
+      ctx.arcTo(px + PILL_W, PILL_Y + PILL_H, px,          PILL_Y + PILL_H, r);
+      ctx.arcTo(px,          PILL_Y + PILL_H, px,          PILL_Y,          r);
+      ctx.arcTo(px,          PILL_Y,          px + PILL_W, PILL_Y,          r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillText('🪁', x, iconCY);
+    });
+  }
 
   // --- axis labels ---
   _drawWindAxisLabels(wLevels, wy, WIND_H);
@@ -676,8 +718,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
 ══════════════════════════════════════════════════ */
 function renderAll(d) {
   drawTopRow(d.times, d.codes, d.precips);
-  drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null);
+  drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null);
   drawWindDir(d.times, d.winds, d.dirs);
-  drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null);
+  drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
+           d.times, d.winds);
 }
 
