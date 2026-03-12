@@ -391,7 +391,11 @@ function isKiteDir(deg) {
 }
 function isKiteOptimal(speed, deg, timeStr) {
   if (KITE_CFG.daylight && isNight(timeStr)) return false;
-  return speed >= KITE_CFG.min && speed <= KITE_CFG.max && isKiteDir(deg);
+  if (!isKiteDir(deg)) return false;
+  if (speed < KITE_CFG.min || speed > KITE_CFG.max) return false;
+  // If shore analysis is available, require the wind to come from the sea
+  if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
+  return true;
 }
 
 /* ══════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-%%BUILD_NUMBER%%-4';
+const CACHE_NAME = 'vejr-%%BUILD_NUMBER%%-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
@@ -35,12 +35,17 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Network-only: weather APIs and radar data (must always be live)
+  // Never intercept non-GET requests (POST etc.) — Cache API doesn't support them
+  if (event.request.method !== 'GET') return;
+
+  // Network-only: weather APIs, radar, geocoding, and Overpass (must always be live)
   if (
     url.hostname.includes('dmi.dk') ||
     url.hostname.includes('open-meteo.com') ||
     url.hostname.includes('nominatim') ||
-    url.hostname.includes('rainviewer.com')
+    url.hostname.includes('rainviewer.com') ||
+    url.hostname.includes('overpass-api.de') ||
+    url.hostname.includes('overpass.kumi.systems')
   ) {
     // Tile images are not CORS-enabled — let them pass through as-is
     // without re-fetching through the SW (which would enforce CORS)

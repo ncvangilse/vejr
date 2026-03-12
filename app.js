@@ -11,6 +11,8 @@ async function load(cityName, model) {
   document.getElementById('forecast-content').style.display='none';
   document.getElementById('error-msg').style.display='none';
   try {
+    window.SHORE_MASK   = null;
+    window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
     const loc = await geocode(cityName);
     // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
     const iconCodeFetch = (model === 'dmi_seamless')
@@ -142,6 +144,14 @@ async function load(cityName, model) {
     requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
+    // Shore mask analysis (fire-and-forget; re-renders when done)
+    if (window.analyseShore) {
+      window.analyseShore(loc.latitude, loc.longitude, () => {
+        updateShoreStatusUI();
+        if (lastData) renderAll(lastData);
+        if (window.refreshShoreCompassInModal) window.refreshShoreCompassInModal();
+      });
+    }
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -341,6 +351,35 @@ function attachHoverListeners() {
 attachHoverListeners();
 function getModel() { return document.getElementById('model-select').value; }
 /* ══════════════════════════════════════════════════
+   SHORE STATUS UI
+══════════════════════════════════════════════════ */
+function updateShoreStatusUI() {
+  const el = document.getElementById('shore-status');
+  if (!el) return;
+  const s = window.SHORE_STATUS || { state: 'idle', msg: '' };
+  if (s.state === 'loading') {
+    el.textContent = '🌊 Fetching coastline…';
+    el.style.color = '#778';
+  } else if (s.state === 'calculating') {
+    el.textContent = '🌊 Calculating sea bearings…';
+    el.style.color = '#778';
+  } else if (s.state === 'ok') {
+    const seaCount = window.SHORE_MASK
+      ? Array.from(window.SHORE_MASK).filter(v => v >= 0.5).length : 0;
+    el.textContent = `🌊 ${seaCount} sea bearings`;
+    el.style.color = seaCount > 0 ? '#00c890' : '#aa8844';
+  } else if (s.state === 'inland') {
+    el.textContent = '🏔 Inland (no coast)';
+    el.style.color = '#aa8844';
+  } else if (s.state === 'error') {
+    el.textContent = '🌊 Shore: unavailable';
+    el.style.color = '#a77';
+  } else {
+    el.textContent = '';
+  }
+}
+
+/* ══════════════════════════════════════════════════
    KITE CONFIG DIALOG
 ══════════════════════════════════════════════════ */
 (function () {
@@ -354,14 +393,16 @@ function getModel() { return document.getElementById('model-select').value; }
   const cancelBtn     = document.getElementById('kite-modal-cancel');
   const resetBtn      = document.getElementById('kite-modal-reset');
   const cfgBtn        = document.getElementById('kite-cfg-btn');
+
   DIR_PRESETS.forEach(({ label, deg }) => {
     const btn = document.createElement('button');
     btn.className   = 'kite-dir-btn';
     btn.dataset.deg = deg;
     btn.textContent = label;
-    btn.addEventListener('click', () => btn.classList.toggle('active'));
+    btn.addEventListener('click', () => { btn.classList.toggle('active'); drawModalCompass(); });
     dirGrid.appendChild(btn);
   });
+
   function syncDialogToConfig(cfg) {
     minInput.value        = cfg.min;
     maxInput.value        = cfg.max;
@@ -381,10 +422,71 @@ function getModel() { return document.getElementById('model-select').value; }
       daylight: !daylightInput.checked,
     };
   }
-  cfgBtn.addEventListener('click', () => { syncDialogToConfig(KITE_CFG); overlay.classList.add('open'); });
+
+  // ── Shore compass in modal ──
+  function drawModalCompass() {
+    const canvas = document.getElementById('shore-compass-canvas');
+    if (!canvas || !window.drawShoreCompass) return;
+    const SIZE = canvas.clientWidth || 180;
+    const dpr  = window.devicePixelRatio || 1;
+    canvas.width  = SIZE * dpr;
+    canvas.height = SIZE * dpr;
+    canvas.style.width  = SIZE + 'px';
+    canvas.style.height = SIZE + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, SIZE, SIZE);
+
+    // Overlay the currently selected direction buttons
+    const activeDirs = [...dirGrid.querySelectorAll('.kite-dir-btn.active')].map(b => +b.dataset.deg);
+    const tol = parseFloat(tolInput.value) ?? KITE_DEFAULTS.tol;
+
+    // Current wind direction (from lastData if available)
+    let windDeg = null, windGood = false;
+    if (lastData && lastData.dirs && lastData.dirs.length) {
+      // Use the first future hour's direction as representative
+      const now  = Date.now();
+      const idx  = lastData.times.findIndex(t => new Date(t).getTime() >= now);
+      const i    = idx >= 0 ? idx : 0;
+      windDeg    = lastData.dirs[i];
+      windGood   = lastData.winds && isKiteOptimal(lastData.winds[i], windDeg, lastData.times[i]);
+    }
+
+    window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
+      window.SHORE_MASK, windDeg, windGood);
+
+    // Overlay selected direction arcs
+    if (activeDirs.length) {
+      const DEG2RAD = Math.PI / 180;
+      activeDirs.forEach(d => {
+        const startA = (d - tol - 90) * DEG2RAD;
+        const endA   = (d + tol - 90) * DEG2RAD;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(SIZE / 2, SIZE / 2);
+        ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, startA, endA);
+        ctx.closePath();
+        ctx.strokeStyle = 'rgba(0,232,176,0.7)';
+        ctx.lineWidth   = 2;
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+  }
+
+  window.refreshShoreCompassInModal = function() {
+    if (overlay.classList.contains('open')) drawModalCompass();
+    updateShoreStatusUI();
+  };
+
+  cfgBtn.addEventListener('click', () => {
+    syncDialogToConfig(KITE_CFG);
+    overlay.classList.add('open');
+    requestAnimationFrame(drawModalCompass);
+  });
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
-  resetBtn.addEventListener('click', () => syncDialogToConfig(KITE_DEFAULTS));
+  resetBtn.addEventListener('click', () => { syncDialogToConfig(KITE_DEFAULTS); drawModalCompass(); });
   applyBtn.addEventListener('click', () => {
     const cfg = readDialogConfig();
     setKiteParams(cfg);

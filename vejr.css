@@ -443,3 +443,62 @@ canvas.main-canvas {
 #kite-modal-reset  { background: #1a2a38; color: #5a8a7a; border: 1px solid #336655; font-size:11px; padding: 7px 12px; }
 #kite-modal-reset:hover  { color: #8ab4d4; }
 
+/* ── Radar location marker ── */
+@keyframes radar-pulse {
+  0%   { transform: scale(0.5); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0;   }
+}
+.radar-loc-wrap {
+  position: relative;
+  width: 30px;
+  height: 30px;
+}
+.radar-loc-pulse {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: rgba(0, 60, 143, 0.45);
+  animation: radar-pulse 2s ease-out infinite;
+  pointer-events: none;
+}
+.radar-loc-dot {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #003c8f;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 4px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+
+/* ── Shore compass ── */
+#shore-compass-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+#shore-compass-canvas {
+  width: 180px;
+  height: 180px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #141e2a;
+}
+#shore-compass-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.sc-leg { display: flex; align-items: center; gap: 4px; color: #8ab4d4; }
+.sc-leg.sea  { color: rgba(0,200,160,0.9); }
+.sc-leg.land { color: rgba(200,150,60,0.9); }
+.sc-leg.sel  { color: rgba(0,232,176,0.7); }
+
+

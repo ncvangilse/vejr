@@ -169,6 +169,26 @@
     stagingIdx = -1; stagingReady = false;
   }
 
+  let locationMarker = null;
+
+  function placeLocationMarkers(lat, lon) {
+    if (locationMarker) {
+      locationMarker.setLatLng([lat, lon]);
+      return;
+    }
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="radar-loc-wrap">
+               <div class="radar-loc-pulse"></div>
+               <div class="radar-loc-dot"></div>
+             </div>`,
+      iconSize:   [30, 30],
+      iconAnchor: [15, 15],
+    });
+    locationMarker = L.marker([lat, lon], { icon, interactive: false, zIndexOffset: 1000 })
+      .addTo(radarMap);
+  }
+
   // ── Map init ──────────────────────────────────────────────────────────
   function initMap(lat, lon) {
     if (!radarMap) {
@@ -311,6 +331,7 @@
       updateLabel(radarIdx);
 
       radarMap.invalidateSize();
+      placeLocationMarkers(lat, lon);
       autoStartOnFirstCommit = true;
       stageFrame(radarIdx, true);
 

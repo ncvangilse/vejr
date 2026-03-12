@@ -35,7 +35,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="vejr.css">
+<link rel="stylesheet" href="vejr.css?v=20">
 </head>
 <body>
 <div id="rotator">
@@ -73,6 +73,7 @@
       <div id="header-right">
         <div id="updated-text">—</div>
         <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
+        <div id="shore-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
       </div>
     </div>
 
@@ -173,6 +174,19 @@
       </div>
     </div>
 
+    <!-- Shore compass -->
+    <div class="kite-field">
+      <label>SEA BEARINGS — teal = sea, amber = land (5 km radius, 10° steps)</label>
+      <div id="shore-compass-wrap">
+        <canvas id="shore-compass-canvas"></canvas>
+        <div id="shore-compass-legend">
+          <span class="sc-leg sea">■ Sea</span>
+          <span class="sc-leg land">■ Land</span>
+          <span class="sc-leg sel">↗ Selected dirs</span>
+        </div>
+      </div>
+    </div>
+
     <div class="kite-field">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
         <input type="checkbox" id="kite-at-night-input" style="width:15px;height:15px;accent-color:#00c890;cursor:pointer;">
@@ -189,11 +203,12 @@
 </div>
 
 <!-- ── Scripts (order matters: config → api → icons → charts → radar → app) ── -->
-<script src="config.js?v=17"></script>
-<script src="api.js?v=17"></script>
-<script src="weather-icons.js?v=17"></script>
-<script src="charts.js?v=17"></script>
-<script src="radar.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="config.js?v=20"></script>
+<script src="api.js?v=20"></script>
+<script src="weather-icons.js?v=20"></script>
+<script src="charts.js?v=20"></script>
+<script src="radar.js?v=20"></script>
+<script src="shore.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
