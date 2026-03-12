@@ -123,11 +123,24 @@ function drawTopRow(times, codes, precips) {
   }
 
   // Walk through slots in stride-sized float steps so spacing is always even.
+  // At each step, prefer a daytime slot within ±stride/2 of the ideal position
+  // (falling back to the nearest slot if the whole window is nighttime).
   for (let pos = 0; pos < n; pos += iconStride) {
-    const i = Math.round(pos);
+    const lo = Math.max(0,   Math.round(pos - iconStride / 2));
+    const hi = Math.min(n-1, Math.round(pos + iconStride / 2));
+
+    // find closest daytime slot within the window
+    let best = -1, bestDist = Infinity;
+    for (let j = lo; j <= hi; j++) {
+      if (!isNight(times[j])) {
+        const dist = Math.abs(j - pos);
+        if (dist < bestDist) { bestDist = dist; best = j; }
+      }
+    }
+    const i = best >= 0 ? best : Math.round(pos);  // fall back to nearest if all night
     if (i >= n) break;
+
     const c = codes[i];
-    // centre the icon in the middle of the stride-wide gap
     const centreX = (pos + iconStride / 2) * colW;
     dmiIcon(ctx, wmoType(c, times[i]), centreX, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0, c);
   }
