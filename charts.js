@@ -635,9 +635,6 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   // --- ensemble gust band (extended full-width, clipped above wind line) ---
   _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, cY + padT);
 
-  // --- gust-gap fill ---
-  _drawGustGapFill(ctx, safeGusts, winds, n, cssW, cx2, wy);
-
   // --- ensemble wind band (clipped to wind fill area) ---
   const windFillClip = [
     { x: cx2(0),     y: base },
@@ -646,16 +643,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   ];
   _drawEnsBand(ctx, ensWind, cx2, wy, windFillClip, 'rgba(0,0,0,0.22)');
 
-  // --- ensemble gust band (clipped to gust-gap strip) ---
-  const gustGapClip = [
-    ...safeGusts.map((v, i) => ({ x: cx2(i), y: wy(v) })),
-    ...winds.map((v, i) => ({ x: cx2(n - 1 - i), y: wy(winds[n - 1 - i]) })),
-  ];
-  _drawEnsBand(ctx, ensGust, cx2, wy, gustGapClip, 'rgba(180,100,20,0.35)');
 
-  // --- gust line & wind line ---
-  _drawWindLine(ctx, safeGusts, cx2, wy, 'rgba(255,255,255,0.70)', 1);
-  _drawWindLine(ctx, winds,     cx2, wy, 'rgba(255,255,255,0.95)', 2);
+  // --- wind line ---
+  _drawWindLine(ctx, winds, cx2, wy, 'rgba(255,255,255,0.95)', 2);
 
   // --- kite pill icons (top strip) ---
   _drawKiteIcons(ctx, winds, times, dirs, cx2, cY, KITE_H);
