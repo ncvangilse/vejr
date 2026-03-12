@@ -112,9 +112,25 @@ function drawTopRow(times, codes, precips) {
   });
 
   // icons — drawn on canvas
-  codes.forEach((c,i)=>{
-    dmiIcon(ctx, wmoType(c, times[i]), (i+0.5)*colW, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0, c);
-  });
+  // Stride is a continuous float: MIN_ICON_PX / colW, clamped to [1, 2].
+  // stride=1 → every 3h slot; stride=2 → every 6h. Values in between give
+  // smooth, gradual thinning as the screen narrows.
+  const MIN_ICON_PX = ICON_H * 0.65;
+  const iconStride  = Math.min(4, Math.max(1, MIN_ICON_PX / colW));
+  if (iconStride !== drawTopRow._lastStride) {
+    console.log(`[icons] stride changed: ${drawTopRow._lastStride?.toFixed(3) ?? 'n/a'} → ${iconStride.toFixed(3)} (colW=${colW.toFixed(1)}px)`);
+    drawTopRow._lastStride = iconStride;
+  }
+
+  // Walk through slots in stride-sized float steps so spacing is always even.
+  for (let pos = 0; pos < n; pos += iconStride) {
+    const i = Math.round(pos);
+    if (i >= n) break;
+    const c = codes[i];
+    // centre the icon in the middle of the stride-wide gap
+    const centreX = (pos + iconStride / 2) * colW;
+    dmiIcon(ctx, wmoType(c, times[i]), centreX, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0, c);
+  }
 
   // set axis label
   document.getElementById('ax-top').textContent = '';
