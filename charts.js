@@ -634,7 +634,10 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
   const KITE_H    = 24;                   // reserved strip for kite pill icons
   const padT      = KITE_H + 4;
   const chartH    = WIND_H - padT;
-  const maxW      = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
+  const ensGustMax = ensGust
+    ? Math.max(...ensGust.p90.filter(v => v != null))
+    : 0;
+  const maxW      = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
   const wy        = v => cY + padT + (1 - v / maxW) * chartH;
   const base      = wy(0);
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
