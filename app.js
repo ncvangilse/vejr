@@ -78,21 +78,20 @@ async function load(cityName, model) {
       ensWind   = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
       ensGust   = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
       ensPrecip = ensemblePercentiles(ensData.hourly, 'precipitation');
+      // Snapshot the deterministic gusts BEFORE merging ensemble wind into winds[].
+      // The ensemble p50 wind is often higher than the deterministic wind; if we let
+      // gusts get clamped against it the gust-wind gap collapses to zero.
+      const detGusts = gusts.slice();
       // Replace deterministic slots with ensemble median (p50) where available.
-      // Use slot-by-slot replacement so a null tail in the ensemble (far-future
-      // hours the model hasn't computed yet) doesn't discard the whole array.
       if (ensTemp)
         for (let i = 0; i < temps.length;   i++) { if (ensTemp.p50[i]   != null) temps[i]   = ensTemp.p50[i];   }
       if (ensWind)
         for (let i = 0; i < winds.length;   i++) { if (ensWind.p50[i]   != null) winds[i]   = ensWind.p50[i];   }
-      // Do NOT replace gusts with ensGust.p50: some ensemble models (e.g. ICON-EPS) return
-      // gusts == wind speed, which would make the gust area invisible. The deterministic gust
-      // from fetchWeather is available for all 7 days and is always the better source.
-      // ensGust is kept only for the p10/p90 uncertainty band drawn in drawWind.
       if (ensPrecip)
         for (let i = 0; i < precips.length; i++) { if (ensPrecip.p50[i] != null) precips[i] = ensPrecip.p50[i]; }
-      // Gusts must always be >= mean wind after ensemble wind p50 merge
-      for (let i = 0; i < gusts.length; i++) gusts[i] = Math.max(gusts[i], winds[i]);
+      // Restore deterministic gusts unchanged — they are already >= det wind from the
+      // initial data loop, and they must stay above the (now ensemble-merged) wind line.
+      for (let i = 0; i < gusts.length; i++) gusts[i] = Math.max(detGusts[i], winds[i]);
       const memberCount = Object.keys(ensData.hourly).filter(k => k.startsWith('temperature_2m_member')).length;
       ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
       ensStatus.style.color = '#5a9';

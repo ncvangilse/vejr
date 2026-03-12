@@ -397,215 +397,190 @@ function drawWindDir(times, winds, dirs) {
 }
 
 /* ══════════════════════════════════════════════════
-   DRAW WIND  (Windy-style)
+   DRAW WIND — private helpers
 ══════════════════════════════════════════════════ */
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
-  const canvas = document.getElementById('c-wind');
-  const wrap   = canvas.parentElement;
-  const cssW   = wrap.clientWidth;
-  const WIND_H = 130;
-  const cssH   = WIND_H;
-  const ctx    = resolveDPI(canvas, cssW, cssH);
-  ctx.clearRect(0,0,cssW,cssH);
 
-  const n=times.length;
-  const colW=cssW/n;
-  const divs=dayDivs(times);
+/** Clamps each gust so it is always >= the corresponding mean wind. */
+function _safeClampGusts(gusts, winds) {
+  return gusts.map((g, i) =>
+    (g != null && isFinite(g)) ? Math.max(g, winds[i]) : winds[i]
+  );
+}
 
-  // Defensive clamp: gusts must always be >= mean wind (bad API data or null tail can violate this)
-  const safeGusts = gusts.map((g, i) => (g != null && isFinite(g)) ? Math.max(g, winds[i]) : winds[i]);
+/** Draws kite-optimal column highlights behind all chart content. */
+function _drawWindKiteColumns(ctx, winds, times, dirs, colW, cY, WIND_H) {
+  if (!lastData) return;
+  winds.forEach((w, i) => {
+    if (!isKiteOptimal(w, dirs[i], times[i])) return;
+    ctx.fillStyle = 'rgba(0,220,180,0.18)';
+    ctx.fillRect(i * colW, cY, colW, WIND_H);
+  });
+}
 
-  // Include ensemble gust p90 in the y-axis ceiling so the band never clips
-  const ensGustP90Max = ensGust ? Math.max(...ensGust.p90.filter(v => v != null && v !== undefined)) : 0;
-
-  const cY      = 0;
-  const KITE_H  = 24;          // reserved strip at the top for kite icons
-  const padT    = KITE_H + 4;
-  const chartH  = WIND_H - padT;
-  const maxW    = Math.ceil(Math.max(...safeGusts, ensGustP90Max, 5) / 5) * 5;
-  const wy      = v => cY + padT + (1 - v / maxW) * chartH;
-  const base    = wy(0);
-  const cx2     = i => (i + 0.5) * colW;
-  const wLevels = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
-
-  // background
-  ctx.fillStyle = '#dde3eb';
-  ctx.fillRect(0, cY, cssW, WIND_H);
-
-
-  // KITE OPTIMAL COLUMNS
-  if (lastData) {
-    winds.forEach((w, i) => {
-      if (!isKiteOptimal(w, lastData.dirs[i], lastData.times[i])) return;
-      ctx.fillStyle = 'rgba(0,220,180,0.18)';
-      ctx.fillRect(i * colW, cY, colW, WIND_H);
-    });
-  }
-
-  // grid lines
+/** Draws horizontal speed grid lines. */
+function _drawWindGrid(ctx, wLevels, wy, cssW) {
   wLevels.forEach(v => {
-    const y = wy(v);
     ctx.strokeStyle = 'rgba(180,190,200,0.7)';
     ctx.lineWidth   = 0.5;
     ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, wy(v)); ctx.lineTo(cssW, wy(v)); ctx.stroke();
   });
   ctx.setLineDash([]);
+}
 
-  // day dividers
-  divs.forEach(i => {
-    const x = i * colW;
-    ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
+/**
+ * Builds extended p90/p10 arrays for the full-width gust ensemble band,
+ * extrapolating beyond the ensemble data cutoff using the average half-spread.
+ * Returns null when the band should not be drawn.
+ */
+function _buildExtendedGustBand(ensGust, safeGusts, winds) {
+  const lastValidIdx = ensGust.p90.reduce((acc, v, i) => v != null ? i : acc, -1);
+  if (lastValidIdx < 1) return null;
+
+  let sumSpread = 0, spreadCount = 0;
+  for (let i = 0; i <= lastValidIdx; i++) {
+    if (ensGust.p90[i] != null && ensGust.p10[i] != null) {
+      sumSpread += (ensGust.p90[i] - ensGust.p10[i]) / 2;
+      spreadCount++;
+    }
+  }
+  const avgHalfSpread = spreadCount ? sumSpread / spreadCount : 0;
+  if (avgHalfSpread < 0.3) return null;  // spread not meaningful
+
+  const allP90 = safeGusts.map((g, i) =>
+    ensGust.p90[i] != null ? Math.max(ensGust.p90[i], winds[i]) : g + avgHalfSpread
+  );
+  const allP10 = safeGusts.map((g, i) =>
+    ensGust.p10[i] != null
+      ? Math.max(ensGust.p10[i], winds[i] * 0.5)
+      : Math.max(g - avgHalfSpread, winds[i] * 0.5)
+  );
+  return { allP90, allP10 };
+}
+
+/**
+ * Draws the full-width ensemble gust band, clipped to the gust fill area
+ * so it never spills above the gust line.
+ */
+function _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, chartTop) {
+  if (!ensGust) return;
+  const band = _buildExtendedGustBand(ensGust, safeGusts, winds);
+  if (!band) return;
+  const { allP90, allP10 } = band;
+
+  ctx.save();
+  // Clip to the area between the wind line and the top of the chart,
+  // so the band can freely extend above the gust line.
+  ctx.beginPath();
+  ctx.moveTo(cx2(0), chartTop);
+  ctx.lineTo(cx2(n - 1), chartTop);
+  for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(winds[i]));
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.beginPath();
+  ctx.moveTo(cx2(0), wy(allP90[0]));
+  for (let i = 1; i < n; i++) ctx.lineTo(cx2(i), wy(allP90[i]));
+  for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(allP10[i]));
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(180,100,20,0.22)';
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Draws the coloured gust-gap polygon (strip between gust line and wind line). */
+function _drawGustGapFill(ctx, safeGusts, winds, n, cssW, cx2, wy) {
+  const grad = n > 1 ? ctx.createLinearGradient(0, 0, cssW, 0) : null;
+  if (grad) safeGusts.forEach((g, i) => grad.addColorStop(i / (n - 1), windColorStr(g, 0.45)));
+  ctx.fillStyle = grad || windColorStr(safeGusts[0], 0.45);
+  ctx.beginPath();
+  ctx.moveTo(cx2(0), wy(safeGusts[0]));
+  for (let i = 1; i < n; i++) ctx.lineTo(cx2(i), wy(safeGusts[i]));
+  for (let i = n - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(winds[i]));
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Draws a percentile uncertainty band for an ensemble series, clipped to a
+ * polygon defined by clipPts (array of {x, y}).
+ */
+function _drawEnsBand(ctx, ens, cx2, wy, clipPts, fillStyle) {
+  if (!ens) return;
+  const validIdxs = ens.p90
+    .map((v, i) => (v != null && ens.p10[i] != null) ? i : null)
+    .filter(i => i !== null);
+  if (validIdxs.length < 2) return;
+
+  ctx.save();
+  ctx.beginPath();
+  clipPts.forEach(({ x, y }, k) => k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.beginPath();
+  ctx.moveTo(cx2(validIdxs[0]), wy(ens.p90[validIdxs[0]]));
+  validIdxs.forEach(i => ctx.lineTo(cx2(i), wy(ens.p90[i])));
+  for (let k = validIdxs.length - 1; k >= 0; k--) ctx.lineTo(cx2(validIdxs[k]), wy(ens.p10[validIdxs[k]]));
+  ctx.closePath();
+  ctx.fillStyle = fillStyle;
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Draws a simple polyline over a series of values. */
+function _drawWindLine(ctx, values, cx2, wy, strokeStyle, lineWidth) {
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth   = lineWidth;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  values.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
+  ctx.stroke();
+}
+
+/** Draws kite pill badges in the reserved top strip. */
+function _drawKiteIcons(ctx, winds, times, dirs, cx2, cY, KITE_H) {
+  if (!lastData) return;
+  const ICON_SIZE = 14;
+  const PILL_H    = KITE_H - 4;
+  const PILL_W    = PILL_H + 4;
+  const PILL_Y    = cY + 2;
+  const iconCY    = PILL_Y + PILL_H / 2;
+
+  ctx.font         = `${ICON_SIZE}px sans-serif`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  winds.forEach((w, i) => {
+    if (!isKiteOptimal(w, dirs[i], times[i])) return;
+    const x  = cx2(i);
+    const px = x - PILL_W / 2;
+    const r  = PILL_H / 2;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,180,140,0.82)';
+    ctx.beginPath();
+    ctx.moveTo(px + r, PILL_Y);
+    ctx.arcTo(px + PILL_W, PILL_Y,          px + PILL_W, PILL_Y + PILL_H, r);
+    ctx.arcTo(px + PILL_W, PILL_Y + PILL_H, px,          PILL_Y + PILL_H, r);
+    ctx.arcTo(px,          PILL_Y + PILL_H, px,          PILL_Y,          r);
+    ctx.arcTo(px,          PILL_Y,          px + PILL_W, PILL_Y,          r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillText('🪁', x, iconCY);
   });
+}
 
-  // ENSEMBLE GUST UNCERTAINTY BAND — spans full 7 days, clipped to the gust fill area.
-  if (ensGust) {
-    // Find the last slot where the ensemble has real p90/p10 gust data.
-    const lastValidIdx = ensGust.p90.reduce((acc, v, i) => v != null ? i : acc, -1);
-
-    // Only draw if the ensemble genuinely provides gust spread (p90 meaningfully above safeGusts median).
-    const validP90 = ensGust.p90.filter(v => v != null);
-    const validP90avg = validP90.length ? validP90.reduce((a,b) => a+b,0) / validP90.length : 0;
-    const safeMid = safeGusts.slice(0, lastValidIdx + 1).reduce((a,b) => a+b, 0) / (lastValidIdx + 1 || 1);
-    const gustsAreReal = lastValidIdx >= 1 && validP90avg > safeMid + 0.3;
-
-    if (gustsAreReal) {
-      // Compute the average absolute spread (half-width) from the valid ensemble region.
-      // Use this to extend the band beyond the ensemble's data cutoff.
-      let sumSpread = 0, spreadCount = 0;
-      for (let i = 0; i <= lastValidIdx; i++) {
-        if (ensGust.p90[i] != null && ensGust.p10[i] != null) {
-          sumSpread += (ensGust.p90[i] - ensGust.p10[i]) / 2;
-          spreadCount++;
-        }
-      }
-      const avgHalfSpread = spreadCount ? sumSpread / spreadCount : 0;
-
-      // Build full-length p90/p10 arrays: ensemble data where available, deterministic ± spread beyond.
-      const allP90 = safeGusts.map((g, i) =>
-        (ensGust.p90[i] != null) ? Math.max(ensGust.p90[i], winds[i]) : g + avgHalfSpread
-      );
-      const allP10 = safeGusts.map((g, i) =>
-        (ensGust.p10[i] != null) ? Math.max(ensGust.p10[i], winds[i] * 0.5) : Math.max(g - avgHalfSpread, winds[i] * 0.5)
-      );
-
-      ctx.save();
-      // Clip to the gust fill area so the band never spills above the gust line.
-      ctx.beginPath();
-      ctx.moveTo(cx2(0), base);
-      safeGusts.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
-      ctx.lineTo(cx2(n - 1), base);
-      ctx.closePath();
-      ctx.clip();
-      ctx.beginPath();
-      ctx.moveTo(cx2(0), wy(allP90[0]));
-      allP90.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
-      for (let i = allP10.length - 1; i >= 0; i--) ctx.lineTo(cx2(i), wy(allP10[i]));
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(180,100,20,0.18)';
-      ctx.fill();
-      ctx.restore();
-    }
-  }
-
-  // FILLED GUST AREA
-  const gustGrad = ctx.createLinearGradient(0, 0, cssW, 0);
-  safeGusts.forEach((g, i) => gustGrad.addColorStop(i / (n - 1), windColorStr(g)));
-  ctx.fillStyle = gustGrad;
-  ctx.beginPath();
-  ctx.moveTo(cx2(0), base);
-  safeGusts.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
-  ctx.lineTo(cx2(n - 1), base);
-  ctx.closePath();
-  ctx.fill();
-
-  // FILLED WIND SPEED AREA
-  const windGrad = ctx.createLinearGradient(0, 0, cssW, 0);
-  winds.forEach((w, i) => windGrad.addColorStop(i / (n - 1), windColorStr(w)));
-  ctx.fillStyle = windGrad;
-  ctx.beginPath();
-  ctx.moveTo(cx2(0), base);
-  winds.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
-  ctx.lineTo(cx2(n - 1), base);
-  ctx.closePath();
-  ctx.fill();
-
-  // ENSEMBLE WIND SPEED UNCERTAINTY BAND
-  // Clip to the wind-fill area so the band doesn't darken the gust region above it,
-  // which would create a visible discontinuity where ensemble coverage ends (~day 5.5).
-  if (ensWind) {
-    const pts90 = ensWind.p90.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
-    const pts10 = ensWind.p10.map((v,i) => v != null ? {x: cx2(i), y: wy(v)} : null).filter(Boolean);
-    if (pts90.length > 1 && pts10.length > 1) {
-      ctx.save();
-      // Clip to the wind-speed filled area (between the wind line and the baseline)
-      ctx.beginPath();
-      ctx.moveTo(cx2(0), base);
-      winds.forEach((v, i) => ctx.lineTo(cx2(i), wy(v)));
-      ctx.lineTo(cx2(n - 1), base);
-      ctx.closePath();
-      ctx.clip();
-      ctx.beginPath();
-      ctx.moveTo(pts90[0].x, pts90[0].y);
-      pts90.forEach(p => ctx.lineTo(p.x, p.y));
-      for (let i = pts10.length - 1; i >= 0; i--) ctx.lineTo(pts10[i].x, pts10[i].y);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.fill();
-      ctx.restore();
-    }
-  }
-
-  // GUST LINE
-  ctx.strokeStyle = 'rgba(255,255,255,0.70)'; ctx.lineWidth = 1; ctx.setLineDash([]);
-  ctx.beginPath();
-  safeGusts.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
-  ctx.stroke();
-
-  // WIND LINE
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 2;
-  ctx.beginPath();
-  winds.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
-  ctx.stroke();
-
-  // 🪁 KITE ICONS — drawn in the reserved top strip
-  if (lastData) {
-    const ICON_SIZE = 14;
-    const PILL_H    = KITE_H - 4;
-    const PILL_W    = PILL_H + 4;
-    const PILL_Y    = cY + 2;
-    const iconCY    = PILL_Y + PILL_H / 2;
-    ctx.font = `${ICON_SIZE}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    winds.forEach((w, i) => {
-      if (!isKiteOptimal(w, lastData.dirs[i], lastData.times[i])) return;
-      const x  = cx2(i);
-      const px = x - PILL_W / 2;
-      const r  = PILL_H / 2;
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,180,140,0.82)';
-      ctx.beginPath();
-      ctx.moveTo(px + r, PILL_Y);
-      ctx.arcTo(px + PILL_W, PILL_Y,          px + PILL_W, PILL_Y + PILL_H, r);
-      ctx.arcTo(px + PILL_W, PILL_Y + PILL_H, px,          PILL_Y + PILL_H, r);
-      ctx.arcTo(px,          PILL_Y + PILL_H, px,          PILL_Y,          r);
-      ctx.arcTo(px,          PILL_Y,          px + PILL_W, PILL_Y,          r);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-      ctx.fillText('🪁', x, iconCY);
-    });
-  }
-
-  // axis labels
+/** Populates the wind axis element with speed ticks coloured by the wind ramp. */
+function _drawWindAxisLabels(wLevels) {
   const ax = document.getElementById('ax-wind');
   ax.innerHTML = '';
   [...wLevels].reverse().forEach(v => {
     const sp = document.createElement('span');
-    sp.textContent = v;
-    sp.style.color = windColorStr(v);
+    sp.textContent      = v;
+    sp.style.color      = windColorStr(v, 1);
     sp.style.fontWeight = '600';
     if (v === KITE_CFG.max || v === KITE_CFG.min) {
       sp.style.color = '#00c8a0';
@@ -613,6 +588,80 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
     }
     ax.appendChild(sp);
   });
+}
+
+/* ══════════════════════════════════════════════════
+   DRAW WIND  (Windy-style)
+══════════════════════════════════════════════════ */
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust) {
+  // --- canvas setup ---
+  const canvas = document.getElementById('c-wind');
+  const cssW   = canvas.parentElement.clientWidth;
+  const WIND_H = 130;
+  const ctx    = resolveDPI(canvas, cssW, WIND_H);
+  ctx.clearRect(0, 0, cssW, WIND_H);
+
+  const n    = times.length;
+  const colW = cssW / n;
+  const divs = dayDivs(times);
+  const cx2  = i => (i + 0.5) * colW;
+
+  // --- scale ---
+  const safeGusts = _safeClampGusts(gusts, winds);
+  const cY        = 0;
+  const KITE_H    = 24;                   // reserved strip for kite pill icons
+  const padT      = KITE_H + 4;
+  const chartH    = WIND_H - padT;
+  const maxW      = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
+  const wy        = v => cY + padT + (1 - v / maxW) * chartH;
+  const base      = wy(0);
+  const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
+
+  // --- background ---
+  ctx.fillStyle = '#dde3eb';
+  ctx.fillRect(0, cY, cssW, WIND_H);
+
+  // --- kite column highlights (behind everything) ---
+  _drawWindKiteColumns(ctx, winds, times, dirs, colW, cY, WIND_H);
+
+  // --- grid & day dividers ---
+  _drawWindGrid(ctx, wLevels, wy, cssW);
+  divs.forEach(i => {
+    const x = i * colW;
+    ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
+  });
+
+  // --- ensemble gust band (extended full-width, clipped above wind line) ---
+  _drawEnsGustExtendedBand(ctx, ensGust, safeGusts, winds, n, cx2, wy, cY + padT);
+
+  // --- gust-gap fill ---
+  _drawGustGapFill(ctx, safeGusts, winds, n, cssW, cx2, wy);
+
+  // --- ensemble wind band (clipped to wind fill area) ---
+  const windFillClip = [
+    { x: cx2(0),     y: base },
+    ...winds.map((v, i) => ({ x: cx2(i), y: wy(v) })),
+    { x: cx2(n - 1), y: base },
+  ];
+  _drawEnsBand(ctx, ensWind, cx2, wy, windFillClip, 'rgba(0,0,0,0.22)');
+
+  // --- ensemble gust band (clipped to gust-gap strip) ---
+  const gustGapClip = [
+    ...safeGusts.map((v, i) => ({ x: cx2(i), y: wy(v) })),
+    ...winds.map((v, i) => ({ x: cx2(n - 1 - i), y: wy(winds[n - 1 - i]) })),
+  ];
+  _drawEnsBand(ctx, ensGust, cx2, wy, gustGapClip, 'rgba(180,100,20,0.35)');
+
+  // --- gust line & wind line ---
+  _drawWindLine(ctx, safeGusts, cx2, wy, 'rgba(255,255,255,0.70)', 1);
+  _drawWindLine(ctx, winds,     cx2, wy, 'rgba(255,255,255,0.95)', 2);
+
+  // --- kite pill icons (top strip) ---
+  _drawKiteIcons(ctx, winds, times, dirs, cx2, cY, KITE_H);
+
+  // --- axis labels ---
+  _drawWindAxisLabels(wLevels);
 }
 
 /* ══════════════════════════════════════════════════

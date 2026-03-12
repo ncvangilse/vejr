@@ -29,6 +29,7 @@ self.addEventListener('activate', event => {
 
 // Fetch strategy:
 //   - HTML files      → network-first (always get fresh build number)
+//   - JS / CSS files  → network-first (always get latest code)
 //   - API requests    → network-only  (always live data)
 //   - everything else → cache-first   (icons, fonts)
 self.addEventListener('fetch', event => {
@@ -46,8 +47,13 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Network-first: HTML pages (so build number is always fresh)
-  if (event.request.destination === 'document' || url.pathname.endsWith('.html')) {
+  // Network-first: HTML pages and JS/CSS (so updates are always live)
+  if (
+    event.request.destination === 'document' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css')
+  ) {
     event.respondWith(
       fetch(event.request).catch(() => caches.match(event.request))
     );
