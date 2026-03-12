@@ -146,8 +146,7 @@ function drawCrosshairs(fracX, idx) {
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH   = WIND_H - WIND_padT;
   const safeGusts     = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
-  const ensGustP90Max = d.ensGust ? Math.max(...d.ensGust.p90.filter(v => v != null && v !== undefined)) : 0;
-  const maxW          = Math.ceil(Math.max(...safeGusts, ensGustP90Max, 5) / 5) * 5;
+  const maxW          = Math.ceil(Math.max(...safeGusts, 5) / 5) * 5;
   const windDotY      = WIND_padT + (1 - d.winds[idx] / maxW) * WIND_chartH;
   const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
   XH_CANVASES.forEach(id => {
