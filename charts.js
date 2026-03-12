@@ -361,12 +361,19 @@ function drawWindDir(times, winds, dirs) {
   const canvas = document.getElementById('c-dir');
   const wrap   = canvas.parentElement;
   const cssW   = wrap.clientWidth;
-  const DIR_H  = 46;
+  const n      = times.length;
+  const colW   = cssW / n;
+  // Compress row height when columns are narrow so arrows always fit snugly.
+  // Arrow geometry: tip is size*0.76 above cy, shaft bottom is size*0.50 below cy → total span = size*1.26
+  const arrowSize = Math.min(colW * 0.72, 22);
+  const DIR_H  = Math.round(Math.max(20, arrowSize * 1.26 + 6));
   const ctx    = resolveDPI(canvas, cssW, DIR_H);
   ctx.clearRect(0, 0, cssW, DIR_H);
 
-  const n     = times.length;
-  const colW  = cssW / n;
+  // Force the DOM row to match the computed height so it compresses vertically
+  wrap.style.height = DIR_H + 'px';
+  wrap.parentElement.style.height = DIR_H + 'px';
+
   const divs  = dayDivs(times);
 
   // dark background
@@ -388,10 +395,10 @@ function drawWindDir(times, winds, dirs) {
   });
 
   // arrows + compass labels
-  const arrowSize = Math.min(colW * 0.72, 22);
   dirs.forEach((deg, i) => {
     const cx = (i + 0.5) * colW;
-    const cy = DIR_H / 2 - 3;
+    // Arrow tip is size*0.76 above cy, shaft-bottom size*0.50 below → shift cy down by the half-difference to optically centre
+    const cy = DIR_H / 2 + arrowSize * 0.13;
     drawWindArrow(ctx, cx, cy, deg, winds[i], arrowSize);
   });
 }
