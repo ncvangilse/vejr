@@ -24,12 +24,14 @@
    ──────────────────
    OSM coastlines are open ways tagged natural=coastline where the *left*
    side of the way is sea and the *right* side is land (i.e. ways run with
-   the sea to their left, which in practice means counter-clockwise around
-   land masses).  We assemble segments into rings and test the winding
-   order to classify the interior as land or sea.  For the area entirely
-   inside open ocean (no coastline way crosses the bounding box) we fall
-   back to a "global ocean" heuristic: if every land-area test returns
-   false and no coastline was fetched, we treat all samples as sea.
+   the sea to their left, which means they go **clockwise** around land
+   masses).  We assemble segments into rings and test the winding order to
+   classify the interior as land or sea.  In lon/lat (X=lon, Y=lat)
+   Cartesian space, clockwise winding yields a **negative** signed area, so
+   rings with area < 0 are land rings and rings with area ≥ 0 are sea
+   pockets (enclosed bays).  For the area entirely inside open ocean (no
+   coastline way crosses the bounding box) we fall back to a "global ocean"
+   heuristic: if no coastline was fetched, we treat all samples as sea.
 
    Point-in-polygon  –  ray-casting algorithm O(n) per polygon
    ─────────────────────────────────────────────────────────────
@@ -55,6 +57,7 @@ const SHORE_SEA_THRESH  = 0.5;    // fraction of samples that must be sea
 /* ── public state ──────────────────────────────────────────────────────── */
 window.SHORE_MASK   = null;        // Float32Array(36) or null
 window.SHORE_STATUS = { state: 'idle', msg: '' };
+window.SHORE_DEBUG  = null;        // debug snapshot – set after each analyseShore() run
 
 /* ══════════════════════════════════════════════════════════════════════════
    GEO HELPERS
@@ -93,8 +96,7 @@ function expandBbox(lat, lon, padKm) {
 
 /**
  * Standard 2-D ray-casting PIP.
- * `poly` is an array of {lat, lon} objects forming a closed ring
- * (first ≠ last; the function closes it automatically).
+ * `poly` is an array of {lat, lon} objects forming a closed ring.
  * Returns true if (lat, lon) is strictly inside the polygon.
  */
 function pointInPoly(lat, lon, poly) {
@@ -114,16 +116,63 @@ function pointInPoly(lat, lon, poly) {
 }
 
 /**
- * Signed area of a polygon ring (positive = CCW in standard math axes,
- * i.e. lat as Y and lon as X).
+ * Test whether a 2-D segment (p1→p2) crosses another segment (p3→p4).
+ * All points are {lat, lon}.  Returns true on a proper crossing.
  */
-function signedArea(ring) {
-  let area = 0;
-  const n = ring.length;
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    area += (ring[j].lon + ring[i].lon) * (ring[j].lat - ring[i].lat);
+function segmentsCross(p1, p2, p3, p4) {
+  const d1x = p2.lon - p1.lon, d1y = p2.lat - p1.lat;
+  const d2x = p4.lon - p3.lon, d2y = p4.lat - p3.lat;
+  const cross = d1x * d2y - d1y * d2x;
+  if (Math.abs(cross) < 1e-12) return false;  // parallel
+  const dx = p3.lon - p1.lon, dy = p3.lat - p1.lat;
+  const t = (dx * d2y - dy * d2x) / cross;
+  const u = (dx * d1y - dy * d1x) / cross;
+  return t > 0 && t < 1 && u > 0 && u < 1;
+}
+
+/**
+ * Determine whether a point (lat, lon) is on land, using raw OSM coastline
+ * segments and the ray-crossing rule:
+ *
+ *   OSM coastlines run with sea on the LEFT (clockwise around land).
+ *   Cast a ray from the test point to a known-sea anchor point.
+ *   Count how many coastline segments the ray crosses.
+ *   Odd count  → the point is on the opposite side of the coast from the
+ *                anchor → LAND.
+ *   Even count → same side as anchor → SEA.
+ *
+ * This completely avoids bbox ring-closure and winding-sign ambiguity.
+ *
+ * @param {number}                  lat, lon   – test point
+ * @param {Array<Array<{lat,lon}>}  coastWays  – raw OSM way segments
+ * @param {{ s,n,w,e }}             bbox       – query bbox (used to pick anchor)
+ * @param {boolean}                 hasCoast   – whether any coast data exists
+ * @returns {boolean}  true = land
+ */
+function isLandByRayCross(lat, lon, coastWays, bbox, hasCoast) {
+  if (!hasCoast) return false;  // no coast data → open sea
+
+  // Anchor: a point well outside the bbox that is guaranteed to be at sea.
+  // We pick a point displaced well beyond the bbox in all four directions and
+  // choose the one that produces the least-likely-to-be-ambiguous ray.
+  // Simple choice: bbox SW corner shifted further SW.
+  const anchor = {
+    lat: bbox.s - (bbox.n - bbox.s),
+    lon: bbox.w - (bbox.e - bbox.w),
+  };
+
+  const pt = { lat, lon };
+  let crossings = 0;
+
+  for (const way of coastWays) {
+    for (let i = 0; i < way.length - 1; i++) {
+      if (segmentsCross(pt, anchor, way[i], way[i + 1])) {
+        crossings++;
+      }
+    }
   }
-  return area / 2;
+
+  return (crossings % 2) === 1;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -136,9 +185,12 @@ function signedArea(ring) {
  *   - coastline ways (natural=coastline)
  * Returns geometries as JSON.
  */
+const OVERPASS_SERVER_TIMEOUT = 20;   // seconds – sent inside QL query
+const OVERPASS_CLIENT_TIMEOUT = 25000; // ms – hard browser-side abort
+
 function buildOverpassQuery(bbox) {
   const b = `${bbox.s},${bbox.w},${bbox.n},${bbox.e}`;
-  return `[out:json][timeout:12];
+  return `[out:json][timeout:${OVERPASS_SERVER_TIMEOUT}];
 (
   way["natural"="water"](${b});
   relation["natural"="water"](${b});
@@ -152,100 +204,42 @@ out geom;`;
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.openstreetmap.ru/api/interpreter',
 ];
 
+/** Fetch with a manual AbortController timeout (works on all browsers). */
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchOverpass(query) {
+  const body = 'data=' + encodeURIComponent(query);
+  const opts  = {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  };
+
   let lastErr;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
-      const r = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-        signal: AbortSignal.timeout(15000),
-      });
+      const r = await fetchWithTimeout(endpoint, opts, OVERPASS_CLIENT_TIMEOUT);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
     } catch (e) {
+      console.warn(`[shore] ${endpoint} failed:`, e.message ?? e);
       lastErr = e;
+      // On a hard HTTP error (4xx/5xx) from this endpoint skip to the next one.
+      // On a timeout / network error also try the next endpoint.
     }
   }
   throw lastErr;
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   COASTLINE RING ASSEMBLY
-══════════════════════════════════════════════════════════════════════════ */
-
-/**
- * Assemble a list of OSM coastline ways (each an array of {lat,lon} nodes)
- * into closed rings by chaining them end-to-start.
- *
- * OSM convention: natural=coastline ways run with the sea on the LEFT.
- * In geographic coordinates this means land masses are CCW rings and the
- * sea is "outside" them.
- *
- * For our PIP test: a point is "sea" if it is NOT inside any land ring.
- * A land ring is a CCW ring in lat/lon space (signedArea < 0 because
- * lat grows northward, lon grows eastward – right-hand coord system).
- * Actually in lat/lon Cartesian: CCW area is positive in standard math,
- * but OSM coastlines go CCW around land, so signed area of a land ring
- * is POSITIVE in standard (lat=Y, lon=X) convention.
- *
- * We keep all assembled rings and for each ring:
- *   area > 0  →  land ring   →  point inside means LAND
- *   area < 0  →  sea ring    →  point inside means SEA (enclosed water body
- *                                won't happen for ocean but guards edge cases)
- */
-function assembleCoastlineRings(ways) {
-  if (!ways.length) return [];
-
-  // Build adjacency: map from node-id-string of end point → way index
-  const byStart = new Map();
-  const byEnd   = new Map();
-  ways.forEach((way, i) => {
-    if (way.length < 2) return;
-    byStart.set(nodeKey(way[0]),   i);
-    byEnd  .set(nodeKey(way[way.length - 1]), i);
-  });
-
-  const used  = new Uint8Array(ways.length);
-  const rings = [];
-
-  for (let seed = 0; seed < ways.length; seed++) {
-    if (used[seed] || ways[seed].length < 2) continue;
-    const ring  = ways[seed].slice();
-    used[seed]  = 1;
-    let iter    = 0;
-
-    while (iter++ < ways.length) {
-      const tail = nodeKey(ring[ring.length - 1]);
-      // Check if closed
-      if (tail === nodeKey(ring[0])) break;
-
-      // Try to extend
-      const nextI = byStart.get(tail);
-      if (nextI !== undefined && !used[nextI]) {
-        ring.push(...ways[nextI].slice(1));
-        used[nextI] = 1;
-        continue;
-      }
-      // Try reversed way
-      const revI = byEnd.get(tail);
-      if (revI !== undefined && !used[revI]) {
-        ring.push(...ways[revI].slice(0, -1).reverse());
-        used[revI] = 1;
-        continue;
-      }
-      break; // open chain – keep as partial
-    }
-    rings.push(ring);
-  }
-  return rings;
-}
-
-function nodeKey(pt) {
-  return `${pt.lat.toFixed(7)},${pt.lon.toFixed(7)}`;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -273,6 +267,8 @@ async function analyseShore(lat, lon, onDone) {
     // Data received — notify UI before the CPU-bound PIP loop
     window.SHORE_STATUS = { state: 'calculating', msg: 'Calculating sea bearings…' };
     if (onDone) onDone();
+
+    console.debug(`[shore] Overpass returned ${data.elements.length} elements for (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
 
     /* ── Parse elements into polygons and coastline ways ── */
 
@@ -304,26 +300,23 @@ async function analyseShore(lat, lon, onDone) {
       }
     }
 
-    /* ── Assemble coastline into rings and build "land rings" ── */
-    const coastRings = assembleCoastlineRings(coastWays);
-
-    // Classify each ring: positive signed area → land
-    const landRings = coastRings.filter(r => signedArea(r) >= 0);
-    // Negative area rings are enclosed sea pockets (e.g. bays traced CCW)
-    const seaRings  = coastRings.filter(r => signedArea(r) < 0);
+    console.debug(`[shore] Parsed: ${coastWays.length} coastline ways, ${waterPolys.length} water-area polygons`);
 
     const hasCoastData = coastWays.length > 0;
 
-    /* ── Determine "is inland" heuristic ───────────────────────────────
-       If origin itself is inside a water-area polygon → it's a lake/river,
-       treat as inland (no useful sea wind).
-       If no coastline data at all and origin is not in a water area → inland.
-    ── */
+    // ── Origin classification (for debug / inland detection) ──
+    const originInWater = waterPolys.some(p => pointInPoly(lat, lon, p));
+    const originIsLand  = isLandByRayCross(lat, lon, coastWays, bbox, hasCoastData);
+    console.debug(`[shore] Origin (${lat.toFixed(5)}, ${lon.toFixed(5)}): inWaterPoly=${originInWater}, isLand=${originIsLand}, hasCoastData=${hasCoastData}`);
+
     const mask = new Float32Array(SHORE_BEARINGS);
+    const debugBearings = [];
 
     for (let b = 0; b < SHORE_BEARINGS; b++) {
       const bearing = b * 10;
       let seaCount  = 0;
+      const sampleLog = [];
+      const debugSamples = [];
 
       for (let s = 1; s <= SHORE_SAMPLES; s++) {
         const distKm = (s / SHORE_SAMPLES) * SHORE_MAX_KM;
@@ -331,38 +324,53 @@ async function analyseShore(lat, lon, onDone) {
         const { lat: pLat, lon: pLon } = pt;
 
         /* Is this sample point over water?
-           Priority:
-           1. Inside an explicit water-area polygon         → water (lake/river/reservoir)
-           2. Inside a coastline sea-ring (enclosed bay)    → sea
-           3. Inside a coastline land-ring                  → land
-           4. No coastline data present in bbox             → assume inland/lake (no coast)
-           5. Not inside any land-ring but coast data exists → sea                          */
-        const inWaterArea = waterPolys.some(p => pointInPoly(pLat, pLon, p));
-        const inSeaRing   = seaRings.some(r   => pointInPoly(pLat, pLon, r));
-        const inLandRing  = landRings.some(r  => pointInPoly(pLat, pLon, r));
+           Priority order:
+           1. Raw-segment ray-crossing against coastline ways → land or sea
+           2. Inside an explicit water-area polygon (lake, reservoir…) → sea
+              (overrides coastline "land" only for tagged inland water bodies)
+           3. No coastline data → open sea (fallback)                        */
+        const isLandCoast = isLandByRayCross(pLat, pLon, coastWays, bbox, hasCoastData);
+        const inWaterArea = isLandCoast && waterPolys.some(p => pointInPoly(pLat, pLon, p));
 
-        let isSea;
-        if (inWaterArea) {
-          // Explicitly tagged water area (lake etc.) – counts as water body but NOT ocean
-          // Only count as "sea" if it's a large body with place=sea/ocean tag
-          // (we don't have that tag here, so treat generic water areas as non-sea/inland)
-          isSea = false;
-        } else if (inSeaRing) {
-          isSea = true;
-        } else if (inLandRing) {
-          isSea = false;
+        let isSea, reason;
+        if (!hasCoastData) {
+          isSea = true;  reason = 'fallback:noCoast';
+        } else if (inWaterArea) {
+          isSea = true;  reason = 'waterArea';
+        } else if (isLandCoast) {
+          isSea = false; reason = 'coast:land';
         } else {
-          // No polygon contains this point
-          isSea = hasCoastData; // coast data exists → outside all land rings → open sea
+          isSea = true;  reason = 'coast:sea';
         }
 
+        sampleLog.push(`${distKm.toFixed(1)}km→${isSea ? 'SEA' : 'LND'}(${reason})`);
+        debugSamples.push({ distKm, lat: pLat, lon: pLon, isSea, reason });
         if (isSea) seaCount++;
       }
 
       mask[b] = seaCount / SHORE_SAMPLES;
+      debugBearings.push({ bearing, seaFrac: mask[b], samples: debugSamples });
+      console.debug(`[shore] ${String(bearing).padStart(3, ' ')}°: ${(mask[b]*100).toFixed(0).padStart(3)}% sea | ${sampleLog.join('  ')}`);
     }
 
-    window.SHORE_MASK   = mask;
+    const seaBearingCount = Array.from(mask).filter(v => v >= SHORE_SEA_THRESH).length;
+    console.debug(`[shore] Summary: ${seaBearingCount}/${SHORE_BEARINGS} bearings ≥ ${SHORE_SEA_THRESH*100}% sea`);
+    console.debug('[shore] Full mask (% sea per 10°):', Array.from(mask).map((v,i) => `${i*10}°:${(v*100).toFixed(0)}%`).join(' '));
+
+    window.SHORE_MASK  = mask;
+    window.SHORE_DEBUG = {
+      lat, lon,
+      bbox,
+      elementCount:   data.elements.length,
+      coastWayCount:  coastWays.length,
+      waterPolyCount: waterPolys.length,
+      hasCoastData,
+      originInWater,
+      originIsLand,
+      coastWays,                         // raw ways for debug-map drawing
+      waterPolys,                        // water-area polys for debug-map drawing
+      bearings: debugBearings,
+    };
 
     // Determine overall status message
     const anySeaBearing = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
@@ -382,7 +390,12 @@ async function analyseShore(lat, lon, onDone) {
   } catch (e) {
     console.warn('[shore] analysis failed:', e);
     window.SHORE_MASK   = null;
-    window.SHORE_STATUS = { state: 'error', msg: 'Coastline fetch failed' };
+    const isTimeout = e && (e.name === 'AbortError' || e.name === 'TimeoutError'
+                            || /timeout/i.test(e.message));
+    window.SHORE_STATUS = {
+      state: 'error',
+      msg:   isTimeout ? 'Coastline fetch timed out (all mirrors busy)' : 'Coastline fetch failed',
+    };
   }
 
   if (onDone) onDone();
@@ -574,13 +587,6 @@ function isSeaBearing(deg) {
 window.analyseShore    = analyseShore;
 window.drawShoreCompass = drawShoreCompass;
 window.isSeaBearing    = isSeaBearing;
-
-
-
-
-
-
-
 
 
 

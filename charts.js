@@ -118,7 +118,6 @@ function drawTopRow(times, codes, precips) {
   const MIN_ICON_PX = ICON_H * 0.65;
   const iconStride  = Math.min(4, Math.max(1, MIN_ICON_PX / colW));
   if (iconStride !== drawTopRow._lastStride) {
-    console.log(`[icons] stride changed: ${drawTopRow._lastStride?.toFixed(3) ?? 'n/a'} → ${iconStride.toFixed(3)} (colW=${colW.toFixed(1)}px)`);
     drawTopRow._lastStride = iconStride;
   }
 

@@ -185,6 +185,43 @@
           <span class="sc-leg sel">↗ Selected dirs</span>
         </div>
       </div>
+      <div id="shore-modal-status"></div>
+      <button id="kite-shore-fetch-btn">🌊 Fetch sea bearings</button>
+
+      <!-- Shore debug panel -->
+      <details id="shore-debug-details">
+        <summary id="shore-debug-summary">🔬 Debug data</summary>
+        <div id="shore-debug-panel">
+          <div id="shore-debug-top">
+            <canvas id="shore-debug-map"></canvas>
+            <div id="shore-debug-meta"></div>
+          </div>
+          <div id="shore-debug-rings-wrap">
+            <div class="shore-debug-section-title">Coastline ways</div>
+            <table id="shore-debug-rings-table">
+              <thead><tr><th>#</th><th>nodes</th><th>start → end</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="shore-debug-bearings-wrap">
+            <div class="shore-debug-section-title">Bearing samples</div>
+            <table id="shore-debug-bearings-table">
+              <thead>
+                <tr>
+                  <th>°</th>
+                  <th>sea%</th>
+                  <th>1 km</th>
+                  <th>2 km</th>
+                  <th>3 km</th>
+                  <th>4 km</th>
+                  <th>5 km</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="kite-field">

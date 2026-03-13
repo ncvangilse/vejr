@@ -1,7 +1,8 @@
 ﻿/* ══════════════════════════════════════════════════
    MAIN APP — load, tooltip, kite dialog, URL sync
 ══════════════════════════════════════════════════ */
-let lastData = null;
+let lastData        = null;
+let lastShoreCoords = null;  // { lat, lon } of the last loaded city
 /* ══════════════════════════════════════════════════
    LOAD
 ══════════════════════════════════════════════════ */
@@ -144,14 +145,9 @@ async function load(cityName, model) {
     requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
-    // Shore mask analysis (fire-and-forget; re-renders when done)
-    if (window.analyseShore) {
-      window.analyseShore(loc.latitude, loc.longitude, () => {
-        updateShoreStatusUI();
-        if (lastData) renderAll(lastData);
-        if (window.refreshShoreCompassInModal) window.refreshShoreCompassInModal();
-      });
-    }
+    // Store coords for on-demand shore analysis (triggered from the kite modal)
+    lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
+    updateShoreStatusUI();
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -355,28 +351,298 @@ function getModel() { return document.getElementById('model-select').value; }
 ══════════════════════════════════════════════════ */
 function updateShoreStatusUI() {
   const el = document.getElementById('shore-status');
-  if (!el) return;
+  const modalEl = document.getElementById('shore-modal-status');
   const s = window.SHORE_STATUS || { state: 'idle', msg: '' };
+
+  let text = '', color = '#778';
   if (s.state === 'loading') {
-    el.textContent = '🌊 Fetching coastline…';
-    el.style.color = '#778';
+    text = '🌊 Fetching coastline…';
   } else if (s.state === 'calculating') {
-    el.textContent = '🌊 Calculating sea bearings…';
-    el.style.color = '#778';
+    text = '🌊 Calculating sea bearings…';
   } else if (s.state === 'ok') {
     const seaCount = window.SHORE_MASK
       ? Array.from(window.SHORE_MASK).filter(v => v >= 0.5).length : 0;
-    el.textContent = `🌊 ${seaCount} sea bearings`;
-    el.style.color = seaCount > 0 ? '#00c890' : '#aa8844';
+    text  = `🌊 ${seaCount} sea bearings`;
+    color = seaCount > 0 ? '#00c890' : '#aa8844';
   } else if (s.state === 'inland') {
-    el.textContent = '🏔 Inland (no coast)';
-    el.style.color = '#aa8844';
+    text  = '🏔 Inland (no coast)';
+    color = '#aa8844';
   } else if (s.state === 'error') {
-    el.textContent = '🌊 Shore: unavailable';
-    el.style.color = '#a77';
-  } else {
-    el.textContent = '';
+    text  = '🌊 Shore: unavailable';
+    color = '#a77';
   }
+
+  if (el) { el.textContent = text; el.style.color = color; }
+  if (modalEl) {
+    // Show richer message in modal: include the SHORE_STATUS.msg if present
+    const extra = s.msg ? ` — ${s.msg}` : '';
+    modalEl.textContent = text + extra;
+    modalEl.style.color = color;
+  }
+  renderShoreDebug();
+}
+
+/* ══════════════════════════════════════════════════
+   SHORE DEBUG PANEL
+══════════════════════════════════════════════════ */
+
+/* ── Minimap ── */
+function drawShoreDebugMap(d) {
+  const canvas = document.getElementById('shore-debug-map');
+  if (!canvas) return;
+
+  const SIZE = canvas.clientWidth || 260;
+  const dpr  = window.devicePixelRatio || 1;
+  canvas.width  = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width  = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const PAD   = 10;                  // px padding inside canvas
+  const inner = SIZE - PAD * 2;
+
+  // ── Geo → canvas projection ──
+  // bbox comes from expandBbox(lat, lon, SHORE_MAX_KM + 1)
+  const bbox   = d.bbox;
+  const lonSpan = bbox.e - bbox.w;
+  const latSpan = bbox.n - bbox.s;
+
+  // Correct for lat/lon aspect ratio so the map isn't distorted
+  const cosLat    = Math.cos(d.lat * Math.PI / 180);
+  const rawAspect = (lonSpan * cosLat) / latSpan;   // > 1 → wider than tall
+  let mapW, mapH;
+  if (rawAspect >= 1) { mapW = inner; mapH = inner / rawAspect; }
+  else                { mapH = inner; mapW = inner * rawAspect; }
+  const offX = PAD + (inner - mapW) / 2;
+  const offY = PAD + (inner - mapH) / 2;
+
+  function geoToCanvas(lat, lon) {
+    const x = offX + ((lon - bbox.w) / lonSpan) * mapW;
+    const y = offY + ((bbox.n - lat) / latSpan) * mapH;  // y flipped
+    return [x, y];
+  }
+
+  // ── Background ──
+  ctx.fillStyle = '#141e2a';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // bbox outline
+  ctx.strokeStyle = 'rgba(80,100,130,0.5)';
+  ctx.lineWidth   = 0.5;
+  ctx.strokeRect(offX, offY, mapW, mapH);
+
+  // ── Helper: draw a {lat,lon}[] polygon ──
+  function drawPoly(pts, fillStyle, strokeStyle, lw) {
+    if (!pts || pts.length < 2) return;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const [x, y] = geoToCanvas(p.lat, p.lon);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    if (fillStyle)   { ctx.fillStyle   = fillStyle;   ctx.fill();   }
+    if (strokeStyle) { ctx.strokeStyle = strokeStyle; ctx.lineWidth = lw || 1; ctx.stroke(); }
+  }
+
+  // ── Water-area polygons (natural=water, reservoir …) ──
+  (d.waterPolys || []).forEach(poly =>
+    drawPoly(poly, 'rgba(30,100,180,0.35)', 'rgba(60,140,220,0.6)', 0.8)
+  );
+
+  // ── Coastline ways (raw OSM segments) ──
+  (d.coastWays || []).forEach(way => {
+    if (!way || way.length < 2) return;
+    ctx.beginPath();
+    way.forEach((p, i) => {
+      const [x, y] = geoToCanvas(p.lat, p.lon);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = 'rgba(220,140,50,0.9)';
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+  });
+
+  // ── Sample points for each bearing ──
+  const REASON_COLOR = {
+    'coast:land':       '#e06020',
+    'coast:sea':        '#00c8a0',
+    waterArea:          '#4090e0',
+    'fallback:sea':     '#80d8b0',
+    'fallback:noCoast': '#888',
+  };
+  (d.bearings || []).forEach(row => {
+    row.samples.forEach(s => {
+      const [x, y] = geoToCanvas(s.lat, s.lon);
+      const r = 2.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = REASON_COLOR[s.reason] ?? (s.isSea ? '#00c8a0' : '#e06020');
+      ctx.fill();
+    });
+  });
+
+  // ── Ray lines from origin to each sample cluster ──
+  ctx.lineWidth = 0.4;
+  const [ox, oy] = geoToCanvas(d.lat, d.lon);
+  (d.bearings || []).forEach(row => {
+    if (!row.samples.length) return;
+    const last = row.samples[row.samples.length - 1];
+    const [lx, ly] = geoToCanvas(last.lat, last.lon);
+    const isSea = row.seaFrac >= 0.5;
+    ctx.strokeStyle = isSea ? 'rgba(0,200,160,0.18)' : 'rgba(220,140,50,0.15)';
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(lx, ly);
+    ctx.stroke();
+  });
+
+  // ── Origin crosshair ──
+  const CH = 7;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.moveTo(ox - CH, oy); ctx.lineTo(ox + CH, oy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox, oy - CH); ctx.lineTo(ox, oy + CH); ctx.stroke();
+  // white dot
+  ctx.beginPath();
+  ctx.arc(ox, oy, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+
+  // ── Scale bar (1 km) ──
+  const scaleKm  = 1;
+  const dLon1km  = scaleKm / (111.32 * cosLat);
+  const barPxW   = (dLon1km / lonSpan) * mapW;
+  const barX     = offX + 6;
+  const barY     = offY + mapH - 8;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(barX, barY); ctx.lineTo(barX + barPxW, barY);
+  ctx.moveTo(barX, barY - 3); ctx.lineTo(barX, barY + 3);
+  ctx.moveTo(barX + barPxW, barY - 3); ctx.lineTo(barX + barPxW, barY + 3);
+  ctx.stroke();
+  ctx.font      = '9px IBM Plex Mono, monospace';
+  ctx.fillStyle = '#ccc';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('1 km', barX + barPxW + 3, barY + 4);
+
+  // ── N arrow ──
+  const narX = offX + mapW - 10;
+  const narY = offY + 18;
+  ctx.fillStyle   = '#fff';
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(narX, narY - 10);
+  ctx.lineTo(narX - 4, narY + 2);
+  ctx.lineTo(narX, narY - 2);
+  ctx.lineTo(narX + 4, narY + 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.font = 'bold 9px IBM Plex Sans, sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('N', narX, narY + 4);
+
+  // ── Legend ──
+  const LEG = [
+    { color: 'rgba(60,140,220,0.8)',  label: 'water poly' },
+    { color: 'rgba(220,140,50,0.9)',  label: 'coastline way' },
+    { color: '#00c8a0',               label: 'sample – sea'       },
+    { color: '#e06020',               label: 'sample – land'      },
+    { color: '#4090e0',               label: 'sample – water area'},
+  ];
+  ctx.font = '8px IBM Plex Mono, monospace';
+  ctx.textBaseline = 'middle';
+  const legX = offX + 4;
+  let   legY = offY + 4;
+  LEG.forEach(({ color, label }) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(legX, legY - 4, 8, 8);
+    ctx.fillStyle = 'rgba(200,210,220,0.9)';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, legX + 11, legY);
+    legY += 12;
+  });
+}
+
+function renderShoreDebug() {
+  const d = window.SHORE_DEBUG;
+
+  const mapCanvas = document.getElementById('shore-debug-map');
+  const metaEl   = document.getElementById('shore-debug-meta');
+  const ringsTb  = document.querySelector('#shore-debug-rings-table tbody');
+  const bearTb   = document.querySelector('#shore-debug-bearings-table tbody');
+  if (!metaEl || !ringsTb || !bearTb) return;
+
+  if (!d) {
+    metaEl.textContent = 'No debug data yet — fetch sea bearings first.';
+    ringsTb.innerHTML  = '';
+    bearTb.innerHTML   = '';
+    if (mapCanvas) {
+      const ctx = mapCanvas.getContext('2d');
+      ctx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+    }
+    return;
+  }
+
+  drawShoreDebugMap(d);
+  const originFlags = [
+    d.originInWater && 'in-waterPoly',
+    d.originIsLand  && 'is-land',
+  ].filter(Boolean).join(', ') || 'at-sea';
+
+  metaEl.innerHTML = `
+    <span class="sdd-key">Location:</span>
+    <span class="sdd-val">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</span>
+    <span class="sdd-key">OSM elements:</span>
+    <span class="sdd-val">${d.elementCount}</span>
+    <span class="sdd-key">Coast ways:</span>
+    <span class="sdd-val ${d.coastWayCount ? '' : 'sdd-warn'}">${d.coastWayCount}</span>
+    <span class="sdd-key">Water polys:</span>
+    <span class="sdd-val">${d.waterPolyCount}</span>
+    <span class="sdd-key">Origin:</span>
+    <span class="sdd-val">${originFlags}</span>
+  `;
+
+  // ── Coast ways table ──
+  const ways = d.coastWays || [];
+  if (!ways.length) {
+    ringsTb.innerHTML = '<tr><td colspan="3" style="color:#778;text-align:center">no coastline data</td></tr>';
+  } else {
+    ringsTb.innerHTML = ways.map((w, i) =>
+      `<tr><td>${i}</td><td>${w.length} nodes</td><td class="sdd-val" style="font-size:9px">`
+      + `(${w[0].lat.toFixed(3)},${w[0].lon.toFixed(3)})→`
+      + `(${w[w.length-1].lat.toFixed(3)},${w[w.length-1].lon.toFixed(3)})</td></tr>`
+    ).join('');
+  }
+
+  // ── Bearings table ──
+  const REASON_ABBR = {
+    'coast:land':     'CL',
+    'coast:sea':      'CS',
+    waterArea:        'WA',
+    'fallback:sea':   'FS',
+    'fallback:noCoast': 'NC',
+  };
+  bearTb.innerHTML = d.bearings.map(row => {
+    const pct   = Math.round(row.seaFrac * 100);
+    const isSea = row.seaFrac >= 0.5;
+    const cells = row.samples.map(s => {
+      const abbr = REASON_ABBR[s.reason] ?? s.reason;
+
+      const cls  = s.isSea ? 'sdd-sea-cell' : 'sdd-land-cell';
+      return `<td class="${cls}" title="${s.reason}">${s.isSea ? '~' : '▲'}${abbr}</td>`;
+    }).join('');
+    return `<tr class="${isSea ? 'sdd-sea-row' : 'sdd-land-row'}">
+      <td>${row.bearing}°</td>
+      <td>${pct}%</td>
+      ${cells}
+    </tr>`;
+  }).join('');
 }
 
 /* ══════════════════════════════════════════════════
@@ -393,6 +659,7 @@ function updateShoreStatusUI() {
   const cancelBtn     = document.getElementById('kite-modal-cancel');
   const resetBtn      = document.getElementById('kite-modal-reset');
   const cfgBtn        = document.getElementById('kite-cfg-btn');
+  const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
 
   DIR_PRESETS.forEach(({ label, deg }) => {
     const btn = document.createElement('button');
@@ -482,7 +749,7 @@ function updateShoreStatusUI() {
   cfgBtn.addEventListener('click', () => {
     syncDialogToConfig(KITE_CFG);
     overlay.classList.add('open');
-    requestAnimationFrame(drawModalCompass);
+    requestAnimationFrame(() => { drawModalCompass(); updateShoreStatusUI(); renderShoreDebug(); });
   });
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
@@ -492,6 +759,27 @@ function updateShoreStatusUI() {
     setKiteParams(cfg);
     overlay.classList.remove('open');
     if (lastData) renderAll(lastData);
+  });
+
+  shoreFetchBtn.addEventListener('click', () => {
+    if (!lastShoreCoords) {
+      const el = document.getElementById('shore-modal-status');
+      if (el) { el.textContent = '⚠ Load a city first'; el.style.color = '#aa8844'; }
+      return;
+    }
+    shoreFetchBtn.disabled   = true;
+    shoreFetchBtn.textContent = '⏳ Fetching…';
+    window.SHORE_MASK   = null;
+    window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline data…' };
+    updateShoreStatusUI();
+    drawModalCompass();
+    window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon, () => {
+      updateShoreStatusUI();
+      drawModalCompass();
+      if (lastData) renderAll(lastData);
+      shoreFetchBtn.disabled   = false;
+      shoreFetchBtn.textContent = '🌊 Fetch sea bearings';
+    });
   });
 })();
 /* ══════════════════════════════════════════════════
