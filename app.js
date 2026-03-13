@@ -866,7 +866,8 @@ async function loadAtCoords(lat, lon, model) {
     } catch(_) { /* keep coord string */ }
 
     document.getElementById('city-input').value = displayName;
-    setQParam(displayName);
+    // Store coords in the URL so a page reload restores the exact dragged position
+    setQParam(`${lat.toFixed(6)},${lon.toFixed(6)}`);
 
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
@@ -1046,8 +1047,17 @@ if (window.setRadarDragCallback) {
   const model  = getModel();
   const qParam = getQParam();
   if (qParam) {
-    document.getElementById('city-input').value = qParam;
-    load(qParam, model);
+    // If q looks like "lat,lon" (stored when the user dragged the pin), restore
+    // the exact coordinates without going through geocoding.
+    const coordMatch = qParam.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
+    if (coordMatch) {
+      const lat = parseFloat(coordMatch[1]);
+      const lon = parseFloat(coordMatch[2]);
+      loadAtCoords(lat, lon, model);
+    } else {
+      document.getElementById('city-input').value = qParam;
+      load(qParam, model);
+    }
   } else {
     const typed = document.getElementById('city-input').value.trim();
     if (typed) { setQParam(typed); load(typed, model); }
