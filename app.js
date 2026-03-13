@@ -837,6 +837,149 @@ function setLoadingMsg(msg) {
   const el = document.getElementById('loading');
   if (el) el.textContent = msg;
 }
+
+/**
+ * Load weather for exact coordinates without geocoding and without
+ * resetting the radar map (used when the user drags the radar pin).
+ */
+async function loadAtCoords(lat, lon, model) {
+  model = model || getModel();
+  document.getElementById('loading').style.display          = 'block';
+  document.getElementById('forecast-content').style.display = 'none';
+  document.getElementById('error-msg').style.display        = 'none';
+  try {
+    window.SHORE_MASK   = null;
+    window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
+
+    // Reverse-geocode for a human-readable name (best-effort)
+    let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      if (r.ok) {
+        const d = await r.json();
+        displayName = d.address?.city || d.address?.town || d.address?.village
+                      || d.display_name.split(',')[0];
+      }
+    } catch(_) { /* keep coord string */ }
+
+    document.getElementById('city-input').value = displayName;
+    setQParam(displayName);
+
+    const iconCodeFetch = (model === 'dmi_seamless')
+      ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
+          .then(r => r.ok ? r.json() : null).catch(() => null)
+      : Promise.resolve(null);
+    const [data, ensData, iconData] = await Promise.all([
+      fetchWeather(lat, lon, model),
+      fetchEnsemble(lat, lon, model).catch(() => null),
+      iconCodeFetch,
+    ]);
+    const H = data.hourly;
+    const iconCodes = iconData?.hourly?.weathercode || null;
+    sunTimes = {};
+    if (data.daily?.sunrise && data.daily?.sunset) {
+      data.daily.sunrise.forEach((riseStr, i) => {
+        const key     = riseStr.slice(0, 10);
+        const sunrise = parseFloat(riseStr.slice(11,13)) + parseFloat(riseStr.slice(14,16)) / 60;
+        const setStr  = data.daily.sunset[i];
+        const sunset  = parseFloat(setStr.slice(11,13))  + parseFloat(setStr.slice(14,16))  / 60;
+        sunTimes[key] = { sunrise, sunset };
+      });
+    }
+    const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[];
+    const totalH = FORECAST_DAYS * 24;
+    for (let i = 0; i < Math.min(totalH, H.time.length); i += STEP) {
+      times.push(H.time[i]);
+      temps.push(H.temperature_2m[i]);
+      precips.push(H.precipitation[i] ?? 0);
+      winds.push(H.windspeed_10m[i]);
+      const rawGust = H.windgusts_10m[i];
+      gusts.push(rawGust != null ? rawGust : H.windspeed_10m[i]);
+      dirs.push(H.winddirection_10m[i]);
+      const dmiCode  = H.weathercode[i];
+      const iconCode = iconCodes ? (iconCodes[i] ?? dmiCode) : dmiCode;
+      const code = (iconCodes && dmiCode >= 80 && dmiCode <= 82 && iconCode >= 95)
+                   ? iconCode : dmiCode;
+      codes.push(code);
+    }
+    for (let i = 0; i < Math.min(totalH, H.time.length); i += STEP1H) {
+      times1h.push(H.time[i]);
+      temps1h.push(H.temperature_2m[i]);
+      precips1h.push(H.precipitation[i] ?? 0);
+      winds1h.push(H.windspeed_10m[i]);
+      const rawGust1h = H.windgusts_10m[i];
+      gusts1h.push(rawGust1h != null ? rawGust1h : H.windspeed_10m[i]);
+    }
+    const MODEL_LABEL = {
+      'best_match':          'Auto',      'dmi_seamless':        'DMI HARMONIE',
+      'icon_seamless':       'DWD ICON',  'ecmwf_ifs025':        'ECMWF IFS',
+      'meteofrance_seamless':'Météo-France', 'gfs_seamless':     'NOAA GFS',
+    };
+    const ENS_LABEL = {
+      'best_match':'ICON-EPS', 'dmi_seamless':'ICON-EPS', 'icon_seamless':'ICON-EPS',
+      'ecmwf_ifs025':'IFS-EPS', 'meteofrance_seamless':'ICON-EPS', 'gfs_seamless':'GFS-EPS',
+    };
+    const modelLabel = MODEL_LABEL[model] || model;
+    const ensLabel   = ENS_LABEL[model]   || 'ensemble';
+    let ensTemp=null,ensWind=null,ensGust=null,ensPrecip=null;
+    let ensTemp1h=null,ensWind1h=null,ensGust1h=null,ensPrecip1h=null;
+    const ensStatus = document.getElementById('ens-status');
+    if (ensData && ensData.hourly) {
+      ensTemp    = ensemblePercentiles(ensData.hourly, 'temperature_2m');
+      ensWind    = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
+      ensGust    = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
+      ensPrecip  = ensemblePercentiles(ensData.hourly, 'precipitation');
+      ensTemp1h  = ensemblePercentiles(ensData.hourly, 'temperature_2m',  STEP1H);
+      ensWind1h  = ensemblePercentiles(ensData.hourly, 'windspeed_10m',   STEP1H);
+      ensGust1h  = ensemblePercentiles(ensData.hourly, 'windgusts_10m',   STEP1H);
+      ensPrecip1h= ensemblePercentiles(ensData.hourly, 'precipitation',   STEP1H);
+      const detGusts   = gusts.slice();
+      const detGusts1h = gusts1h.slice();
+      if (ensTemp)    for (let i=0;i<temps.length;  i++) { if (ensTemp.p50[i]   !=null) temps[i]  =ensTemp.p50[i];   }
+      if (ensWind)    for (let i=0;i<winds.length;  i++) { if (ensWind.p50[i]   !=null) winds[i]  =ensWind.p50[i];   }
+      if (ensPrecip)  for (let i=0;i<precips.length;i++) { if (ensPrecip.p50[i] !=null) precips[i]=ensPrecip.p50[i]; }
+      if (ensTemp1h)  for (let i=0;i<temps1h.length;  i++) { if (ensTemp1h.p50[i]  !=null) temps1h[i]  =ensTemp1h.p50[i];   }
+      if (ensWind1h)  for (let i=0;i<winds1h.length;  i++) { if (ensWind1h.p50[i]  !=null) winds1h[i]  =ensWind1h.p50[i];   }
+      if (ensPrecip1h)for (let i=0;i<precips1h.length;i++) { if (ensPrecip1h.p50[i]!=null) precips1h[i]=ensPrecip1h.p50[i]; }
+      for (let i=0;i<gusts.length;  i++) gusts[i]  =Math.max(detGusts[i],   winds[i]);
+      for (let i=0;i<gusts1h.length;i++) gusts1h[i]=Math.max(detGusts1h[i], winds1h[i]);
+      const memberCount = Object.keys(ensData.hourly).filter(k=>k.startsWith('temperature_2m_member')).length;
+      ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
+      ensStatus.style.color = '#5a9';
+    } else {
+      ensStatus.textContent = `${modelLabel} — ensemble not available`;
+      ensStatus.style.color = '#a77';
+    }
+    document.getElementById('city-name').textContent = displayName;
+    const t0=new Date(times[0]), t1=new Date(times[times.length-1]);
+    document.getElementById('subtitle').textContent =
+      `Forecast from ${DA_DAYS3[t0.getDay()]} at ${t0.getHours()}:00 to ${DA_DAYS3[t1.getDay()]} at ${t1.getHours()}:00`;
+    const now=new Date();
+    document.getElementById('updated-text').textContent =
+      `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
+    document.getElementById('loading').style.display          = 'none';
+    document.getElementById('forecast-content').style.display = 'block';
+    lastData = {
+      times, temps, precips, gusts, winds, dirs, codes,
+      ensTemp, ensWind, ensGust, ensPrecip,
+      times1h, temps1h, precips1h, gusts1h, winds1h,
+      ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
+    };
+    requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
+    // ── Do NOT call loadRadar here – radar map position is already correct ──
+    lastShoreCoords = { lat, lon };
+    updateShoreStatusUI();
+  } catch(e) {
+    console.error(e);
+    document.getElementById('loading').style.display          = 'none';
+    document.getElementById('error-msg').style.display        = 'block';
+  }
+}
+
 async function loadByCoords(lat, lon, model) {
   model = model || getModel();
   setLoadingMsg('Fetching your location…');
@@ -891,6 +1034,13 @@ window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (lastData) renderAll(lastData); }, 100);
 });
+// ── Radar pin drag → update location ────────────────────────────────────
+if (window.setRadarDragCallback) {
+  window.setRadarDragCallback((lat, lon) => {
+    loadAtCoords(lat, lon, getModel());
+  });
+}
+
 // ── Initial load ──────────────────────────────────────────────────────────
 (function initialLoad() {
   const model  = getModel();

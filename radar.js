@@ -2,11 +2,12 @@
    RAINVIEWER RADAR
 ══════════════════════════════════════════════════ */
 (function () {
-  let radarMap     = null;
-  let radarFrames  = [];
-  let radarIdx     = 0;
-  let radarPlaying = false;
-  let playTimeout  = null;
+  let radarMap      = null;
+  let radarFrames   = [];
+  let radarIdx      = 0;
+  let radarPlaying  = false;
+  let playTimeout   = null;
+  let markerDragging = false;   // true while the location pin is being dragged
   const PLAY_INTERVAL = 600;
 
   // One single tile layer — URL is swapped per frame.
@@ -27,20 +28,23 @@
   function attachMapDrag(mapEl) {
     const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
     let dragging = false, lastX = 0, lastY = 0;
+    function isMarkerTarget(e) {
+      return e.target && e.target.closest && e.target.closest('.radar-loc-wrap');
+    }
     function onStart(x, y) { dragging = true; lastX = x; lastY = y; }
     function onMove(x, y) {
-      if (!dragging || !radarMap) return;
+      if (!dragging || !radarMap || markerDragging) return;
       const dx = x - lastX, dy = y - lastY;
       lastX = x; lastY = y;
       if (isPortrait()) radarMap.panBy([-dy,  dx], { animate: false });
       else              radarMap.panBy([-dx, -dy], { animate: false });
     }
     function onEnd() { dragging = false; }
-    mapEl.addEventListener('touchstart',  e => { e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    mapEl.addEventListener('touchstart',  e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
     mapEl.addEventListener('touchmove',   e => { e.preventDefault(); onMove(e.touches[0].clientX,  e.touches[0].clientY); }, { passive: false });
     mapEl.addEventListener('touchend',    onEnd);
     mapEl.addEventListener('touchcancel', onEnd);
-    mapEl.addEventListener('mousedown',   e => { e.preventDefault(); onStart(e.clientX, e.clientY); });
+    mapEl.addEventListener('mousedown',   e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.clientX, e.clientY); });
     window.addEventListener('mousemove',  e => onMove(e.clientX, e.clientY));
     window.addEventListener('mouseup',    onEnd);
   }
@@ -169,7 +173,8 @@
     stagingIdx = -1; stagingReady = false;
   }
 
-  let locationMarker = null;
+  let locationMarker  = null;
+  let onMarkerDragEnd = null;   // callback(lat, lon) – set by window.setRadarDragCallback
 
   function placeLocationMarkers(lat, lon) {
     if (locationMarker) {
@@ -180,13 +185,35 @@
       className: '',
       html: `<div class="radar-loc-wrap">
                <div class="radar-loc-pulse"></div>
-               <div class="radar-loc-dot"></div>
+               <div class="radar-loc-dot" style="cursor:grab;"></div>
              </div>`,
       iconSize:   [30, 30],
       iconAnchor: [15, 15],
     });
-    locationMarker = L.marker([lat, lon], { icon, interactive: false, zIndexOffset: 1000 })
-      .addTo(radarMap);
+    locationMarker = L.marker([lat, lon], {
+      icon,
+      draggable:    true,
+      interactive:  true,
+      zIndexOffset: 1000,
+    }).addTo(radarMap);
+
+    locationMarker.on('dragstart', () => {
+      markerDragging = true;
+    });
+
+    locationMarker.on('drag', () => {
+      const dotEl = locationMarker.getElement()?.querySelector('.radar-loc-dot');
+      if (dotEl) dotEl.style.cursor = 'grabbing';
+    });
+
+    locationMarker.on('dragend', () => {
+      markerDragging = false;
+      const dotEl = locationMarker.getElement()?.querySelector('.radar-loc-dot');
+      if (dotEl) dotEl.style.cursor = 'grab';
+
+      const { lat: newLat, lng: newLon } = locationMarker.getLatLng();
+      if (onMarkerDragEnd) onMarkerDragEnd(newLat, newLon);
+    });
   }
 
   // ── Map init ──────────────────────────────────────────────────────────
@@ -349,6 +376,13 @@
   screen.orientation?.addEventListener('change', onOrientationChange);
 
   window.loadRadar = loadRadar;
+
+  /**
+   * Register a callback that fires whenever the user drags the location
+   * pin to a new position on the radar map.
+   * @param {function(lat: number, lon: number): void} cb
+   */
+  window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 })();
 
 

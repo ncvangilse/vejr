@@ -447,7 +447,11 @@ canvas.main-canvas {
   background: #003c8f;
   border: 3px solid #ffffff;
   box-shadow: 0 0 4px rgba(0,0,0,0.5);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: grab;
+}
+.radar-loc-dot:active {
+  cursor: grabbing;
 }
 
 /* ── Shore compass ── */
