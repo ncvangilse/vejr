@@ -160,29 +160,14 @@
     </div>
 
     <div class="kite-field">
-      <label>WIND DIRECTION (allowed) — select one or more</label>
-      <div class="kite-dir-grid" id="kite-dir-grid">
-        <!-- filled by JS -->
-      </div>
-    </div>
-
-    <div class="kite-field">
-      <label>DIRECTION TOLERANCE (± degrees)</label>
-      <div class="kite-field-row">
-        <input type="number" id="kite-tol-input" min="0" max="90" step="5">
-        <span class="kite-field-unit">°</span>
-      </div>
-    </div>
-
-    <!-- Shore compass -->
-    <div class="kite-field">
-      <label>SEA BEARINGS — teal = sea, amber = land (5 km radius, 10° steps)</label>
+      <label>WIND BEARINGS (allowed) — click or drag to select/deselect</label>
       <div id="shore-compass-wrap">
-        <canvas id="shore-compass-canvas"></canvas>
+        <canvas id="shore-compass-canvas" style="cursor:pointer;"></canvas>
         <div id="shore-compass-legend">
           <span class="sc-leg sea">■ Sea</span>
           <span class="sc-leg land">■ Land</span>
-          <span class="sc-leg sel">↗ Selected dirs</span>
+          <span class="sc-leg sel">■ Selected</span>
+          <span class="sc-leg unsel">■ Unselected</span>
         </div>
       </div>
       <div id="shore-modal-status"></div>

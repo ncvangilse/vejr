@@ -382,11 +382,8 @@ function drawWindArrow(ctx, cx, cy, deg, speed, size) {
    KITESURFING OPTIMAL WINDOW
 ══════════════════════════════════════════════════ */
 function isKiteDir(deg) {
-  const d = ((deg % 360) + 360) % 360;
-  return KITE_CFG.dirs.some(centre => {
-    const diff = Math.abs(((d - centre + 540) % 360) - 180);
-    return diff <= KITE_CFG.tol;
-  });
+  const slot = snapBearing(deg);
+  return KITE_CFG.dirs.includes(slot);
 }
 function isKiteOptimal(speed, deg, timeStr) {
   if (KITE_CFG.daylight && isNight(timeStr)) return false;

@@ -652,49 +652,21 @@ function renderShoreDebug() {
   const overlay       = document.getElementById('kite-modal-overlay');
   const minInput      = document.getElementById('kite-min-input');
   const maxInput      = document.getElementById('kite-max-input');
-  const tolInput      = document.getElementById('kite-tol-input');
   const daylightInput = document.getElementById('kite-at-night-input');
-  const dirGrid       = document.getElementById('kite-dir-grid');
   const applyBtn      = document.getElementById('kite-modal-apply');
   const cancelBtn     = document.getElementById('kite-modal-cancel');
   const resetBtn      = document.getElementById('kite-modal-reset');
   const cfgBtn        = document.getElementById('kite-cfg-btn');
   const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
 
-  DIR_PRESETS.forEach(({ label, deg }) => {
-    const btn = document.createElement('button');
-    btn.className   = 'kite-dir-btn';
-    btn.dataset.deg = deg;
-    btn.textContent = label;
-    btn.addEventListener('click', () => { btn.classList.toggle('active'); drawModalCompass(); });
-    dirGrid.appendChild(btn);
-  });
+  // ── Active bearings state ─────────────────────────────────────────────
+  let activeBearings = [];   // array of snapped 10° bearings (numbers)
 
-  function syncDialogToConfig(cfg) {
-    minInput.value        = cfg.min;
-    maxInput.value        = cfg.max;
-    tolInput.value        = cfg.tol;
-    daylightInput.checked = !cfg.daylight;
-    dirGrid.querySelectorAll('.kite-dir-btn').forEach(btn => {
-      btn.classList.toggle('active', cfg.dirs.includes(+btn.dataset.deg));
-    });
-  }
-  function readDialogConfig() {
-    const dirs = [...dirGrid.querySelectorAll('.kite-dir-btn.active')].map(b => +b.dataset.deg);
-    return {
-      min:      parseFloat(minInput.value) || KITE_DEFAULTS.min,
-      max:      parseFloat(maxInput.value) || KITE_DEFAULTS.max,
-      dirs:     dirs.length ? dirs : KITE_DEFAULTS.dirs,
-      tol:      parseFloat(tolInput.value) ?? KITE_DEFAULTS.tol,
-      daylight: !daylightInput.checked,
-    };
-  }
-
-  // ── Shore compass in modal ──
+  // ── Shore compass draw ───────────────────────────────────────────────
   function drawModalCompass() {
     const canvas = document.getElementById('shore-compass-canvas');
     if (!canvas || !window.drawShoreCompass) return;
-    const SIZE = canvas.clientWidth || 180;
+    const SIZE = canvas.clientWidth || 210;
     const dpr  = window.devicePixelRatio || 1;
     canvas.width  = SIZE * dpr;
     canvas.height = SIZE * dpr;
@@ -704,41 +676,100 @@ function renderShoreDebug() {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, SIZE, SIZE);
 
-    // Overlay the currently selected direction buttons
-    const activeDirs = [...dirGrid.querySelectorAll('.kite-dir-btn.active')].map(b => +b.dataset.deg);
-    const tol = parseFloat(tolInput.value) ?? KITE_DEFAULTS.tol;
-
-    // Current wind direction (from lastData if available)
     let windDeg = null, windGood = false;
     if (lastData && lastData.dirs && lastData.dirs.length) {
-      // Use the first future hour's direction as representative
-      const now  = Date.now();
-      const idx  = lastData.times.findIndex(t => new Date(t).getTime() >= now);
-      const i    = idx >= 0 ? idx : 0;
-      windDeg    = lastData.dirs[i];
-      windGood   = lastData.winds && isKiteOptimal(lastData.winds[i], windDeg, lastData.times[i]);
+      const now = Date.now();
+      const idx = lastData.times.findIndex(t => new Date(t).getTime() >= now);
+      const i   = idx >= 0 ? idx : 0;
+      windDeg   = lastData.dirs[i];
+      windGood  = lastData.winds && isKiteOptimal(lastData.winds[i], windDeg, lastData.times[i]);
     }
 
     window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
-      window.SHORE_MASK, windDeg, windGood);
+      window.SHORE_MASK, windDeg, windGood, activeBearings);
+  }
 
-    // Overlay selected direction arcs
-    if (activeDirs.length) {
-      const DEG2RAD = Math.PI / 180;
-      activeDirs.forEach(d => {
-        const startA = (d - tol - 90) * DEG2RAD;
-        const endA   = (d + tol - 90) * DEG2RAD;
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(SIZE / 2, SIZE / 2);
-        ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, startA, endA);
-        ctx.closePath();
-        ctx.strokeStyle = 'rgba(0,232,176,0.7)';
-        ctx.lineWidth   = 2;
-        ctx.stroke();
-        ctx.restore();
-      });
+  // ── Drag-to-select on the compass canvas ─────────────────────────────
+  let dragMode      = null;   // 'add' | 'remove' | null
+  let lastDragSlot  = null;   // last bearing slot touched during drag
+
+  function bearingFromPointer(canvas, clientX, clientY) {
+    const rect   = canvas.getBoundingClientRect();
+    const x      = clientX - rect.left;
+    const y      = clientY - rect.top;
+    const cx     = rect.width  / 2;
+    const cy     = rect.height / 2;
+    const dx     = x - cx;
+    const dy     = y - cy;
+    const dist   = Math.sqrt(dx * dx + dy * dy);
+    const innerR = (rect.width / 2) * 0.28;
+    if (dist < innerR || dist > rect.width / 2) return null;
+    const angle  = Math.atan2(dy, dx) * 180 / Math.PI;  // -180..180, 0=East
+    return snapBearing((angle + 90 + 360) % 360);        // 0=North
+  }
+
+  function applyDrag(bearing) {
+    if (bearing === null || bearing === lastDragSlot) return;
+    lastDragSlot = bearing;
+    if (dragMode === 'add' && !activeBearings.includes(bearing)) {
+      activeBearings.push(bearing);
+      drawModalCompass();
+    } else if (dragMode === 'remove' && activeBearings.includes(bearing)) {
+      activeBearings = activeBearings.filter(b => b !== bearing);
+      drawModalCompass();
     }
+  }
+
+  function onPointerDown(e) {
+    if (e.button !== undefined && e.button !== 0) return; // left-button only
+    const canvas = document.getElementById('shore-compass-canvas');
+    if (!canvas) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const bearing = bearingFromPointer(canvas, clientX, clientY);
+    if (bearing === null) return;
+    dragMode     = activeBearings.includes(bearing) ? 'remove' : 'add';
+    lastDragSlot = null;
+    applyDrag(bearing);
+    e.preventDefault();
+  }
+
+  function onPointerMove(e) {
+    if (!dragMode) return;
+    const canvas = document.getElementById('shore-compass-canvas');
+    if (!canvas) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    applyDrag(bearingFromPointer(canvas, clientX, clientY));
+    e.preventDefault();
+  }
+
+  function onPointerUp() { dragMode = null; lastDragSlot = null; }
+
+  const canvas = document.getElementById('shore-compass-canvas');
+  if (canvas) {
+    canvas.addEventListener('mousedown',  onPointerDown);
+    canvas.addEventListener('touchstart', onPointerDown, { passive: false });
+    window.addEventListener('mousemove',  onPointerMove);
+    window.addEventListener('touchmove',  onPointerMove, { passive: false });
+    window.addEventListener('mouseup',    onPointerUp);
+    window.addEventListener('touchend',   onPointerUp);
+  }
+
+  // ── Sync dialog ↔ config ─────────────────────────────────────────────
+  function syncDialogToConfig(cfg) {
+    minInput.value        = cfg.min;
+    maxInput.value        = cfg.max;
+    daylightInput.checked = !cfg.daylight;
+    activeBearings        = cfg.dirs.slice();
+  }
+  function readDialogConfig() {
+    return {
+      min:      parseFloat(minInput.value) || KITE_DEFAULTS.min,
+      max:      parseFloat(maxInput.value) || KITE_DEFAULTS.max,
+      dirs:     activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
+      daylight: !daylightInput.checked,
+    };
   }
 
   window.refreshShoreCompassInModal = function() {
@@ -767,17 +798,26 @@ function renderShoreDebug() {
       if (el) { el.textContent = '⚠ Load a city first'; el.style.color = '#aa8844'; }
       return;
     }
-    shoreFetchBtn.disabled   = true;
+    shoreFetchBtn.disabled    = true;
     shoreFetchBtn.textContent = '⏳ Fetching…';
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline data…' };
     updateShoreStatusUI();
     drawModalCompass();
     window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon, () => {
+      // Auto-select all sea bearings, deselect all land bearings
+      if (window.SHORE_MASK) {
+        activeBearings = [];
+        for (let b = 0; b < SHORE_BEARINGS; b++) {
+          if (window.SHORE_MASK[b] >= SHORE_SEA_THRESH) {
+            activeBearings.push(b * 10);
+          }
+        }
+      }
       updateShoreStatusUI();
       drawModalCompass();
       if (lastData) renderAll(lastData);
-      shoreFetchBtn.disabled   = false;
+      shoreFetchBtn.disabled    = false;
       shoreFetchBtn.textContent = '🌊 Fetch sea bearings';
     });
   });

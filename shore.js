@@ -23,20 +23,18 @@
    Coastline handling
    ──────────────────
    OSM coastlines are open ways tagged natural=coastline where the *left*
-   side of the way is sea and the *right* side is land (i.e. ways run with
-   the sea to their left, which means they go **clockwise** around land
-   masses).  We assemble segments into rings and test the winding order to
-   classify the interior as land or sea.  In lon/lat (X=lon, Y=lat)
-   Cartesian space, clockwise winding yields a **negative** signed area, so
-   rings with area < 0 are land rings and rings with area ≥ 0 are sea
-   pockets (enclosed bays).  For the area entirely inside open ocean (no
-   coastline way crosses the bounding box) we fall back to a "global ocean"
-   heuristic: if no coastline was fetched, we treat all samples as sea.
+   side of the way is sea (ways run clockwise around land masses).
+   We use the **winding-number** rule with an upward (+lat) ray:
+     • upward crossing,   test point left  of edge → +1
+     • downward crossing, test point right of edge → -1
+   winding ≠ 0 → inside land → land; winding = 0 → sea.
+   This is anchor-independent and works correctly near complex coastlines.
+   If no coastline ways are fetched we treat all samples as sea (open ocean).
 
-   Point-in-polygon  –  ray-casting algorithm O(n) per polygon
-   ─────────────────────────────────────────────────────────────
-   Each water-area polygon contributes a boolean "is inside" flag.
-   Coastline rings contribute the sea side (left of way direction).
+   Point-in-polygon  –  winding-number + ray-casting O(n) per polygon
+   ────────────────────────────────────────────────────────────────────
+   Coastline classification uses the winding-number rule (see above).
+   Explicit water-area polygons (lakes, reservoirs…) use standard ray-casting.
 
    Result
    ──────
@@ -116,63 +114,63 @@ function pointInPoly(lat, lon, poly) {
 }
 
 /**
- * Test whether a 2-D segment (p1→p2) crosses another segment (p3→p4).
- * All points are {lat, lon}.  Returns true on a proper crossing.
+ * Compute the signed crossing contribution of one coastline segment (p3→p4)
+ * for a +lat (upward) ray cast from (lat, lon).
+ *
+ *   OSM coastlines run with sea on the LEFT (clockwise around land masses).
+ *   Upward-ray winding number:
+ *     upward crossing   (p3.lat ≤ lat < p4.lat): point left  of edge → +1
+ *     downward crossing (p4.lat ≤ lat < p3.lat): point right of edge → -1
+ *
+ *   winding ≠ 0 after summing all segments → inside a land ring → land.
+ *   winding = 0 → sea.
+ *
+ * The cross-product sign test (cx > 0 / cx < 0) directly encodes the OSM
+ * left=sea convention so no external "known-sea" anchor point is needed.
  */
-function segmentsCross(p1, p2, p3, p4) {
-  const d1x = p2.lon - p1.lon, d1y = p2.lat - p1.lat;
-  const d2x = p4.lon - p3.lon, d2y = p4.lat - p3.lat;
-  const cross = d1x * d2y - d1y * d2x;
-  if (Math.abs(cross) < 1e-12) return false;  // parallel
-  const dx = p3.lon - p1.lon, dy = p3.lat - p1.lat;
-  const t = (dx * d2y - dy * d2x) / cross;
-  const u = (dx * d1y - dy * d1x) / cross;
-  return t > 0 && t < 1 && u > 0 && u < 1;
+function signedCrossing(lat, lon, p3, p4) {
+  const y1 = p3.lat, x1 = p3.lon;
+  const y2 = p4.lat, x2 = p4.lon;
+  // cx > 0  ↔  test point is to the LEFT of the directed edge p3→p4
+  const cx = (x2 - x1) * (lat - y1) - (y2 - y1) * (lon - x1);
+  if (y1 <= lat && y2 > lat) {
+    if (cx > 0) return +1;   // upward crossing, point left → entering land
+  } else if (y2 <= lat && y1 > lat) {
+    if (cx < 0) return -1;   // downward crossing, point right → leaving land
+  }
+  return 0;
 }
 
 /**
  * Determine whether a point (lat, lon) is on land, using raw OSM coastline
- * segments and the ray-crossing rule:
+ * segments and the winding-number rule.
  *
- *   OSM coastlines run with sea on the LEFT (clockwise around land).
- *   Cast a ray from the test point to a known-sea anchor point.
- *   Count how many coastline segments the ray crosses.
- *   Odd count  → the point is on the opposite side of the coast from the
- *                anchor → LAND.
- *   Even count → same side as anchor → SEA.
+ *   OSM coastlines run with sea on the LEFT (clockwise around land masses).
+ *   We cast an upward (+lat) ray and accumulate signed crossings (winding
+ *   number).  winding ≠ 0 → point is inside a land ring → land.
+ *   winding = 0 → sea.
  *
- * This completely avoids bbox ring-closure and winding-sign ambiguity.
+ *   This is anchor-independent: correctness relies solely on the OSM
+ *   winding convention, not on any external reference point being at sea.
  *
- * @param {number}                  lat, lon   – test point
- * @param {Array<Array<{lat,lon}>}  coastWays  – raw OSM way segments
- * @param {{ s,n,w,e }}             bbox       – query bbox (used to pick anchor)
+ * @param {number}                  lat        – test point latitude
+ * @param {number}                  lon        – test point longitude
+ * @param {Array<Array<{lat: number, lon: number}>>}  coastWays  – raw OSM way segments
+ * @param {{ s,n,w,e }}             bbox       – (unused, kept for API compat)
  * @param {boolean}                 hasCoast   – whether any coast data exists
  * @returns {boolean}  true = land
  */
 function isLandByRayCross(lat, lon, coastWays, bbox, hasCoast) {
   if (!hasCoast) return false;  // no coast data → open sea
 
-  // Anchor: a point well outside the bbox that is guaranteed to be at sea.
-  // We pick a point displaced well beyond the bbox in all four directions and
-  // choose the one that produces the least-likely-to-be-ambiguous ray.
-  // Simple choice: bbox SW corner shifted further SW.
-  const anchor = {
-    lat: bbox.s - (bbox.n - bbox.s),
-    lon: bbox.w - (bbox.e - bbox.w),
-  };
-
-  const pt = { lat, lon };
-  let crossings = 0;
-
+  let winding = 0;
   for (const way of coastWays) {
     for (let i = 0; i < way.length - 1; i++) {
-      if (segmentsCross(pt, anchor, way[i], way[i + 1])) {
-        crossings++;
-      }
+      winding += signedCrossing(lat, lon, way[i], way[i + 1]);
     }
   }
 
-  return (crossings % 2) === 1;
+  return winding !== 0;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -417,13 +415,15 @@ async function analyseShore(lat, lon, onDone) {
  * @param {Float32Array|null} mask  SHORE_MASK
  * @param {number|null} windDeg  current wind direction (meteorological, from)
  * @param {boolean} isGood       whether current wind is kite-optimal
+ * @param {number[]} [selectedBearings]  bearings currently selected in the dialog (snapped to 10°)
  */
-function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood) {
+function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBearings) {
   const TWO_PI  = Math.PI * 2;
   const DEG2RAD = Math.PI / 180;
   const innerR  = radius * 0.28;
   const sectors = SHORE_BEARINGS;
   const step    = TWO_PI / sectors;        // radians per sector
+  const selSet  = new Set((selectedBearings || []).map(d => snapBearing(d)));
 
   ctx.save();
 
@@ -434,41 +434,44 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood) {
   ctx.fill();
 
   // ── Sectors ──
+  const rimW    = Math.max(3, radius * 0.10);   // width of the sea/land rim band
+  const rimR    = radius - 1;                   // outer edge of rim
+  const fillR   = rimR - rimW;                  // inner edge of rim = outer edge of fill
+
   for (let b = 0; b < sectors; b++) {
+    const bearing    = b * 10;
     // Canvas 0° = right (East), compass 0° = up (North) → subtract 90°
-    const startAngle = (b * 10 - 5 - 90) * DEG2RAD;
+    const startAngle = (bearing - 5 - 90) * DEG2RAD;
     const endAngle   = startAngle + step;
+    const isSelected = selSet.has(bearing);
 
-    let fill;
-    if (!mask) {
-      fill = 'rgba(100,110,120,0.55)';
-    } else {
-      const v = mask[b];
-      if (v >= SHORE_SEA_THRESH) {
-        // Sea – teal, intensity by fraction
-        const alpha = 0.45 + v * 0.45;
-        fill = `rgba(0,200,160,${alpha.toFixed(2)})`;
-      } else {
-        // Land – warm sand/amber
-        const alpha = 0.35 + (1 - v) * 0.40;
-        fill = `rgba(200,150,60,${alpha.toFixed(2)})`;
-      }
-    }
-
+    // ── Fill: bright green if selected, dark otherwise ──
+    const fillColor = isSelected ? 'rgba(0,220,160,0.88)' : 'rgba(22,34,48,0.92)';
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, radius - 1, startAngle, endAngle);
+    ctx.arc(cx, cy, fillR, startAngle, endAngle);
     ctx.closePath();
-    ctx.fillStyle = fill;
+    ctx.fillStyle = fillColor;
     ctx.fill();
 
-    // Thin sector dividers
+    // ── Rim band: sea = blue, land = brown, no mask = dark grey ──
+    if (mask) {
+      const isSea = mask[b] >= SHORE_SEA_THRESH;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rimR,  startAngle, endAngle);
+      ctx.arc(cx, cy, fillR, endAngle,   startAngle, true);  // inner arc reversed
+      ctx.closePath();
+      ctx.fillStyle = isSea ? 'rgba(60,160,255,0.80)' : 'rgba(180,110,40,0.80)';
+      ctx.fill();
+    }
+
+    // ── Thin sector dividers ──
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    const dx = Math.cos(startAngle) * (radius - 1);
-    const dy = Math.sin(startAngle) * (radius - 1);
+    const dx = Math.cos(startAngle) * rimR;
+    const dy = Math.sin(startAngle) * rimR;
     ctx.lineTo(cx + dx, cy + dy);
-    ctx.strokeStyle = 'rgba(18,26,38,0.5)';
+    ctx.strokeStyle = 'rgba(10,18,28,0.7)';
     ctx.lineWidth = 0.5;
     ctx.stroke();
   }

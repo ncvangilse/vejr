@@ -10,35 +10,26 @@ const DA_MON   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','N
 
 /* ══════════════════════════════════════════════════
    KITE CONFIG  (read from URL, defaults if absent)
-   URL params: kite_min, kite_max, kite_dirs (comma-separated degrees), kite_tol
+   URL params: kite_min, kite_max, kite_dirs (comma-separated degrees, snapped to 10°)
 ══════════════════════════════════════════════════ */
 const KITE_DEFAULTS = {
   min:  7,
   max:  9,
-  dirs: [90, 270],
-  tol:  22,
+  dirs: [90, 270],   // exact bearings (snapped to nearest 10°)
   daylight: true,
 };
 
-// Direction preset options shown in the dialog
-const DIR_PRESETS = [
-  { label: 'N',  deg: 0   },
-  { label: 'NE', deg: 45  },
-  { label: 'E',  deg: 90  },
-  { label: 'SE', deg: 135 },
-  { label: 'S',  deg: 180 },
-  { label: 'SW', deg: 225 },
-  { label: 'W',  deg: 270 },
-  { label: 'NW', deg: 315 },
-];
+/** Snap any bearing to the nearest 10° slot (0, 10, 20 … 350). */
+function snapBearing(deg) {
+  return Math.round(((deg % 360) + 360) % 360 / 10) * 10 % 360;
+}
 
 function parseKiteParams() {
   const p = new URLSearchParams(window.location.search);
   const cfg = { ...KITE_DEFAULTS };
-  if (p.has('kite_min'))     cfg.min     = parseFloat(p.get('kite_min'))  || cfg.min;
-  if (p.has('kite_max'))     cfg.max     = parseFloat(p.get('kite_max'))  || cfg.max;
-  if (p.has('kite_dirs'))    cfg.dirs    = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v));
-  if (p.has('kite_tol'))     cfg.tol     = parseFloat(p.get('kite_tol'))  ?? cfg.tol;
+  if (p.has('kite_min'))  cfg.min  = parseFloat(p.get('kite_min'))  || cfg.min;
+  if (p.has('kite_max'))  cfg.max  = parseFloat(p.get('kite_max'))  || cfg.max;
+  if (p.has('kite_dirs')) cfg.dirs = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v)).map(snapBearing);
   if (p.has('kite_at_night')) cfg.daylight = p.get('kite_at_night') !== '0' ? false : true;
   return cfg;
 }
@@ -54,7 +45,8 @@ function setKiteParams(cfg) {
   const dirsStr = cfg.dirs.slice().sort((a,b)=>a-b).join(',');
   const defDirs = def.dirs.slice().sort((a,b)=>a-b).join(',');
   if (dirsStr !== defDirs) url.searchParams.set('kite_dirs', dirsStr); else url.searchParams.delete('kite_dirs');
-  if (cfg.tol  !== def.tol)  url.searchParams.set('kite_tol',  cfg.tol);  else url.searchParams.delete('kite_tol');
+  // kite_tol is no longer used — remove any legacy param
+  url.searchParams.delete('kite_tol');
   if (cfg.daylight !== def.daylight) url.searchParams.set('kite_at_night', '1');
   else url.searchParams.delete('kite_at_night');
   window.history.replaceState(null, '', url.toString());

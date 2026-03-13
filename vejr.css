@@ -396,31 +396,6 @@ canvas.main-canvas {
 }
 .kite-field input[type="number"]:focus { border-color: #00c890; }
 .kite-field-unit { font-size: 11px; color: #5a8a7a; }
-.kite-dir-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 5px;
-  margin-top: 4px;
-}
-.kite-dir-btn {
-  padding: 5px 2px;
-  background: #141e2a;
-  border: 1px solid #336655;
-  color: #8ab4d4;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  border-radius: 3px;
-  text-align: center;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.kite-dir-btn.active {
-  background: rgba(0,200,160,0.22);
-  border-color: #00c890;
-  color: #00e8b0;
-}
-.kite-dir-btn:hover { border-color: #00c890; }
 .kite-modal-actions {
   display: flex;
   gap: 8px;
@@ -483,11 +458,16 @@ canvas.main-canvas {
   margin-top: 4px;
 }
 #shore-compass-canvas {
-  width: 180px;
-  height: 180px;
+  width: 210px;
+  height: 210px;
   flex-shrink: 0;
   border-radius: 50%;
   background: #141e2a;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+#shore-compass-canvas:hover {
+  box-shadow: 0 0 0 2px rgba(0,200,160,0.45);
 }
 #shore-compass-legend {
   display: flex;
@@ -497,9 +477,10 @@ canvas.main-canvas {
   font-family: 'IBM Plex Mono', monospace;
 }
 .sc-leg { display: flex; align-items: center; gap: 4px; color: #8ab4d4; }
-.sc-leg.sea  { color: rgba(0,200,160,0.9); }
-.sc-leg.land { color: rgba(200,150,60,0.9); }
-.sc-leg.sel  { color: rgba(0,232,176,0.7); }
+.sc-leg.sea   { color: rgba(60,160,255,0.9); }
+.sc-leg.land  { color: rgba(180,110,40,0.9); }
+.sc-leg.sel   { color: rgba(0,220,160,0.9); }
+.sc-leg.unsel { color: rgba(22,34,48,1); text-shadow: 0 0 0 #8ab4d4; color: #445566; }
 #shore-modal-status {
   margin-top: 6px;
   font-size: 11px;
