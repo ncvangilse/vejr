@@ -1017,6 +1017,7 @@ async function tryGeolocation(model) {
 }
 async function loadAndSync(city, model) {
   setQParam(city);
+  localStorage.setItem('vejr_city', city);
   await load(city, model);
 }
 document.getElementById('search-btn').addEventListener('click', () => {
@@ -1061,7 +1062,11 @@ if (window.setRadarDragCallback) {
   } else {
     const typed = document.getElementById('city-input').value.trim();
     if (typed) { setQParam(typed); load(typed, model); }
-    else        { tryGeolocation(model); }
+    else {
+      const saved = localStorage.getItem('vejr_city');
+      if (saved) { document.getElementById('city-input').value = saved; setQParam(saved); load(saved, model); }
+      else        { tryGeolocation(model); }
+    }
   }
 })();
 // Register service worker for PWA / offline support
