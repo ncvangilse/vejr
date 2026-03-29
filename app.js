@@ -1017,6 +1017,7 @@ async function tryGeolocation(model) {
 }
 async function loadAndSync(city, model) {
   setQParam(city);
+  localStorage.setItem('vejr_city', city);
   await load(city, model);
 }
 document.getElementById('search-btn').addEventListener('click', () => {
@@ -1043,25 +1044,38 @@ if (window.setRadarDragCallback) {
 }
 
 // ── Initial load ──────────────────────────────────────────────────────────
+// Pure decision function: given the three possible location sources, returns
+// which one to use.  Tested directly in tests/app.test.js.
+function decideInitialLocation(qParam, typedInput, savedCity) {
+  if (qParam)     return { type: 'qparam', value: qParam };
+  if (typedInput) return { type: 'typed',  value: typedInput };
+  if (savedCity)  return { type: 'saved',  value: savedCity };
+  return            { type: 'geolocation' };
+}
+
 (function initialLoad() {
-  const model  = getModel();
-  const qParam = getQParam();
-  if (qParam) {
+  const model    = getModel();
+  const qParam   = getQParam();
+  const typed    = document.getElementById('city-input').value.trim();
+  const saved    = localStorage.getItem('vejr_city');
+  const decision = decideInitialLocation(qParam, typed, saved);
+
+  if (decision.type === 'qparam') {
     // If q looks like "lat,lon" (stored when the user dragged the pin), restore
     // the exact coordinates without going through geocoding.
-    const coordMatch = qParam.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
+    const coordMatch = decision.value.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
     if (coordMatch) {
-      const lat = parseFloat(coordMatch[1]);
-      const lon = parseFloat(coordMatch[2]);
-      loadAtCoords(lat, lon, model);
+      loadAtCoords(parseFloat(coordMatch[1]), parseFloat(coordMatch[2]), model);
     } else {
-      document.getElementById('city-input').value = qParam;
-      load(qParam, model);
+      document.getElementById('city-input').value = decision.value;
+      load(decision.value, model);
     }
+  } else if (decision.type === 'geolocation') {
+    tryGeolocation(model);
   } else {
-    const typed = document.getElementById('city-input').value.trim();
-    if (typed) { setQParam(typed); load(typed, model); }
-    else        { tryGeolocation(model); }
+    document.getElementById('city-input').value = decision.value;
+    setQParam(decision.value);
+    load(decision.value, model);
   }
 })();
 // Register service worker for PWA / offline support
