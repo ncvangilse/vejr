@@ -24,8 +24,9 @@
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
 
-  // ── Map drag ──────────────────────────────────────────────────────────
+  // ── Rotation-aware drag ────────────────────────────────────────────────
   function attachMapDrag(mapEl) {
+    const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
     let dragging = false, lastX = 0, lastY = 0;
     function isMarkerTarget(e) {
       return e.target && e.target.closest && e.target.closest('.radar-loc-wrap');
@@ -35,7 +36,8 @@
       if (!dragging || !radarMap || markerDragging) return;
       const dx = x - lastX, dy = y - lastY;
       lastX = x; lastY = y;
-      radarMap.panBy([-dx, -dy], { animate: false });
+      if (isPortrait()) radarMap.panBy([-dy,  dx], { animate: false });
+      else              radarMap.panBy([-dx, -dy], { animate: false });
     }
     function onEnd() { dragging = false; }
     mapEl.addEventListener('touchstart',  e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.02-82-dev-5';
+const CACHE_NAME = 'vejr-2026.04.02-83-dev-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
