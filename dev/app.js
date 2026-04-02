@@ -142,7 +142,7 @@ async function load(cityName, model) {
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     // Double rAF ensures layout is complete before measuring canvas width
-    requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
+    requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
     // Store coords for on-demand shore analysis (triggered from the kite modal)
@@ -154,6 +154,36 @@ async function load(cityName, model) {
     document.getElementById('error-msg').style.display='block';
   }
 }
+/* ══════════════════════════════════════════════════
+   PORTRAIT-AWARE RENDERING
+   In portrait mode only the first 36 h are shown.
+══════════════════════════════════════════════════ */
+function slicePercentiles(obj, n) {
+  if (!obj) return null;
+  return { p10: obj.p10.slice(0, n), p50: obj.p50.slice(0, n), p90: obj.p90.slice(0, n) };
+}
+
+function renderDisplay(d) {
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  const hours = portrait ? 36 : FORECAST_DAYS * 24;
+  const n3h = Math.ceil(hours / STEP);
+  const n1h = Math.ceil(hours / STEP1H);
+  const s = {
+    times:    d.times.slice(0, n3h),    temps:    d.temps.slice(0, n3h),
+    precips:  d.precips.slice(0, n3h),  gusts:    d.gusts.slice(0, n3h),
+    winds:    d.winds.slice(0, n3h),    dirs:     d.dirs.slice(0, n3h),
+    codes:    d.codes.slice(0, n3h),
+    ensTemp:  slicePercentiles(d.ensTemp,  n3h), ensWind:  slicePercentiles(d.ensWind,  n3h),
+    ensGust:  slicePercentiles(d.ensGust,  n3h), ensPrecip: slicePercentiles(d.ensPrecip, n3h),
+    times1h:  d.times1h.slice(0, n1h),  temps1h:  d.temps1h.slice(0, n1h),
+    precips1h: d.precips1h.slice(0, n1h), gusts1h: d.gusts1h.slice(0, n1h),
+    winds1h:  d.winds1h.slice(0, n1h),
+    ensTemp1h:  slicePercentiles(d.ensTemp1h,  n1h), ensWind1h:  slicePercentiles(d.ensWind1h,  n1h),
+    ensGust1h:  slicePercentiles(d.ensGust1h,  n1h), ensPrecip1h: slicePercentiles(d.ensPrecip1h, n1h),
+  };
+  renderAll(s);
+}
+
 /* ══════════════════════════════════════════════════
    HOVER CROSSHAIR + TOOLTIP
 ══════════════════════════════════════════════════ */
@@ -330,10 +360,9 @@ function attachHoverListeners() {
     if (!lastData) return;
     const wrap = e.target.closest('.chart-canvas-wrap');
     if (!wrap) { hideTooltip(); return; }
-    const rect     = wrap.getBoundingClientRect();
-    const portrait = window.matchMedia('(orientation: portrait)').matches;
-    const relX     = portrait ? (e.clientY - rect.top) : (e.clientX - rect.left);
-    const span     = portrait ? rect.height : rect.width;
+    const rect  = wrap.getBoundingClientRect();
+    const relX  = e.clientX - rect.left;
+    const span  = rect.width;
     const fracX    = Math.max(0, Math.min(1, relX / span));
     const n1h      = lastData.times1h.length;
     const n3h      = lastData.times.length;
@@ -789,7 +818,7 @@ function renderShoreDebug() {
     const cfg = readDialogConfig();
     setKiteParams(cfg);
     overlay.classList.remove('open');
-    if (lastData) renderAll(lastData);
+    if (lastData) renderDisplay(lastData);
   });
 
   shoreFetchBtn.addEventListener('click', () => {
@@ -816,7 +845,7 @@ function renderShoreDebug() {
       }
       updateShoreStatusUI();
       drawModalCompass();
-      if (lastData) renderAll(lastData);
+      if (lastData) renderDisplay(lastData);
       shoreFetchBtn.disabled    = false;
       shoreFetchBtn.textContent = '🌊 Fetch sea bearings';
     });
@@ -970,7 +999,7 @@ async function loadAtCoords(lat, lon, model) {
       times1h, temps1h, precips1h, gusts1h, winds1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
-    requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
+    requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
     // ── Do NOT call loadRadar here – radar map position is already correct ──
     lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
@@ -1034,7 +1063,7 @@ document.getElementById('model-select').addEventListener('change', () => {
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (lastData) renderAll(lastData); }, 100);
+  resizeTimer = setTimeout(() => { if (lastData) renderDisplay(lastData); }, 100);
 });
 // ── Radar pin drag → update location ────────────────────────────────────
 if (window.setRadarDragCallback) {
