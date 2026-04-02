@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const ROOT    = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const HTML_SRC = readFileSync(resolve(ROOT, 'vejr.html'), 'utf8');
 const APP_SRC = readFileSync(resolve(ROOT, 'app.js'), 'utf8');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -194,5 +195,23 @@ describe('loadAndSync', () => {
     ctx.loadAndSync('Madrid', 'dmi_seamless');
     const lastUrl = replaceStateCalls.at(-1)[2];
     expect(lastUrl).toContain('q=Madrid');
+  });
+});
+
+// ── HTML structure ────────────────────────────────────────────────────────────
+
+describe('vejr.html structure', () => {
+  it('build-number is inside header-right', () => {
+    const headerRightMatch = HTML_SRC.match(/<div id="header-right"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/);
+    expect(headerRightMatch).not.toBeNull();
+    expect(headerRightMatch[0]).toContain('id="build-number"');
+  });
+
+  it('build-number does not appear as a standalone element outside the header', () => {
+    // The build-number div should not appear at the top level outside #header
+    // i.e. it should not follow </div> <!-- #rotator --> or the radar section directly
+    const afterRadar = HTML_SRC.split('</div> <!-- #rotator -->')[0];
+    const standalonePattern = /<div id="build-number"[^>]*>[^<]*<\/div>\s*\n\s*<\/div>\s*<!--\s*#rotator/;
+    expect(standalonePattern.test(HTML_SRC)).toBe(false);
   });
 });
