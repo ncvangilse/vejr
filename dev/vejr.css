@@ -1,28 +1,9 @@
-/* ── Portrait rotation ─────────────────────────────────────────────────────
-   In portrait mode the #rotator div is fixed to the viewport, rotated 90°
-   and sized to exactly fill the screen (width↔height swapped).
-──────────────────────────────────────────────────────────────────────────── */
 #rotator {
   width: 100%;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-
-@media (orientation: portrait) {
-  html, body { overflow: hidden; width: 100%; height: 100%; }
-  #rotator {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vh;   /* rotated: logical width = viewport height */
-    height: 100vw;  /* rotated: logical height = viewport width  */
-    transform-origin: top left;
-    transform: rotate(90deg) translateX(0) translateY(-100%);
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -37,7 +18,10 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px;
+  padding: max(8px, env(safe-area-inset-top))
+           max(8px, env(safe-area-inset-right))
+           max(8px, env(safe-area-inset-bottom))
+           max(8px, env(safe-area-inset-left));
 }
 #search-bar {
   display: flex;
@@ -178,8 +162,8 @@ canvas.main-canvas {
   display: none;
   position: fixed;
   z-index: 1000;
-  bottom: 10px;
-  right: 10px;
+  bottom: max(10px, calc(env(safe-area-inset-bottom) + 4px));
+  right:  max(10px, calc(env(safe-area-inset-right)  + 4px));
   background: rgba(18, 26, 38, 0.93);
   border: 1px solid rgba(120,160,200,0.35);
   border-radius: 6px;
