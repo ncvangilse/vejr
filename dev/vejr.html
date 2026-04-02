@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Weather Forecast</title>
+<link rel="icon" href="favicon.ico">
+
+<!-- PWA / Add to Home Screen -->
+<script>
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    const l = document.createElement('link');
+    l.rel = 'manifest'; l.href = 'manifest.json';
+    document.head.appendChild(l);
+  }
+</script>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Weather">
+<meta name="theme-color" content="#003c8f">
+
+<!-- iOS home screen icons -->
+<link rel="apple-touch-icon" href="icon-assets/icon-180.png">
+<link rel="apple-touch-icon" sizes="120x120" href="icon-assets/icon-120.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icon-assets/icon-152.png">
+<link rel="apple-touch-icon" sizes="167x167" href="icon-assets/icon-167.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-assets/icon-180.png">
+
+<!-- Leaflet (used for RainViewer radar map) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vejr.css?v=20">
+</head>
+<body>
+<div id="rotator">
+
+<div id="hover-tooltip"></div>
+
+<div id="search-bar">
+  <input id="city-input" type="text" placeholder="Enter a city, e.g. Copenhagen, London, Paris, Oslo…"/>
+  <select id="model-select">
+    <option value="best_match">Best match (auto)</option>
+    <option value="dmi_seamless" selected>DMI HARMONIE</option>
+    <option value="icon_seamless">DWD ICON</option>
+    <option value="ecmwf_ifs025">ECMWF IFS</option>
+    <option value="meteofrance_seamless">Météo-France</option>
+    <option value="gfs_seamless">NOAA GFS</option>
+  </select>
+  <button id="search-btn">Show weather</button>
+  <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
+</div>
+
+<div id="forecast-container">
+  <div id="loading">Loading weather data…</div>
+  <div id="error-msg">
+    <strong>The network is blocked in this preview.</strong><br>
+    Download the file and open it in your browser — then all cities in the world will work.<br>
+    <small style="color:#a44">Offline fallback: try Copenhagen, Aarhus, Oslo, Stockholm, Berlin, London, Paris…</small>
+  </div>
+
+  <div id="forecast-content" style="display:none">
+    <div id="header">
+      <div>
+        <div id="city-name">—</div>
+        <div id="subtitle">—</div>
+      </div>
+      <div id="header-right">
+        <div id="updated-text">—</div>
+        <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
+        <div id="shore-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
+      </div>
+    </div>
+
+    <!-- Time + icons -->
+    <div class="chart-row" id="row-top">
+      <div class="y-axis" id="ax-top" style="justify-content:flex-end; font-size:8px; color:#778; padding-bottom:3px;"></div>
+      <div class="chart-canvas-wrap" style="position:relative;">
+        <canvas id="c-top" style="display:block;width:100%;"></canvas>
+        <div id="icon-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></div>
+        <canvas id="xh-top" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
+    </div>
+
+    <!-- Temp + precip -->
+    <div class="chart-row">
+      <div class="y-axis" id="ax-temp"></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="c-temp" style="display:block;width:100%;"></canvas>
+        <canvas id="xh-temp" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" id="ax-precip"></div>
+    </div>
+
+    <!-- Wind direction row -->
+    <div class="chart-row" style="border-bottom:none;">
+      <div class="y-axis" id="ax-dir" style="background:#1e2a38;"></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="c-dir" style="display:block;width:100%;"></canvas>
+        <canvas id="xh-dir" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
+    </div>
+
+    <!-- Wind speed/gust (Windy-style) -->
+    <div class="chart-row" style="border-bottom:none;">
+      <div class="y-axis" id="ax-wind"></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="c-wind" style="display:block;width:100%;"></canvas>
+        <canvas id="xh-wind" class="crosshair-canvas"></canvas>
+      </div>
+      <div class="y-axis-right" style="border-left:none;background:transparent;"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── RainViewer Radar ────────────────────────────────────────────── -->
+<div id="radar-section">
+  <div id="radar-header">
+    <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – precipitation</span>
+    <span id="radar-tile-counter" title="Tile requests today (max ~1000)">0 / 1000 tiles</span>
+    <span id="radar-source-label">RainViewer</span>
+  </div>
+  <div id="radar-map">
+    <div id="radar-loading">Loading radar…</div>
+  </div>
+  <div id="radar-controls">
+    <button id="radar-play-btn">▶ Play</button>
+    <input id="radar-slider" type="range" min="0" value="0" step="1">
+    <div id="radar-time-label">—</div>
+    <button class="radar-zoom-btn" id="radar-zoom-in"  title="Zoom in">+</button>
+    <button class="radar-zoom-btn" id="radar-zoom-out" title="Zoom out">−</button>
+  </div>
+</div>
+
+<div id="build-number" style="width:100%;text-align:right;font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:6px;">build 2026.04.02-77-dev</div>
+
+</div> <!-- #rotator -->
+
+<!-- ── Kite config modal (outside #rotator so position:fixed works) ── -->
+<div id="kite-modal-overlay">
+  <div id="kite-modal">
+    <h2>🪁 Kitesurfing limits</h2>
+
+    <div class="kite-field">
+      <label>WIND SPEED (m/s)</label>
+      <div class="kite-field-row">
+        <input type="number" id="kite-min-input" min="0" max="50" step="0.5">
+        <span class="kite-field-unit">min</span>
+        <input type="number" id="kite-max-input" min="0" max="50" step="0.5">
+        <span class="kite-field-unit">max</span>
+      </div>
+    </div>
+
+    <div class="kite-field">
+      <label>WIND BEARINGS (allowed) — click or drag to select/deselect</label>
+      <div id="shore-compass-wrap">
+        <canvas id="shore-compass-canvas" style="cursor:pointer;"></canvas>
+        <div id="shore-compass-legend">
+          <span class="sc-leg sea">■ Sea</span>
+          <span class="sc-leg land">■ Land</span>
+          <span class="sc-leg sel">■ Selected</span>
+          <span class="sc-leg unsel">■ Unselected</span>
+        </div>
+      </div>
+      <div id="shore-modal-status"></div>
+      <button id="kite-shore-fetch-btn">🌊 Fetch sea bearings</button>
+
+      <!-- Shore debug panel -->
+      <details id="shore-debug-details">
+        <summary id="shore-debug-summary">🔬 Debug data</summary>
+        <div id="shore-debug-panel">
+          <div id="shore-debug-top">
+            <canvas id="shore-debug-map"></canvas>
+            <div id="shore-debug-meta"></div>
+          </div>
+          <div id="shore-debug-rings-wrap">
+            <div class="shore-debug-section-title">Coastline ways</div>
+            <table id="shore-debug-rings-table">
+              <thead><tr><th>#</th><th>nodes</th><th>start → end</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="shore-debug-bearings-wrap">
+            <div class="shore-debug-section-title">Bearing samples</div>
+            <table id="shore-debug-bearings-table">
+              <thead>
+                <tr>
+                  <th>°</th>
+                  <th>sea%</th>
+                  <th>1 km</th>
+                  <th>2 km</th>
+                  <th>3 km</th>
+                  <th>4 km</th>
+                  <th>5 km</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div class="kite-field">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="kite-at-night-input" style="width:15px;height:15px;accent-color:#00c890;cursor:pointer;">
+        ALLOW NIGHT HOURS (kite_at_night)
+      </label>
+    </div>
+
+    <div class="kite-modal-actions">
+      <button id="kite-modal-reset">Reset</button>
+      <button id="kite-modal-cancel">Cancel</button>
+      <button id="kite-modal-apply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Scripts (order matters: config → api → icons → charts → radar → app) ── -->
+<script src="config.js?v=20"></script>
+<script src="api.js?v=20"></script>
+<script src="weather-icons.js?v=20"></script>
+<script src="charts.js?v=20"></script>
+<script src="radar.js?v=20"></script>
+<script src="shore.js?v=20"></script>
+<script src="app.js?v=20"></script>
+</body>
+</html>
