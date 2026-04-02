@@ -6,12 +6,10 @@ on:
     branches: ['**']
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: ${{ github.ref == 'refs/heads/main' && 'pages-main' || 'pages-dev' }}
   cancel-in-progress: true
 
 jobs:
@@ -37,14 +35,6 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Generate build number
         id: build
@@ -61,11 +51,40 @@ jobs:
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
 
-      - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
+          exclude_assets: '.github,tests,package.json,CLAUDE.md'
+
+  deploy-dev:
+    needs: test
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate build number
+        id: build
+        run: |
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}-dev
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject build number and dev manifest paths
+        run: |
+          BUILD=${{ steps.build.outputs.number }}
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
+          sed -i 's|/vejr/|/vejr/dev/|g' manifest.json
+
+      - name: Deploy to GitHub Pages (dev)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: dev
+          keep_files: true
+          exclude_assets: '.github,tests,package.json,CLAUDE.md'
