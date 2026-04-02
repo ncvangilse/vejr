@@ -67,7 +67,8 @@ jobs:
       - name: Generate build number
         id: build
         run: |
-          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}-dev
+          BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}-${BRANCH}
           echo "number=$BUILD" >> $GITHUB_OUTPUT
 
       - name: Checkout
