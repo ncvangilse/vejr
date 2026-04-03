@@ -158,9 +158,9 @@ async function load(cityName, model) {
    PORTRAIT-AWARE RENDERING
    In portrait mode only the first 36 h are shown.
 ══════════════════════════════════════════════════ */
-function slicePercentiles(obj, n) {
+function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
-  return { p10: obj.p10.slice(0, n), p50: obj.p50.slice(0, n), p90: obj.p90.slice(0, n) };
+  return { p10: obj.p10.slice(start, start + n), p50: obj.p50.slice(start, start + n), p90: obj.p90.slice(start, start + n) };
 }
 
 function renderDisplay(d) {
@@ -168,18 +168,27 @@ function renderDisplay(d) {
   const hours = portrait ? 36 : FORECAST_DAYS * 24;
   const n3h = Math.ceil(hours / STEP);
   const n1h = Math.ceil(hours / STEP1H);
+  // In portrait, start from the current time rather than midnight.
+  let s3 = 0, s1 = 0;
+  if (portrait) {
+    const now = Date.now();
+    const i = d.times.findIndex(t => new Date(t).getTime() >= now);
+    s3 = i >= 0 ? i : 0;
+    const i1 = d.times1h.findIndex(t => new Date(t).getTime() >= now);
+    s1 = i1 >= 0 ? i1 : 0;
+  }
   const s = {
-    times:    d.times.slice(0, n3h),    temps:    d.temps.slice(0, n3h),
-    precips:  d.precips.slice(0, n3h),  gusts:    d.gusts.slice(0, n3h),
-    winds:    d.winds.slice(0, n3h),    dirs:     d.dirs.slice(0, n3h),
-    codes:    d.codes.slice(0, n3h),
-    ensTemp:  slicePercentiles(d.ensTemp,  n3h), ensWind:  slicePercentiles(d.ensWind,  n3h),
-    ensGust:  slicePercentiles(d.ensGust,  n3h), ensPrecip: slicePercentiles(d.ensPrecip, n3h),
-    times1h:  d.times1h.slice(0, n1h),  temps1h:  d.temps1h.slice(0, n1h),
-    precips1h: d.precips1h.slice(0, n1h), gusts1h: d.gusts1h.slice(0, n1h),
-    winds1h:  d.winds1h.slice(0, n1h),
-    ensTemp1h:  slicePercentiles(d.ensTemp1h,  n1h), ensWind1h:  slicePercentiles(d.ensWind1h,  n1h),
-    ensGust1h:  slicePercentiles(d.ensGust1h,  n1h), ensPrecip1h: slicePercentiles(d.ensPrecip1h, n1h),
+    times:    d.times.slice(s3, s3 + n3h),    temps:    d.temps.slice(s3, s3 + n3h),
+    precips:  d.precips.slice(s3, s3 + n3h),  gusts:    d.gusts.slice(s3, s3 + n3h),
+    winds:    d.winds.slice(s3, s3 + n3h),    dirs:     d.dirs.slice(s3, s3 + n3h),
+    codes:    d.codes.slice(s3, s3 + n3h),
+    ensTemp:  slicePercentilesFrom(d.ensTemp,  s3, n3h), ensWind:  slicePercentilesFrom(d.ensWind,  s3, n3h),
+    ensGust:  slicePercentilesFrom(d.ensGust,  s3, n3h), ensPrecip: slicePercentilesFrom(d.ensPrecip, s3, n3h),
+    times1h:  d.times1h.slice(s1, s1 + n1h),  temps1h:  d.temps1h.slice(s1, s1 + n1h),
+    precips1h: d.precips1h.slice(s1, s1 + n1h), gusts1h: d.gusts1h.slice(s1, s1 + n1h),
+    winds1h:  d.winds1h.slice(s1, s1 + n1h),
+    ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
+    ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
   renderAll(s);
 }

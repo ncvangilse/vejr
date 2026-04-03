@@ -224,18 +224,27 @@ describe('vejr.html structure', () => {
 
 // ── renderDisplay slicing ─────────────────────────────────────────────────────
 
-/** Build a minimal lastData-shaped object with arrays of the given lengths. */
-function makeData(n3h, n1h) {
-  const arr3 = () => Array(n3h).fill(0);
-  const arr1 = () => Array(n1h).fill(0);
-  const pct3 = () => ({ p10: arr3(), p50: arr3(), p90: arr3() });
-  const pct1 = () => ({ p10: arr1(), p50: arr1(), p90: arr1() });
+/**
+ * Build a minimal lastData-shaped object.
+ * @param {number} n3h  – total entries in 3-hour arrays
+ * @param {number} n1h  – total entries in 1-hour arrays
+ * @param {Date}   base – timestamp of the first entry (default: 2 days ago so "now" falls in the middle)
+ */
+function makeData(n3h, n1h, base = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)) {
+  const iso3 = (i) => new Date(base.getTime() + i * 3 * 60 * 60 * 1000).toISOString();
+  const iso1 = (i) => new Date(base.getTime() + i *     60 * 60 * 1000).toISOString();
+  const arr3 = () => Array.from({ length: n3h }, (_, i) => iso3(i));
+  const arr1 = () => Array.from({ length: n1h }, (_, i) => iso1(i));
+  const num3 = () => Array(n3h).fill(0);
+  const num1 = () => Array(n1h).fill(0);
+  const pct3 = () => ({ p10: num3(), p50: num3(), p90: num3() });
+  const pct1 = () => ({ p10: num1(), p50: num1(), p90: num1() });
   return {
-    times: arr3(), temps: arr3(), precips: arr3(),
-    gusts: arr3(), winds: arr3(), dirs: arr3(), codes: arr3(),
+    times: arr3(), temps: num3(), precips: num3(),
+    gusts: num3(), winds: num3(), dirs: num3(), codes: num3(),
     ensTemp: pct3(), ensWind: pct3(), ensGust: pct3(), ensPrecip: pct3(),
-    times1h: arr1(), temps1h: arr1(), precips1h: arr1(),
-    gusts1h: arr1(), winds1h: arr1(),
+    times1h: arr1(), temps1h: num1(), precips1h: num1(),
+    gusts1h: num1(), winds1h: num1(),
     ensTemp1h: pct1(), ensWind1h: pct1(), ensGust1h: pct1(), ensPrecip1h: pct1(),
   };
 }
@@ -251,6 +260,16 @@ describe('renderDisplay slicing', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].times).toHaveLength(12);     // 36 / 3
     expect(calls[0].times1h).toHaveLength(36);   // 36 / 1
+  });
+
+  it('starts from current time, not midnight, in portrait mode', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    ctx.renderDisplay(d);
+    // First rendered timestamp should be >= now (within one 3h slot)
+    const firstTime = new Date(calls[0].times[0]).getTime();
+    expect(firstTime).toBeGreaterThanOrEqual(Date.now() - 3 * 60 * 60 * 1000);
   });
 
   it('slices ensemble percentile arrays to match 36 h in portrait mode', () => {
