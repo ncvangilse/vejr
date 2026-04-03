@@ -39,19 +39,6 @@ body {
   outline: none;
 }
 #city-input:focus { border-color: #003c8f; }
-#search-btn {
-  padding: 8px 20px;
-  background: #003c8f;
-  color: #fff;
-  border: none;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
-}
-#search-btn:hover { background: #0051c4; }
 #model-select {
   padding: 8px 10px;
   font-family: 'IBM Plex Sans', sans-serif;
