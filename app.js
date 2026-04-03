@@ -1058,12 +1058,8 @@ async function loadAndSync(city, model) {
   localStorage.setItem('vejr_city', city);
   await load(city, model);
 }
-document.getElementById('search-btn').addEventListener('click', () => {
-  const v = document.getElementById('city-input').value.trim();
-  if (v) loadAndSync(v, getModel());
-});
 document.getElementById('city-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('search-btn').click();
+  if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) loadAndSync(v, getModel()); }
 });
 document.getElementById('model-select').addEventListener('change', () => {
   const v = document.getElementById('city-input').value.trim();
