@@ -142,7 +142,7 @@ async function load(cityName, model) {
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     // Double rAF ensures layout is complete before measuring canvas width
-    requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
+    requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
     // Store coords for on-demand shore analysis (triggered from the kite modal)
@@ -154,6 +154,45 @@ async function load(cityName, model) {
     document.getElementById('error-msg').style.display='block';
   }
 }
+/* ══════════════════════════════════════════════════
+   PORTRAIT-AWARE RENDERING
+   In portrait mode only the first 36 h are shown.
+══════════════════════════════════════════════════ */
+function slicePercentilesFrom(obj, start, n) {
+  if (!obj) return null;
+  return { p10: obj.p10.slice(start, start + n), p50: obj.p50.slice(start, start + n), p90: obj.p90.slice(start, start + n) };
+}
+
+function renderDisplay(d) {
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  const hours = portrait ? 36 : FORECAST_DAYS * 24;
+  const n3h = Math.ceil(hours / STEP);
+  const n1h = Math.ceil(hours / STEP1H);
+  // In portrait, start from the current time rather than midnight.
+  let s3 = 0, s1 = 0;
+  if (portrait) {
+    const now = Date.now();
+    const i = d.times.findIndex(t => new Date(t).getTime() >= now);
+    s3 = i >= 0 ? i : 0;
+    const i1 = d.times1h.findIndex(t => new Date(t).getTime() >= now);
+    s1 = i1 >= 0 ? i1 : 0;
+  }
+  const s = {
+    times:    d.times.slice(s3, s3 + n3h),    temps:    d.temps.slice(s3, s3 + n3h),
+    precips:  d.precips.slice(s3, s3 + n3h),  gusts:    d.gusts.slice(s3, s3 + n3h),
+    winds:    d.winds.slice(s3, s3 + n3h),    dirs:     d.dirs.slice(s3, s3 + n3h),
+    codes:    d.codes.slice(s3, s3 + n3h),
+    ensTemp:  slicePercentilesFrom(d.ensTemp,  s3, n3h), ensWind:  slicePercentilesFrom(d.ensWind,  s3, n3h),
+    ensGust:  slicePercentilesFrom(d.ensGust,  s3, n3h), ensPrecip: slicePercentilesFrom(d.ensPrecip, s3, n3h),
+    times1h:  d.times1h.slice(s1, s1 + n1h),  temps1h:  d.temps1h.slice(s1, s1 + n1h),
+    precips1h: d.precips1h.slice(s1, s1 + n1h), gusts1h: d.gusts1h.slice(s1, s1 + n1h),
+    winds1h:  d.winds1h.slice(s1, s1 + n1h),
+    ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
+    ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
+  };
+  renderAll(s);
+}
+
 /* ══════════════════════════════════════════════════
    HOVER CROSSHAIR + TOOLTIP
 ══════════════════════════════════════════════════ */
@@ -330,10 +369,9 @@ function attachHoverListeners() {
     if (!lastData) return;
     const wrap = e.target.closest('.chart-canvas-wrap');
     if (!wrap) { hideTooltip(); return; }
-    const rect     = wrap.getBoundingClientRect();
-    const portrait = window.matchMedia('(orientation: portrait)').matches;
-    const relX     = portrait ? (e.clientY - rect.top) : (e.clientX - rect.left);
-    const span     = portrait ? rect.height : rect.width;
+    const rect  = wrap.getBoundingClientRect();
+    const relX  = e.clientX - rect.left;
+    const span  = rect.width;
     const fracX    = Math.max(0, Math.min(1, relX / span));
     const n1h      = lastData.times1h.length;
     const n3h      = lastData.times.length;
@@ -789,7 +827,7 @@ function renderShoreDebug() {
     const cfg = readDialogConfig();
     setKiteParams(cfg);
     overlay.classList.remove('open');
-    if (lastData) renderAll(lastData);
+    if (lastData) renderDisplay(lastData);
   });
 
   shoreFetchBtn.addEventListener('click', () => {
@@ -816,7 +854,7 @@ function renderShoreDebug() {
       }
       updateShoreStatusUI();
       drawModalCompass();
-      if (lastData) renderAll(lastData);
+      if (lastData) renderDisplay(lastData);
       shoreFetchBtn.disabled    = false;
       shoreFetchBtn.textContent = '🌊 Fetch sea bearings';
     });
@@ -970,7 +1008,7 @@ async function loadAtCoords(lat, lon, model) {
       times1h, temps1h, precips1h, gusts1h, winds1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
-    requestAnimationFrame(() => requestAnimationFrame(() => renderAll(lastData)));
+    requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
     // ── Do NOT call loadRadar here – radar map position is already correct ──
     lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
@@ -1034,7 +1072,7 @@ document.getElementById('model-select').addEventListener('change', () => {
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (lastData) renderAll(lastData); }, 100);
+  resizeTimer = setTimeout(() => { if (lastData) renderDisplay(lastData); }, 100);
 });
 // ── Radar pin drag → update location ────────────────────────────────────
 if (window.setRadarDragCallback) {

@@ -27,8 +27,10 @@ function makeEl(value = '') {
  * @param {string}  opts.qParam       – value of the `q` URL parameter (default: none)
  * @param {string|null} opts.savedCity – value stored in localStorage under 'vejr_city'
  * @param {boolean} opts.geoAvailable – whether navigator.geolocation is present
+ * @param {boolean} opts.portrait     – simulate portrait orientation (default: false)
+ * @param {Function|null} opts.renderAllSpy – optional spy to replace the renderAll stub
  */
-function loadApp({ qParam = '', savedCity = null, geoAvailable = false } = {}) {
+function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, renderAllSpy = null } = {}) {
   const cityInput        = makeEl();
   const geoCalls         = [];
   const replaceStateCalls = [];
@@ -53,6 +55,10 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false } = {}) {
       SHORE_STATUS:         { state: 'idle', msg: '' },
       SHORE_DEBUG:          null,
       devicePixelRatio:     1,
+      matchMedia: (q) => ({
+        matches: q === '(orientation: portrait)' ? portrait : false,
+        addEventListener: () => {},
+      }),
     },
     document: {
       getElementById: (id) => {
@@ -82,11 +88,12 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false } = {}) {
     fetchWeather:       () => new Promise(() => {}),
     fetchEnsemble:      () => new Promise(() => {}),
     ensemblePercentiles: () => null,
-    renderAll:          () => {},
+    renderAll:          renderAllSpy || (() => {}),
     isKiteOptimal:      () => false,
     snapBearing:        (d) => d,
     FORECAST_DAYS:      7,
     STEP:               3,
+    STEP1H:             1,
     KITE_DEFAULTS:      { min: 4, max: 18, dirs: [], daylight: true },
     KITE_CFG:           { min: 4, max: 18, dirs: [], daylight: true },
     setKiteParams:      () => {},
@@ -210,8 +217,85 @@ describe('vejr.html structure', () => {
   it('build-number does not appear as a standalone element outside the header', () => {
     // The build-number div should not appear at the top level outside #header
     // i.e. it should not follow </div> <!-- #rotator --> or the radar section directly
-    const afterRadar = HTML_SRC.split('</div> <!-- #rotator -->')[0];
     const standalonePattern = /<div id="build-number"[^>]*>[^<]*<\/div>\s*\n\s*<\/div>\s*<!--\s*#rotator/;
     expect(standalonePattern.test(HTML_SRC)).toBe(false);
+  });
+});
+
+// ── renderDisplay slicing ─────────────────────────────────────────────────────
+
+/**
+ * Build a minimal lastData-shaped object.
+ * @param {number} n3h  – total entries in 3-hour arrays
+ * @param {number} n1h  – total entries in 1-hour arrays
+ * @param {Date}   base – timestamp of the first entry (default: 2 days ago so "now" falls in the middle)
+ */
+function makeData(n3h, n1h, base = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)) {
+  const iso3 = (i) => new Date(base.getTime() + i * 3 * 60 * 60 * 1000).toISOString();
+  const iso1 = (i) => new Date(base.getTime() + i *     60 * 60 * 1000).toISOString();
+  const arr3 = () => Array.from({ length: n3h }, (_, i) => iso3(i));
+  const arr1 = () => Array.from({ length: n1h }, (_, i) => iso1(i));
+  const num3 = () => Array(n3h).fill(0);
+  const num1 = () => Array(n1h).fill(0);
+  const pct3 = () => ({ p10: num3(), p50: num3(), p90: num3() });
+  const pct1 = () => ({ p10: num1(), p50: num1(), p90: num1() });
+  return {
+    times: arr3(), temps: num3(), precips: num3(),
+    gusts: num3(), winds: num3(), dirs: num3(), codes: num3(),
+    ensTemp: pct3(), ensWind: pct3(), ensGust: pct3(), ensPrecip: pct3(),
+    times1h: arr1(), temps1h: num1(), precips1h: num1(),
+    gusts1h: num1(), winds1h: num1(),
+    ensTemp1h: pct1(), ensWind1h: pct1(), ensGust1h: pct1(), ensPrecip1h: pct1(),
+  };
+}
+
+describe('renderDisplay slicing', () => {
+  const TOTAL_3H = (7 * 24) / 3;   // 56 — full 7-day dataset at 3-hour step
+  const TOTAL_1H = 7 * 24;         // 168
+
+  it('slices to 36 h in portrait mode (12×3h entries, 36×1h entries)', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].times).toHaveLength(12);     // 36 / 3
+    expect(calls[0].times1h).toHaveLength(36);   // 36 / 1
+  });
+
+  it('starts from current time, not midnight, in portrait mode', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    ctx.renderDisplay(d);
+    // First rendered timestamp should be >= now (within one 3h slot)
+    const firstTime = new Date(calls[0].times[0]).getTime();
+    expect(firstTime).toBeGreaterThanOrEqual(Date.now() - 3 * 60 * 60 * 1000);
+  });
+
+  it('slices ensemble percentile arrays to match 36 h in portrait mode', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0].ensTemp.p10).toHaveLength(12);
+    expect(calls[0].ensTemp1h.p50).toHaveLength(36);
+  });
+
+  it('keeps full 7-day data in landscape mode (56×3h entries, 168×1h entries)', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: false, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].times).toHaveLength(56);
+    expect(calls[0].times1h).toHaveLength(168);
+  });
+
+  it('handles null ensemble data without throwing', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    d.ensTemp = null; d.ensTemp1h = null;
+    expect(() => ctx.renderDisplay(d)).not.toThrow();
+    expect(calls[0].ensTemp).toBeNull();
+    expect(calls[0].ensTemp1h).toBeNull();
   });
 });
