@@ -570,4 +570,8 @@ canvas.main-canvas {
 .sdd-sea-cell  { color: #40c8a8; }
 .sdd-land-cell { color: #c88040; }
 
+/* ── Portrait: hide right-side rain axis to save lateral space ── */
+@media (orientation: portrait) {
+  .y-axis-right { display: none; }
+}
 
