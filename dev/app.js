@@ -1059,10 +1059,7 @@ async function loadAndSync(city, model) {
   await load(city, model);
 }
 document.getElementById('city-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    const v = e.target.value.trim();
-    if (v) loadAndSync(v, getModel());
-  }
+  if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) loadAndSync(v, getModel()); }
 });
 document.getElementById('model-select').addEventListener('change', () => {
   const v = document.getElementById('city-input').value.trim();
