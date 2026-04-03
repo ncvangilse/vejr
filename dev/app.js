@@ -1061,11 +1061,7 @@ async function loadAndSync(city, model) {
 document.getElementById('city-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     const v = e.target.value.trim();
-    if (v) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('q', v);
-      window.location.href = url.toString();
-    }
+    if (v) loadAndSync(v, getModel());
   }
 });
 document.getElementById('model-select').addEventListener('change', () => {
