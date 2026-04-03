@@ -214,6 +214,10 @@ describe('vejr.html structure', () => {
     expect(headerRightMatch[0]).toContain('id="build-number"');
   });
 
+  it('does not contain a search-btn button', () => {
+    expect(HTML_SRC).not.toContain('id="search-btn"');
+  });
+
   it('build-number does not appear as a standalone element outside the header', () => {
     // The build-number div should not appear at the top level outside #header
     // i.e. it should not follow </div> <!-- #rotator --> or the radar section directly
