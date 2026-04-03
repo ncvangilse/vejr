@@ -302,4 +302,20 @@ describe('renderDisplay slicing', () => {
     expect(calls[0].ensTemp).toBeNull();
     expect(calls[0].ensTemp1h).toBeNull();
   });
+
+  it('aligns 3h and 1h windows to the same start time so day dividers match', () => {
+    // Create data starting 1.5 h ago so "now" falls mid-way through a 3h slot.
+    // Before the fix, s3 would land on the next 3h boundary (1.5h from now)
+    // while s1 would land on the next 1h boundary (0.5h from now) — different
+    // start times → dividers at different pixel positions.
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    const base = new Date(Date.now() - 1.5 * 60 * 60 * 1000);
+    const d = makeData(TOTAL_3H, TOTAL_1H, base);
+    ctx.renderDisplay(d);
+    expect(calls).toHaveLength(1);
+    const t3 = new Date(calls[0].times[0]).getTime();
+    const t1 = new Date(calls[0].times1h[0]).getTime();
+    expect(t3).toBe(t1);
+  });
 });

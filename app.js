@@ -174,7 +174,10 @@ function renderDisplay(d) {
     const now = Date.now();
     const i = d.times.findIndex(t => new Date(t).getTime() >= now);
     s3 = i >= 0 ? i : 0;
-    const i1 = d.times1h.findIndex(t => new Date(t).getTime() >= now);
+    // Align the 1h window to the same start time as the 3h window so that
+    // day dividers fall at the same pixel position in the icon row and graphs.
+    const startTime = new Date(d.times[s3]).getTime();
+    const i1 = d.times1h.findIndex(t => new Date(t).getTime() >= startTime);
     s1 = i1 >= 0 ? i1 : 0;
   }
   const s = {
