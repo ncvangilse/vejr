@@ -427,6 +427,28 @@ function updateShoreStatusUI() {
    SHORE DEBUG PANEL
 ══════════════════════════════════════════════════ */
 
+/* ── Elevation colour scale for the debug heatmap ── */
+function elevToRGBA(elev) {
+  if (elev < 0) {
+    // Ocean: dark navy at depth → bright cyan at 0 m
+    const t = Math.max(0, Math.min(1, 1 + elev / 200));  // 0 = deep, 1 = surface
+    return [0, Math.round(40 + t * 90), Math.round(100 + t * 130), 230];
+  }
+  if (elev < 10) {
+    // Coastal lowland: cyan → fresh green
+    const t = elev / 10;
+    return [Math.round(t * 60), Math.round(190 - t * 50), Math.round(120 - t * 70), 230];
+  }
+  if (elev < 200) {
+    // Low–mid land: green → yellow
+    const t = (elev - 10) / 190;
+    return [Math.round(60 + t * 160), Math.round(140 - t * 60), 40, 230];
+  }
+  // Highland: yellow → brown–grey
+  const t = Math.min(1, (elev - 200) / 800);
+  return [Math.round(220 - t * 60), Math.round(80 - t * 40), Math.round(40 + t * 80), 230];
+}
+
 /* ── Minimap ── */
 function drawShoreDebugMap(d) {
   const canvas = document.getElementById('shore-debug-map');
@@ -485,6 +507,42 @@ function drawShoreDebugMap(d) {
     ctx.closePath();
     if (fillStyle)   { ctx.fillStyle   = fillStyle;   ctx.fill();   }
     if (strokeStyle) { ctx.strokeStyle = strokeStyle; ctx.lineWidth = lw || 1; ctx.stroke(); }
+  }
+
+  // ── Elevation heatmap — render each tile as a coloured image ──
+  if (d.tiles) {
+    const zoom = d.zoom || 12;
+    const n2   = 2 ** zoom;
+    function tileCornerGeo(tx, ty) {
+      const lon = tx / n2 * 360 - 180;
+      const n   = Math.PI - 2 * Math.PI * ty / n2;
+      const lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      return { lat, lon };
+    }
+    d.tiles.forEach((imageData, key) => {
+      const [tx, ty] = key.split('/').map(Number);
+
+      // Build an elevation-coloured canvas from the raw tile
+      const tc    = document.createElement('canvas');
+      tc.width    = tc.height = 256;
+      const tCtx  = tc.getContext('2d');
+      const img   = tCtx.createImageData(256, 256);
+      const src   = imageData.data;
+      for (let i = 0; i < 256 * 256; i++) {
+        const p    = i * 4;
+        const elev = (src[p] * 256 + src[p + 1] + src[p + 2] / 256) - 32768;
+        const [r, g, b, a] = elevToRGBA(elev);
+        img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = a;
+      }
+      tCtx.putImageData(img, 0, 0);
+
+      // Project tile NW/SE corners to debug-map canvas (equirectangular approx.)
+      const nw = tileCornerGeo(tx,     ty);
+      const se = tileCornerGeo(tx + 1, ty + 1);
+      const [x1, y1] = geoToCanvas(nw.lat, nw.lon);
+      const [x2, y2] = geoToCanvas(se.lat, se.lon);
+      ctx.drawImage(tc, x1, y1, x2 - x1, y2 - y1);
+    });
   }
 
   // ── Tile outlines ──
@@ -601,7 +659,9 @@ function drawShoreDebugMap(d) {
 
   // ── Legend ──
   const LEG = [
-    { color: 'rgba(100,140,200,0.5)', label: 'tile boundary'  },
+    { color: 'rgba(0,80,180,0.9)',    label: 'ocean'          },
+    { color: 'rgba(0,190,120,0.9)',   label: 'low land'       },
+    { color: 'rgba(220,120,40,0.9)',  label: 'highland'       },
     { color: '#00c8a0',               label: 'sample – sea'   },
     { color: '#4090e0',               label: 'sample – flat'  },
     { color: '#e06020',               label: 'sample – hilly' },
@@ -701,21 +761,21 @@ function renderShoreDebug() {
   const flatSensInput    = document.getElementById('flat-sensitivity-input');
   const flatSensVal      = document.getElementById('flat-sensitivity-val');
 
-  const FLAT_STD_DEFAULT = 5;  // must match shore.js FLAT_STD_THRESH
+  const FLAT_STD_DEFAULT = 5;  // must match shore.js FLAT_ROUGHNESS_THRESH
 
   // ── Flat sensitivity persistence ─────────────────────────────────────
   function loadFlatSensitivity() {
-    const saved = parseFloat(localStorage.getItem('vejr_flat_std'));
+    const saved = parseFloat(localStorage.getItem('vejr_flat_roughness'));
     return Number.isFinite(saved) ? saved : FLAT_STD_DEFAULT;
   }
   function saveFlatSensitivity(val) {
-    if (val === FLAT_STD_DEFAULT) localStorage.removeItem('vejr_flat_std');
-    else localStorage.setItem('vejr_flat_std', String(val));
+    if (val === FLAT_STD_DEFAULT) localStorage.removeItem('vejr_flat_roughness');
+    else localStorage.setItem('vejr_flat_roughness', String(val));
   }
   function applyFlatSensitivity(val) {
-    window.SHORE_FLAT_STD_THRESH = val;
+    window.SHORE_FLAT_ROUGHNESS_THRESH = val;
     flatSensInput.value          = val;
-    flatSensVal.textContent      = val === 0 ? 'sea only' : `σ < ${val} m`;
+    flatSensVal.textContent      = val === 0 ? 'sea only' : `∇² < ${val} m`;
   }
 
   // Restore on load

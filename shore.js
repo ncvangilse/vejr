@@ -47,7 +47,7 @@ const SHORE_MAX_KM        = 5;
 const SHORE_SEA_THRESH    = 0.5;    // fraction of samples that must be flat-fetch
 
 const TERRAIN_TILE_ZOOM   = 12;      // ~40 m/px at 55°N; covers ~10 km per tile
-const FLAT_STD_THRESH     = 5;       // m — DSM std dev threshold for flat land
+const FLAT_ROUGHNESS_THRESH = 5;     // m — Laplacian magnitude threshold for flat land
 const FLAT_ELEV_MAX       = 25;      // m — max elevation for flat-land classification
 const TERRAIN_TILE_URL    = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium';
 const TILE_FETCH_TIMEOUT  = 15000;   // ms
@@ -178,19 +178,30 @@ function sampleElevation(imageData, px, py) {
 }
 
 /**
- * Compute the standard deviation of elevations in a 3×3 pixel neighbourhood
- * centred on (px, py).  Neighbours outside tile bounds are clamped.
+ * Compute the discrete Laplacian magnitude at pixel (px, py): how much the
+ * centre pixel's elevation deviates from the mean of its 8 neighbours.
+ *
+ *   roughness = |centre − mean(neighbours)|
+ *
+ * This is a high-pass spatial filter.  Unlike std dev it is insensitive to
+ * uniform slopes (a linear ramp has centre ≈ mean of neighbours → roughness ≈ 0),
+ * and only responds to genuine bumps, depressions, cliffs, or obstacles.
+ * Neighbours outside tile bounds are clamped to the edge pixel.
  */
-function neighbourhoodStdDev(imageData, px, py) {
-  const elevs = [];
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      elevs.push(sampleElevation(imageData, px + dx, py + dy));
-    }
-  }
-  const mean     = elevs.reduce((s, e) => s + e, 0) / elevs.length;
-  const variance = elevs.reduce((s, e) => s + (e - mean) ** 2, 0) / elevs.length;
-  return Math.sqrt(variance);
+function laplacianMagnitude(imageData, px, py) {
+  const centre    = sampleElevation(imageData, px, py);
+  const neighbours = [
+    sampleElevation(imageData, px - 1, py - 1),
+    sampleElevation(imageData, px,     py - 1),
+    sampleElevation(imageData, px + 1, py - 1),
+    sampleElevation(imageData, px - 1, py),
+    sampleElevation(imageData, px + 1, py),
+    sampleElevation(imageData, px - 1, py + 1),
+    sampleElevation(imageData, px,     py + 1),
+    sampleElevation(imageData, px + 1, py + 1),
+  ];
+  const mean = neighbours.reduce((s, e) => s + e, 0) / neighbours.length;
+  return Math.abs(centre - mean);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -200,24 +211,25 @@ function neighbourhoodStdDev(imageData, px, py) {
 /**
  * Classify a sample point as flat-fetch (returns true) or not (returns false).
  *
- * The std-dev threshold is read from `window.SHORE_FLAT_STD_THRESH` at call
- * time so the UI slider can change it without re-fetching tiles.
+ * The roughness threshold is read from `window.SHORE_FLAT_ROUGHNESS_THRESH`
+ * at call time so the UI slider can change it without re-fetching tiles.
+ * Setting the threshold to 0 disables flat-land detection (sea only).
  *
  * @param {number} elevation  Centre pixel elevation in metres
- * @param {number} stdDev     Standard deviation of 3×3 neighbourhood in metres
+ * @param {number} roughness  Laplacian magnitude (|centre − mean neighbours|) in metres
  */
-function classifyFlatFetch(elevation, stdDev) {
-  const stdThresh = (typeof window !== 'undefined' && window.SHORE_FLAT_STD_THRESH != null)
-    ? window.SHORE_FLAT_STD_THRESH
-    : FLAT_STD_THRESH;
-  if (elevation < 0) return true;                                     // open ocean
-  if (stdThresh > 0 && elevation < FLAT_ELEV_MAX && stdDev < stdThresh) return true; // flat low land
+function classifyFlatFetch(elevation, roughness) {
+  const thresh = (typeof window !== 'undefined' && window.SHORE_FLAT_ROUGHNESS_THRESH != null)
+    ? window.SHORE_FLAT_ROUGHNESS_THRESH
+    : FLAT_ROUGHNESS_THRESH;
+  if (elevation < 0) return true;                                        // open ocean
+  if (thresh > 0 && elevation < FLAT_ELEV_MAX && roughness < thresh) return true; // flat low land
   return false;
 }
 
 /**
  * Re-classify all sample points in SHORE_DEBUG using the current
- * `window.SHORE_FLAT_STD_THRESH` and update SHORE_MASK in-place.
+ * `window.SHORE_FLAT_ROUGHNESS_THRESH` and update SHORE_MASK in-place.
  * Returns true if debug data was available and the mask was updated.
  * This lets the sensitivity slider take effect without re-fetching tiles.
  */
@@ -231,7 +243,7 @@ function recomputeShoreFromDebug() {
     if (!row) continue;
     let flatFetchCount = 0;
     for (const s of row.samples) {
-      const isFlatFetch = classifyFlatFetch(s.elevation, s.stdDev);
+      const isFlatFetch = classifyFlatFetch(s.elevation, s.roughness);
       s.isFlatFetch = isFlatFetch;
       s.isSea       = isFlatFetch;
       s.reason      = s.elevation < 0 ? 'sea' : isFlatFetch ? 'flat-land' : 'hilly';
@@ -321,19 +333,19 @@ async function analyseShore(lat, lon, onDone) {
         const { x: tx, y: ty } = latLonToTileXY(pt.lat, pt.lon, TERRAIN_TILE_ZOOM);
         const imageData     = tileMap.get(`${tx}/${ty}`);
 
-        let elevation, stdDev, isFlatFetch, reason;
+        let elevation, roughness, isFlatFetch, reason;
 
         if (!imageData) {
           // Tile failed to load — treat as unknown (conservative: not flat-fetch)
           elevation   = NaN;
-          stdDev      = NaN;
+          roughness   = NaN;
           isFlatFetch = false;
           reason      = 'tile-missing';
         } else {
           const { px, py } = latLonToPixel(pt.lat, pt.lon, tx, ty, TERRAIN_TILE_ZOOM);
           elevation         = sampleElevation(imageData, px, py);
-          stdDev            = neighbourhoodStdDev(imageData, px, py);
-          isFlatFetch       = classifyFlatFetch(elevation, stdDev);
+          roughness         = laplacianMagnitude(imageData, px, py);
+          isFlatFetch       = classifyFlatFetch(elevation, roughness);
           reason            = elevation < 0
             ? 'sea'
             : isFlatFetch ? 'flat-land' : 'hilly';
@@ -342,7 +354,7 @@ async function analyseShore(lat, lon, onDone) {
         if (isFlatFetch) flatFetchCount++;
         debugSamples.push({
           distKm, lat: pt.lat, lon: pt.lon,
-          elevation, stdDev, isFlatFetch,
+          elevation, roughness, isFlatFetch,
           isSea: isFlatFetch, // alias for debug-map compatibility
           reason,
         });
@@ -371,6 +383,7 @@ async function analyseShore(lat, lon, onDone) {
       bbox,
       zoom:      TERRAIN_TILE_ZOOM,
       tilesUsed: tileCoords,
+      tiles:     tileMap,       // Map "x/y" → ImageData, for debug heatmap rendering
       bearings:  debugBearings,
     };
 

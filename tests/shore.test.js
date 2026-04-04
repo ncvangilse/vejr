@@ -5,7 +5,7 @@ const ctx = loadScripts('config.js', 'shore.js');
 const {
   destPoint,
   latLonToTileXY, latLonToPixel,
-  decodeTerrariumRGB, sampleElevation, neighbourhoodStdDev,
+  decodeTerrariumRGB, sampleElevation, laplacianMagnitude,
   classifyFlatFetch, recomputeShoreFromDebug,
 } = ctx;
 
@@ -157,9 +157,9 @@ describe('sampleElevation', () => {
   });
 });
 
-// ── neighbourhoodStdDev ───────────────────────────────────────────────────
+// ── laplacianMagnitude ────────────────────────────────────────────────────
 
-describe('neighbourhoodStdDev', () => {
+describe('laplacianMagnitude', () => {
   function makeUniformImageData(elevM) {
     const raw  = elevM + 32768;
     const r    = Math.floor(raw / 256);
@@ -171,13 +171,30 @@ describe('neighbourhoodStdDev', () => {
     return { data };
   }
 
-  it('returns 0 for a perfectly uniform tile', () => {
+  it('returns 0 for a perfectly flat (uniform) tile', () => {
     const imgData = makeUniformImageData(5);
-    expect(neighbourhoodStdDev(imgData, 128, 128)).toBeCloseTo(0, 3);
+    expect(laplacianMagnitude(imgData, 128, 128)).toBeCloseTo(0, 3);
   });
 
-  it('returns a positive value for a non-uniform tile', () => {
-    // Create a tile with alternating 0 m and 100 m rows
+  it('returns near-zero for a smooth linear slope', () => {
+    // A uniform slope: elevation = px (one metre per pixel).
+    // Centre px=128 → 128 m. Neighbours span 127–129 m → mean = 128 m.
+    // Laplacian = |128 − 128| ≈ 0 (the slope is linear).
+    const data = new Uint8ClampedArray(256 * 256 * 4);
+    for (let py = 0; py < 256; py++) {
+      for (let px = 0; px < 256; px++) {
+        const elevM = px;  // elevation equals x coordinate (pure E-W slope)
+        const raw   = elevM + 32768;
+        const r = Math.floor(raw / 256), g = Math.floor(raw % 256);
+        const i = (py * 256 + px) * 4;
+        data[i] = r; data[i + 1] = g; data[i + 2] = 0; data[i + 3] = 255;
+      }
+    }
+    expect(laplacianMagnitude({ data }, 128, 128)).toBeCloseTo(0, 1);
+  });
+
+  it('returns a positive value for a local bump (centre higher than surroundings)', () => {
+    // Create a tile with alternating 0 m and 100 m rows — high roughness
     const data = new Uint8ClampedArray(256 * 256 * 4);
     for (let py = 0; py < 256; py++) {
       const elevM = py % 2 === 0 ? 0 : 100;
@@ -188,7 +205,7 @@ describe('neighbourhoodStdDev', () => {
         data[i] = r; data[i + 1] = g; data[i + 2] = 0; data[i + 3] = 255;
       }
     }
-    expect(neighbourhoodStdDev({ data }, 128, 128)).toBeGreaterThan(0);
+    expect(laplacianMagnitude({ data }, 128, 128)).toBeGreaterThan(0);
   });
 });
 
@@ -225,20 +242,20 @@ describe('classifyFlatFetch', () => {
     expect(classifyFlatFetch(10, 5)).toBe(false);
   });
 
-  it('respects window.SHORE_FLAT_STD_THRESH override — stricter', () => {
-    ctx.window.SHORE_FLAT_STD_THRESH = 2;
+  it('respects window.SHORE_FLAT_ROUGHNESS_THRESH override — stricter', () => {
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 2;
     // σ=3 would pass at default 5, but fails at override 2
     expect(classifyFlatFetch(10, 3)).toBe(false);
-    ctx.window.SHORE_FLAT_STD_THRESH = null;
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
   });
 
-  it('respects window.SHORE_FLAT_STD_THRESH override — sea-only mode (0)', () => {
-    ctx.window.SHORE_FLAT_STD_THRESH = 0;
+  it('respects window.SHORE_FLAT_ROUGHNESS_THRESH override — sea-only mode (0)', () => {
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 0;
     // σ=1 would normally pass, but stdThresh=0 disables flat-land
     expect(classifyFlatFetch(5, 1)).toBe(false);
     // Ocean still passes
     expect(classifyFlatFetch(-10, 0)).toBe(true);
-    ctx.window.SHORE_FLAT_STD_THRESH = null;
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
   });
 });
 
@@ -256,7 +273,7 @@ describe('recomputeShoreFromDebug', () => {
           lat: 55 + s * 0.01,
           lon: 12 + s * 0.01,
           elevation,
-          stdDev: 0,        // flat std dev so flat-land logic fires on elevation
+          roughness: 0,     // zero roughness so flat-land logic fires on elevation
           isFlatFetch: false,
           isSea:       false,
           reason:      'hilly',
@@ -276,7 +293,7 @@ describe('recomputeShoreFromDebug', () => {
       Array.from({ length: 5 }, () => (b === 0 ? -100 : 100))
     );
     ctx.window.SHORE_DEBUG           = makeFakeDebug(bearingElevations);
-    ctx.window.SHORE_FLAT_STD_THRESH = null; // use default
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null; // use default
 
     const result = recomputeShoreFromDebug();
     expect(result).toBe(true);
@@ -293,16 +310,16 @@ describe('recomputeShoreFromDebug', () => {
     ctx.window.SHORE_DEBUG = debug;
 
     // At default threshold (5), σ=0 < 5 AND elev=5 < 25 → all flat-fetch
-    ctx.window.SHORE_FLAT_STD_THRESH = null;
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
     recomputeShoreFromDebug();
     expect(ctx.window.SHORE_MASK[0]).toBe(1);
 
     // At threshold 0 (sea-only), none qualify
-    ctx.window.SHORE_FLAT_STD_THRESH = 0;
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 0;
     recomputeShoreFromDebug();
     expect(ctx.window.SHORE_MASK[0]).toBe(0);
 
-    ctx.window.SHORE_FLAT_STD_THRESH = null;
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
   });
 
   it('sets SHORE_STATUS to inland when no flat-fetch bearings remain', () => {
@@ -310,11 +327,11 @@ describe('recomputeShoreFromDebug', () => {
       Array.from({ length: 5 }, () => 100)  // high land, no flat-fetch possible
     );
     ctx.window.SHORE_DEBUG           = makeFakeDebug(bearingElevations);
-    ctx.window.SHORE_FLAT_STD_THRESH = 0;  // sea-only mode
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 0;  // sea-only mode
 
     recomputeShoreFromDebug();
     expect(ctx.window.SHORE_STATUS.state).toBe('inland');
 
-    ctx.window.SHORE_FLAT_STD_THRESH = null;
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
   });
 });
