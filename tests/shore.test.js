@@ -6,7 +6,7 @@ const {
   destPoint,
   latLonToTileXY, latLonToPixel,
   decodeTerrariumRGB, sampleElevation, neighbourhoodStdDev,
-  classifyFlatFetch,
+  classifyFlatFetch, recomputeShoreFromDebug,
 } = ctx;
 
 // ── destPoint ─────────────────────────────────────────────────────────────
@@ -223,5 +223,98 @@ describe('classifyFlatFetch', () => {
     expect(classifyFlatFetch(25, 2)).toBe(false);
     // stdDev === FLAT_STD_THRESH (5) → false (not strictly less than)
     expect(classifyFlatFetch(10, 5)).toBe(false);
+  });
+
+  it('respects window.SHORE_FLAT_STD_THRESH override — stricter', () => {
+    ctx.window.SHORE_FLAT_STD_THRESH = 2;
+    // σ=3 would pass at default 5, but fails at override 2
+    expect(classifyFlatFetch(10, 3)).toBe(false);
+    ctx.window.SHORE_FLAT_STD_THRESH = null;
+  });
+
+  it('respects window.SHORE_FLAT_STD_THRESH override — sea-only mode (0)', () => {
+    ctx.window.SHORE_FLAT_STD_THRESH = 0;
+    // σ=1 would normally pass, but stdThresh=0 disables flat-land
+    expect(classifyFlatFetch(5, 1)).toBe(false);
+    // Ocean still passes
+    expect(classifyFlatFetch(-10, 0)).toBe(true);
+    ctx.window.SHORE_FLAT_STD_THRESH = null;
+  });
+});
+
+// ── recomputeShoreFromDebug ───────────────────────────────────────────────
+
+describe('recomputeShoreFromDebug', () => {
+  function makeFakeDebug(sampleElevations) {
+    // sampleElevations: [[elev0, elev1, …], …] — one array per bearing
+    return {
+      bearings: sampleElevations.map((elevs, b) => ({
+        bearing: b * 10,
+        seaFrac: 0,
+        samples: elevs.map((elevation, s) => ({
+          distKm: s + 1,
+          lat: 55 + s * 0.01,
+          lon: 12 + s * 0.01,
+          elevation,
+          stdDev: 0,        // flat std dev so flat-land logic fires on elevation
+          isFlatFetch: false,
+          isSea:       false,
+          reason:      'hilly',
+        })),
+      })),
+    };
+  }
+
+  it('returns false when SHORE_DEBUG is null', () => {
+    ctx.window.SHORE_DEBUG = null;
+    expect(recomputeShoreFromDebug()).toBe(false);
+  });
+
+  it('updates SHORE_MASK and bearing seaFrac from debug data', () => {
+    // 36 bearings: bearing 0 has all ocean samples, bearing 1 has all land samples
+    const bearingElevations = Array.from({ length: 36 }, (_, b) =>
+      Array.from({ length: 5 }, () => (b === 0 ? -100 : 100))
+    );
+    ctx.window.SHORE_DEBUG           = makeFakeDebug(bearingElevations);
+    ctx.window.SHORE_FLAT_STD_THRESH = null; // use default
+
+    const result = recomputeShoreFromDebug();
+    expect(result).toBe(true);
+    expect(ctx.window.SHORE_MASK[0]).toBe(1);   // bearing 0 — all ocean → 100%
+    expect(ctx.window.SHORE_MASK[1]).toBe(0);   // bearing 1 — high land → 0%
+  });
+
+  it('re-classifies when threshold changes — reduces flat-land bearings', () => {
+    // All samples at elevation=5 m, stdDev=0 → flat land at default threshold
+    const bearingElevations = Array.from({ length: 36 }, () =>
+      Array.from({ length: 5 }, () => 5)
+    );
+    const debug = makeFakeDebug(bearingElevations);
+    ctx.window.SHORE_DEBUG = debug;
+
+    // At default threshold (5), σ=0 < 5 AND elev=5 < 25 → all flat-fetch
+    ctx.window.SHORE_FLAT_STD_THRESH = null;
+    recomputeShoreFromDebug();
+    expect(ctx.window.SHORE_MASK[0]).toBe(1);
+
+    // At threshold 0 (sea-only), none qualify
+    ctx.window.SHORE_FLAT_STD_THRESH = 0;
+    recomputeShoreFromDebug();
+    expect(ctx.window.SHORE_MASK[0]).toBe(0);
+
+    ctx.window.SHORE_FLAT_STD_THRESH = null;
+  });
+
+  it('sets SHORE_STATUS to inland when no flat-fetch bearings remain', () => {
+    const bearingElevations = Array.from({ length: 36 }, () =>
+      Array.from({ length: 5 }, () => 100)  // high land, no flat-fetch possible
+    );
+    ctx.window.SHORE_DEBUG           = makeFakeDebug(bearingElevations);
+    ctx.window.SHORE_FLAT_STD_THRESH = 0;  // sea-only mode
+
+    recomputeShoreFromDebug();
+    expect(ctx.window.SHORE_STATUS.state).toBe('inland');
+
+    ctx.window.SHORE_FLAT_STD_THRESH = null;
   });
 });

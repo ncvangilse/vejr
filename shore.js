@@ -200,13 +200,60 @@ function neighbourhoodStdDev(imageData, px, py) {
 /**
  * Classify a sample point as flat-fetch (returns true) or not (returns false).
  *
+ * The std-dev threshold is read from `window.SHORE_FLAT_STD_THRESH` at call
+ * time so the UI slider can change it without re-fetching tiles.
+ *
  * @param {number} elevation  Centre pixel elevation in metres
  * @param {number} stdDev     Standard deviation of 3×3 neighbourhood in metres
  */
 function classifyFlatFetch(elevation, stdDev) {
-  if (elevation < 0) return true;                                   // open ocean
-  if (elevation < FLAT_ELEV_MAX && stdDev < FLAT_STD_THRESH) return true;  // flat low land
+  const stdThresh = (typeof window !== 'undefined' && window.SHORE_FLAT_STD_THRESH != null)
+    ? window.SHORE_FLAT_STD_THRESH
+    : FLAT_STD_THRESH;
+  if (elevation < 0) return true;                                     // open ocean
+  if (stdThresh > 0 && elevation < FLAT_ELEV_MAX && stdDev < stdThresh) return true; // flat low land
   return false;
+}
+
+/**
+ * Re-classify all sample points in SHORE_DEBUG using the current
+ * `window.SHORE_FLAT_STD_THRESH` and update SHORE_MASK in-place.
+ * Returns true if debug data was available and the mask was updated.
+ * This lets the sensitivity slider take effect without re-fetching tiles.
+ */
+function recomputeShoreFromDebug() {
+  const d = window.SHORE_DEBUG;
+  if (!d || !d.bearings) return false;
+
+  const mask = new Float32Array(SHORE_BEARINGS);
+  for (let b = 0; b < SHORE_BEARINGS; b++) {
+    const row = d.bearings[b];
+    if (!row) continue;
+    let flatFetchCount = 0;
+    for (const s of row.samples) {
+      const isFlatFetch = classifyFlatFetch(s.elevation, s.stdDev);
+      s.isFlatFetch = isFlatFetch;
+      s.isSea       = isFlatFetch;
+      s.reason      = s.elevation < 0 ? 'sea' : isFlatFetch ? 'flat-land' : 'hilly';
+      if (isFlatFetch) flatFetchCount++;
+    }
+    mask[b] = flatFetchCount / SHORE_SAMPLES;
+    row.seaFrac = mask[b];
+  }
+
+  window.SHORE_MASK = mask;
+
+  const anyFlatFetch = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
+  const anySea       = d.bearings.some(row => row.samples.some(s => s.elevation < 0));
+  if (!anyFlatFetch && !anySea) {
+    window.SHORE_STATUS = {
+      state: 'inland',
+      msg:   'No open water or flat terrain within 5 km – location appears inland',
+    };
+  } else {
+    window.SHORE_STATUS = { state: 'ok', msg: '' };
+  }
+  return true;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -538,6 +585,7 @@ function isSeaBearing(deg) {
 }
 
 /* ── Public API ── */
-window.analyseShore     = analyseShore;
-window.drawShoreCompass = drawShoreCompass;
-window.isSeaBearing     = isSeaBearing;
+window.analyseShore            = analyseShore;
+window.drawShoreCompass        = drawShoreCompass;
+window.isSeaBearing            = isSeaBearing;
+window.recomputeShoreFromDebug = recomputeShoreFromDebug;
