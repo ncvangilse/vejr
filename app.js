@@ -487,27 +487,38 @@ function drawShoreDebugMap(d) {
     if (strokeStyle) { ctx.strokeStyle = strokeStyle; ctx.lineWidth = lw || 1; ctx.stroke(); }
   }
 
-  // ── Water-area polygons (natural=water, reservoir …) ──
-  (d.waterPolys || []).forEach(poly =>
-    drawPoly(poly, 'rgba(30,100,180,0.35)', 'rgba(60,140,220,0.6)', 0.8)
-  );
-
-  // ── Coastline ways (raw OSM segments) ──
-  (d.coastWays || []).forEach(way => {
-    if (!way || way.length < 2) return;
+  // ── Tile outlines ──
+  const zoom = d.zoom || 12;
+  (d.tilesUsed || []).forEach(({ x, y }) => {
+    // Compute the four corners of this tile in geographic coords
+    const n2 = 2 ** zoom;
+    function tileCorner(tx, ty) {
+      const lon = tx / n2 * 360 - 180;
+      const n   = Math.PI - 2 * Math.PI * ty / n2;
+      const lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      return { lat, lon };
+    }
+    const nw = tileCorner(x,     y);
+    const ne = tileCorner(x + 1, y);
+    const se = tileCorner(x + 1, y + 1);
+    const sw = tileCorner(x,     y + 1);
     ctx.beginPath();
-    way.forEach((p, i) => {
-      const [x, y] = geoToCanvas(p.lat, p.lon);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    [nw, ne, se, sw].forEach((p, i) => {
+      const [cx2, cy2] = geoToCanvas(p.lat, p.lon);
+      i === 0 ? ctx.moveTo(cx2, cy2) : ctx.lineTo(cx2, cy2);
     });
-    ctx.strokeStyle = 'rgba(220,140,50,0.9)';
-    ctx.lineWidth   = 1.5;
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(100,140,200,0.5)';
+    ctx.lineWidth   = 0.8;
     ctx.stroke();
   });
 
   // ── Sample points for each bearing ──
   const REASON_COLOR = {
-    'coast:land':       '#e06020',
+    sea:            '#00c8a0',
+    'flat-land':    '#4090e0',
+    hilly:          '#e06020',
+    'tile-missing': '#888',
     'coast:sea':        '#00c8a0',
     waterArea:          '#4090e0',
     'fallback:sea':     '#80d8b0',
@@ -590,11 +601,10 @@ function drawShoreDebugMap(d) {
 
   // ── Legend ──
   const LEG = [
-    { color: 'rgba(60,140,220,0.8)',  label: 'water poly' },
-    { color: 'rgba(220,140,50,0.9)',  label: 'coastline way' },
-    { color: '#00c8a0',               label: 'sample – sea'       },
-    { color: '#e06020',               label: 'sample – land'      },
-    { color: '#4090e0',               label: 'sample – water area'},
+    { color: 'rgba(100,140,200,0.5)', label: 'tile boundary'  },
+    { color: '#00c8a0',               label: 'sample – sea'   },
+    { color: '#4090e0',               label: 'sample – flat'  },
+    { color: '#e06020',               label: 'sample – hilly' },
   ];
   ctx.font = '8px IBM Plex Mono, monospace';
   ctx.textBaseline = 'middle';
@@ -631,52 +641,41 @@ function renderShoreDebug() {
   }
 
   drawShoreDebugMap(d);
-  const originFlags = [
-    d.originInWater && 'in-waterPoly',
-    d.originIsLand  && 'is-land',
-  ].filter(Boolean).join(', ') || 'at-sea';
 
+  const tilesUsed = d.tilesUsed || [];
   metaEl.innerHTML = `
     <span class="sdd-key">Location:</span>
     <span class="sdd-val">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</span>
-    <span class="sdd-key">OSM elements:</span>
-    <span class="sdd-val">${d.elementCount}</span>
-    <span class="sdd-key">Coast ways:</span>
-    <span class="sdd-val ${d.coastWayCount ? '' : 'sdd-warn'}">${d.coastWayCount}</span>
-    <span class="sdd-key">Water polys:</span>
-    <span class="sdd-val">${d.waterPolyCount}</span>
-    <span class="sdd-key">Origin:</span>
-    <span class="sdd-val">${originFlags}</span>
+    <span class="sdd-key">Zoom:</span>
+    <span class="sdd-val">${d.zoom ?? '—'}</span>
+    <span class="sdd-key">Tiles fetched:</span>
+    <span class="sdd-val">${tilesUsed.length}</span>
   `;
 
-  // ── Coast ways table ──
-  const ways = d.coastWays || [];
-  if (!ways.length) {
-    ringsTb.innerHTML = '<tr><td colspan="3" style="color:#778;text-align:center">no coastline data</td></tr>';
+  // ── Tiles table (replaces coast ways table) ──
+  if (!tilesUsed.length) {
+    ringsTb.innerHTML = '<tr><td colspan="3" style="color:#778;text-align:center">no tiles</td></tr>';
   } else {
-    ringsTb.innerHTML = ways.map((w, i) =>
-      `<tr><td>${i}</td><td>${w.length} nodes</td><td class="sdd-val" style="font-size:9px">`
-      + `(${w[0].lat.toFixed(3)},${w[0].lon.toFixed(3)})→`
-      + `(${w[w.length-1].lat.toFixed(3)},${w[w.length-1].lon.toFixed(3)})</td></tr>`
+    ringsTb.innerHTML = tilesUsed.map(({ x, y }) =>
+      `<tr><td class="sdd-val">${d.zoom}/${x}/${y}</td></tr>`
     ).join('');
   }
 
   // ── Bearings table ──
   const REASON_ABBR = {
-    'coast:land':     'CL',
-    'coast:sea':      'CS',
-    waterArea:        'WA',
-    'fallback:sea':   'FS',
-    'fallback:noCoast': 'NC',
+    sea:            '~',
+    'flat-land':    'FL',
+    hilly:          '▲',
+    'tile-missing': '?',
   };
   bearTb.innerHTML = d.bearings.map(row => {
     const pct   = Math.round(row.seaFrac * 100);
     const isSea = row.seaFrac >= 0.5;
     const cells = row.samples.map(s => {
       const abbr = REASON_ABBR[s.reason] ?? s.reason;
-
-      const cls  = s.isSea ? 'sdd-sea-cell' : 'sdd-land-cell';
-      return `<td class="${cls}" title="${s.reason}">${s.isSea ? '~' : '▲'}${abbr}</td>`;
+      const elev = Number.isFinite(s.elevation) ? s.elevation.toFixed(0) + 'm' : '?';
+      const cls  = s.isFlatFetch ? 'sdd-sea-cell' : 'sdd-land-cell';
+      return `<td class="${cls}" title="${s.reason} ${elev}">${abbr}</td>`;
     }).join('');
     return `<tr class="${isSea ? 'sdd-sea-row' : 'sdd-land-row'}">
       <td>${row.bearing}°</td>
