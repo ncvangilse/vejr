@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.04-99-claude-stabilize-sea-bearing-7CvpR-5';
+const CACHE_NAME = 'vejr-2026.04.04-100-claude-fix-ios-homescreen-settings-48JAY-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [

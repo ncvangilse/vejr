@@ -73,7 +73,7 @@
         <div id="updated-text">—</div>
         <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
         <div id="shore-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
-        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.04-99-claude-stabilize-sea-bearing-7CvpR</div>
+        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.04-100-claude-fix-ios-homescreen-settings-48JAY</div>
       </div>
     </div>
 
@@ -169,11 +169,6 @@
         </div>
       </div>
       <div id="shore-modal-status"></div>
-      <div class="kite-flat-sensitivity-row">
-        <label for="flat-sensitivity-input">FLAT-LAND SENSITIVITY</label>
-        <input type="range" id="flat-sensitivity-input" min="0" max="10" step="0.5" value="5">
-        <span id="flat-sensitivity-val">σ &lt; 5 m</span>
-      </div>
       <button id="kite-shore-fetch-btn">🌊 Fetch sea bearings</button>
 
       <!-- Shore debug panel -->
@@ -185,9 +180,9 @@
             <div id="shore-debug-meta"></div>
           </div>
           <div id="shore-debug-rings-wrap">
-            <div class="shore-debug-section-title">Tiles fetched</div>
+            <div class="shore-debug-section-title">Coastline ways</div>
             <table id="shore-debug-rings-table">
-              <thead><tr><th>z/x/y</th></tr></thead>
+              <thead><tr><th>#</th><th>nodes</th><th>start → end</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
