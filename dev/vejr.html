@@ -73,7 +73,7 @@
         <div id="updated-text">—</div>
         <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
         <div id="shore-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
-        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.04-103-claude-stabilize-sea-bearing-7CvpR</div>
+        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.04-104-claude-stabilize-sea-bearing-7CvpR</div>
       </div>
     </div>
 
@@ -171,8 +171,8 @@
       <div id="shore-modal-status"></div>
       <div class="kite-flat-sensitivity-row">
         <label for="flat-sensitivity-input">ROUGHNESS LIMIT</label>
-        <input type="range" id="flat-sensitivity-input" min="0" max="10" step="0.5" value="5">
-        <span id="flat-sensitivity-val">∇² &lt; 5 m</span>
+        <input type="range" id="flat-sensitivity-input" min="0" max="1" step="0.05" value="0.5">
+        <span id="flat-sensitivity-val">∇² &lt; 0.5 m</span>
       </div>
       <button id="kite-shore-fetch-btn">🌊 Fetch sea bearings</button>
 

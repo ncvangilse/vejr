@@ -775,7 +775,7 @@ function renderShoreDebug() {
   const flatSensInput    = document.getElementById('flat-sensitivity-input');
   const flatSensVal      = document.getElementById('flat-sensitivity-val');
 
-  const FLAT_STD_DEFAULT = 5;  // must match shore.js FLAT_ROUGHNESS_THRESH
+  const FLAT_STD_DEFAULT = 0.5;  // must match shore.js FLAT_ROUGHNESS_THRESH
 
   // ── Flat sensitivity persistence ─────────────────────────────────────
   function loadFlatSensitivity() {
@@ -789,7 +789,7 @@ function renderShoreDebug() {
   function applyFlatSensitivity(val) {
     window.SHORE_FLAT_ROUGHNESS_THRESH = val;
     flatSensInput.value          = val;
-    flatSensVal.textContent      = val === 0 ? 'sea only' : `∇² < ${val} m`;
+    flatSensVal.textContent      = val === 0 ? 'sea only' : `∇² < ${parseFloat(val.toFixed(2))} m`;
   }
 
   // Restore on load
