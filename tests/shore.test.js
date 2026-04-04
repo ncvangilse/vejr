@@ -217,42 +217,42 @@ describe('classifyFlatFetch', () => {
     expect(classifyFlatFetch(-1,   0)).toBe(true);
   });
 
-  it('returns true for flat low land (low elevation, low std dev)', () => {
-    expect(classifyFlatFetch(5,  2)).toBe(true);   // 5 m, σ=2 m
-    expect(classifyFlatFetch(0,  0)).toBe(true);   // sea level, flat
-    expect(classifyFlatFetch(24, 4)).toBe(true);   // just under thresholds
+  it('returns true for flat low land (low elevation, low roughness)', () => {
+    expect(classifyFlatFetch(5,  0.1)).toBe(true);  // 5 m elev, ∇²=0.1 m
+    expect(classifyFlatFetch(0,  0  )).toBe(true);  // sea level, zero roughness
+    expect(classifyFlatFetch(24, 0.4)).toBe(true);  // just under both thresholds
   });
 
   it('returns false when elevation is too high', () => {
-    expect(classifyFlatFetch(30, 2)).toBe(false);  // > FLAT_ELEV_MAX (25 m)
+    expect(classifyFlatFetch(30, 0.1)).toBe(false); // > FLAT_ELEV_MAX (25 m)
   });
 
-  it('returns false when std dev is too high (hilly)', () => {
-    expect(classifyFlatFetch(10, 10)).toBe(false); // > FLAT_STD_THRESH (5 m)
+  it('returns false when roughness is too high (hilly)', () => {
+    expect(classifyFlatFetch(10, 2)).toBe(false);   // > FLAT_ROUGHNESS_THRESH (0.5 m)
   });
 
   it('returns false when both thresholds are exceeded', () => {
-    expect(classifyFlatFetch(50, 20)).toBe(false);
+    expect(classifyFlatFetch(50, 5)).toBe(false);
   });
 
-  it('is exactly at thresholds — FLAT_ELEV_MAX and FLAT_STD_THRESH are exclusive', () => {
+  it('is exactly at thresholds — FLAT_ELEV_MAX and FLAT_ROUGHNESS_THRESH are exclusive', () => {
     // elevation === FLAT_ELEV_MAX (25) → false (not strictly less than)
-    expect(classifyFlatFetch(25, 2)).toBe(false);
-    // stdDev === FLAT_STD_THRESH (5) → false (not strictly less than)
-    expect(classifyFlatFetch(10, 5)).toBe(false);
+    expect(classifyFlatFetch(25, 0.1)).toBe(false);
+    // roughness === FLAT_ROUGHNESS_THRESH (0.5) → false (not strictly less than)
+    expect(classifyFlatFetch(10, 0.5)).toBe(false);
   });
 
   it('respects window.SHORE_FLAT_ROUGHNESS_THRESH override — stricter', () => {
-    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 2;
-    // σ=3 would pass at default 5, but fails at override 2
-    expect(classifyFlatFetch(10, 3)).toBe(false);
+    ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 0.2;
+    // roughness=0.3 passes at default 0.5 but fails at override 0.2
+    expect(classifyFlatFetch(10, 0.3)).toBe(false);
     ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
   });
 
   it('respects window.SHORE_FLAT_ROUGHNESS_THRESH override — sea-only mode (0)', () => {
     ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = 0;
-    // σ=1 would normally pass, but stdThresh=0 disables flat-land
-    expect(classifyFlatFetch(5, 1)).toBe(false);
+    // roughness=0.1 would normally pass, but thresh=0 disables flat-land
+    expect(classifyFlatFetch(5, 0.1)).toBe(false);
     // Ocean still passes
     expect(classifyFlatFetch(-10, 0)).toBe(true);
     ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
@@ -309,7 +309,7 @@ describe('recomputeShoreFromDebug', () => {
     const debug = makeFakeDebug(bearingElevations);
     ctx.window.SHORE_DEBUG = debug;
 
-    // At default threshold (5), σ=0 < 5 AND elev=5 < 25 → all flat-fetch
+    // At default threshold (0.5), roughness=0 < 0.5 AND elev=5 < 25 → all flat-fetch
     ctx.window.SHORE_FLAT_ROUGHNESS_THRESH = null;
     recomputeShoreFromDebug();
     expect(ctx.window.SHORE_MASK[0]).toBe(1);

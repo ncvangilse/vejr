@@ -47,7 +47,7 @@ const SHORE_MAX_KM        = 5;
 const SHORE_SEA_THRESH    = 0.5;    // fraction of samples that must be flat-fetch
 
 const TERRAIN_TILE_ZOOM   = 12;      // ~40 m/px at 55°N; covers ~10 km per tile
-const FLAT_ROUGHNESS_THRESH = 5;     // m — Laplacian magnitude threshold for flat land
+const FLAT_ROUGHNESS_THRESH = 0.5;   // m — Laplacian magnitude threshold for flat land
 const FLAT_ELEV_MAX       = 25;      // m — max elevation for flat-land classification
 const TERRAIN_TILE_URL    = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium';
 const TILE_FETCH_TIMEOUT  = 15000;   // ms
