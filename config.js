@@ -11,6 +11,8 @@ const DA_MON   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','N
 /* ══════════════════════════════════════════════════
    KITE CONFIG  (read from URL, defaults if absent)
    URL params: kite_min, kite_max, kite_dirs (comma-separated degrees, snapped to 10°)
+   Settings are also mirrored to localStorage so they survive iOS Home Screen launches,
+   where the shortcut always opens the original saved URL (without any replaceState changes).
 ══════════════════════════════════════════════════ */
 const KITE_DEFAULTS = {
   min:  7,
@@ -18,6 +20,7 @@ const KITE_DEFAULTS = {
   dirs: [90, 270],   // exact bearings (snapped to nearest 10°)
   daylight: true,
 };
+const KITE_STORAGE_KEY = 'vejr_kite_cfg';
 
 /** Snap any bearing to the nearest 10° slot (0, 10, 20 … 350). */
 function snapBearing(deg) {
@@ -27,10 +30,28 @@ function snapBearing(deg) {
 function parseKiteParams() {
   const p = new URLSearchParams(window.location.search);
   const cfg = { ...KITE_DEFAULTS };
-  if (p.has('kite_min'))  cfg.min  = parseFloat(p.get('kite_min'))  || cfg.min;
-  if (p.has('kite_max'))  cfg.max  = parseFloat(p.get('kite_max'))  || cfg.max;
-  if (p.has('kite_dirs')) cfg.dirs = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v)).map(snapBearing);
-  if (p.has('kite_at_night')) cfg.daylight = p.get('kite_at_night') !== '0' ? false : true;
+  const hasUrlParams = p.has('kite_min') || p.has('kite_max') || p.has('kite_dirs') || p.has('kite_at_night');
+
+  if (hasUrlParams) {
+    if (p.has('kite_min'))  cfg.min  = parseFloat(p.get('kite_min'))  || cfg.min;
+    if (p.has('kite_max'))  cfg.max  = parseFloat(p.get('kite_max'))  || cfg.max;
+    if (p.has('kite_dirs')) cfg.dirs = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v)).map(snapBearing);
+    if (p.has('kite_at_night')) cfg.daylight = p.get('kite_at_night') !== '0' ? false : true;
+    // Persist URL-provided settings so they survive future Home Screen launches
+    try { localStorage.setItem(KITE_STORAGE_KEY, JSON.stringify(cfg)); } catch(_) {}
+  } else {
+    // No URL params — fall back to localStorage (used when launched from iOS Home Screen)
+    try {
+      const stored = localStorage.getItem(KITE_STORAGE_KEY);
+      if (stored) {
+        const saved = JSON.parse(stored);
+        if (typeof saved.min     === 'number')  cfg.min     = saved.min;
+        if (typeof saved.max     === 'number')  cfg.max     = saved.max;
+        if (Array.isArray(saved.dirs))          cfg.dirs    = saved.dirs;
+        if (typeof saved.daylight === 'boolean') cfg.daylight = saved.daylight;
+      }
+    } catch(_) { /* ignore corrupt storage */ }
+  }
   return cfg;
 }
 
@@ -38,6 +59,8 @@ let KITE_CFG = parseKiteParams();
 
 function setKiteParams(cfg) {
   KITE_CFG = cfg;
+  // Persist to localStorage so settings survive iOS Home Screen launches
+  try { localStorage.setItem(KITE_STORAGE_KEY, JSON.stringify(cfg)); } catch(_) {}
   const url = new URL(window.location.href);
   const def = KITE_DEFAULTS;
   if (cfg.min  !== def.min)  url.searchParams.set('kite_min',  cfg.min);  else url.searchParams.delete('kite_min');

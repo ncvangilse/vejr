@@ -23,15 +23,26 @@ export function loadScripts(...relPaths) {
     SHORE_DEBUG:  null,
   };
 
+  const mockLocalStorage = (() => {
+    const store = {};
+    return {
+      getItem:    (k)      => Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null,
+      setItem:    (k, v)   => { store[k] = String(v); },
+      removeItem: (k)      => { delete store[k]; },
+      clear:      ()       => { Object.keys(store).forEach(k => delete store[k]); },
+    };
+  })();
+
   const ctx = vm.createContext({
     window:             mockWindow,
+    localStorage:       mockLocalStorage,
     console,
     Math,
     Array, Float32Array, Set, Map,
     Number, String, Boolean, Object,
     parseInt, parseFloat, isNaN, isFinite,
     encodeURIComponent, decodeURIComponent,
-    URLSearchParams,
+    URL, URLSearchParams,
     Promise, Error,
     setTimeout, clearTimeout,
     fetch: () => Promise.reject(new Error('fetch not mocked in tests')),
