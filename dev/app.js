@@ -427,26 +427,26 @@ function updateShoreStatusUI() {
    SHORE DEBUG PANEL
 ══════════════════════════════════════════════════ */
 
-/* ── Elevation colour scale for the debug heatmap ── */
-function elevToRGBA(elev) {
+/* ── Elevation colour scale for the debug heatmap ──
+   elev     : elevation in metres
+   landMin  : minimum land elevation in the current tile set (metres)
+   landRange: max − min for land pixels (metres), used to normalise
+   Ocean pixels use a fixed blue scale; land pixels are normalised to
+   the observed range so the full palette is always visible.           */
+function elevToRGBA(elev, landMin, landRange) {
   if (elev < 0) {
     // Ocean: dark navy at depth → bright cyan at 0 m
-    const t = Math.max(0, Math.min(1, 1 + elev / 200));  // 0 = deep, 1 = surface
+    const t = Math.max(0, Math.min(1, 1 + elev / 200));
     return [0, Math.round(40 + t * 90), Math.round(100 + t * 130), 230];
   }
-  if (elev < 10) {
-    // Coastal lowland: cyan → fresh green
-    const t = elev / 10;
-    return [Math.round(t * 60), Math.round(190 - t * 50), Math.round(120 - t * 70), 230];
+  // Land: normalise within observed range → green (low) → yellow → brown (high)
+  const t = landRange > 0 ? Math.max(0, Math.min(1, (elev - landMin) / landRange)) : 0;
+  if (t < 0.5) {
+    const u = t / 0.5;
+    return [Math.round(30 + u * 170), Math.round(160 - u * 40), Math.round(30), 230];
   }
-  if (elev < 200) {
-    // Low–mid land: green → yellow
-    const t = (elev - 10) / 190;
-    return [Math.round(60 + t * 160), Math.round(140 - t * 60), 40, 230];
-  }
-  // Highland: yellow → brown–grey
-  const t = Math.min(1, (elev - 200) / 800);
-  return [Math.round(220 - t * 60), Math.round(80 - t * 40), Math.round(40 + t * 80), 230];
+  const u = (t - 0.5) / 0.5;
+  return [Math.round(200 - u * 60), Math.round(120 - u * 80), Math.round(30 + u * 50), 230];
 }
 
 /* ── Minimap ── */
@@ -454,12 +454,13 @@ function drawShoreDebugMap(d) {
   const canvas = document.getElementById('shore-debug-map');
   if (!canvas) return;
 
-  const SIZE = canvas.clientWidth || 260;
+  // Use the CSS-fixed size (200 px) so redraws never change the element dimensions.
+  // Avoid reading canvas.clientWidth — text changes elsewhere in the modal can
+  // cause layout reflows that make clientWidth drift between calls.
+  const SIZE = 200;
   const dpr  = window.devicePixelRatio || 1;
   canvas.width  = SIZE * dpr;
   canvas.height = SIZE * dpr;
-  canvas.style.width  = SIZE + 'px';
-  canvas.style.height = SIZE + 'px';
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
@@ -519,19 +520,32 @@ function drawShoreDebugMap(d) {
       const lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
       return { lat, lon };
     }
-    d.tiles.forEach((imageData, key) => {
-      const [tx, ty] = key.split('/').map(Number);
 
-      // Build an elevation-coloured canvas from the raw tile
-      const tc    = document.createElement('canvas');
-      tc.width    = tc.height = 256;
-      const tCtx  = tc.getContext('2d');
-      const img   = tCtx.createImageData(256, 256);
-      const src   = imageData.data;
+    // First pass: find land elevation range across all tiles for dynamic scaling
+    let landMin = Infinity, landMax = -Infinity;
+    d.tiles.forEach((imageData) => {
+      const src = imageData.data;
       for (let i = 0; i < 256 * 256; i++) {
         const p    = i * 4;
         const elev = (src[p] * 256 + src[p + 1] + src[p + 2] / 256) - 32768;
-        const [r, g, b, a] = elevToRGBA(elev);
+        if (elev >= 0) { if (elev < landMin) landMin = elev; if (elev > landMax) landMax = elev; }
+      }
+    });
+    const landRange = Math.max(1, landMax - landMin);
+
+    // Second pass: render each tile with normalised colours
+    d.tiles.forEach((imageData, key) => {
+      const [tx, ty] = key.split('/').map(Number);
+
+      const tc   = document.createElement('canvas');
+      tc.width   = tc.height = 256;
+      const tCtx = tc.getContext('2d');
+      const img  = tCtx.createImageData(256, 256);
+      const src  = imageData.data;
+      for (let i = 0; i < 256 * 256; i++) {
+        const p    = i * 4;
+        const elev = (src[p] * 256 + src[p + 1] + src[p + 2] / 256) - 32768;
+        const [r, g, b, a] = elevToRGBA(elev, landMin, landRange);
         img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = a;
       }
       tCtx.putImageData(img, 0, 0);
