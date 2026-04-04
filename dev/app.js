@@ -689,15 +689,48 @@ function renderShoreDebug() {
    KITE CONFIG DIALOG
 ══════════════════════════════════════════════════ */
 (function () {
-  const overlay       = document.getElementById('kite-modal-overlay');
-  const minInput      = document.getElementById('kite-min-input');
-  const maxInput      = document.getElementById('kite-max-input');
-  const daylightInput = document.getElementById('kite-at-night-input');
-  const applyBtn      = document.getElementById('kite-modal-apply');
-  const cancelBtn     = document.getElementById('kite-modal-cancel');
-  const resetBtn      = document.getElementById('kite-modal-reset');
-  const cfgBtn        = document.getElementById('kite-cfg-btn');
-  const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
+  const overlay          = document.getElementById('kite-modal-overlay');
+  const minInput         = document.getElementById('kite-min-input');
+  const maxInput         = document.getElementById('kite-max-input');
+  const daylightInput    = document.getElementById('kite-at-night-input');
+  const applyBtn         = document.getElementById('kite-modal-apply');
+  const cancelBtn        = document.getElementById('kite-modal-cancel');
+  const resetBtn         = document.getElementById('kite-modal-reset');
+  const cfgBtn           = document.getElementById('kite-cfg-btn');
+  const shoreFetchBtn    = document.getElementById('kite-shore-fetch-btn');
+  const flatSensInput    = document.getElementById('flat-sensitivity-input');
+  const flatSensVal      = document.getElementById('flat-sensitivity-val');
+
+  const FLAT_STD_DEFAULT = 5;  // must match shore.js FLAT_STD_THRESH
+
+  // ── Flat sensitivity persistence ─────────────────────────────────────
+  function loadFlatSensitivity() {
+    const saved = parseFloat(localStorage.getItem('vejr_flat_std'));
+    return Number.isFinite(saved) ? saved : FLAT_STD_DEFAULT;
+  }
+  function saveFlatSensitivity(val) {
+    if (val === FLAT_STD_DEFAULT) localStorage.removeItem('vejr_flat_std');
+    else localStorage.setItem('vejr_flat_std', String(val));
+  }
+  function applyFlatSensitivity(val) {
+    window.SHORE_FLAT_STD_THRESH = val;
+    flatSensInput.value          = val;
+    flatSensVal.textContent      = val === 0 ? 'sea only' : `σ < ${val} m`;
+  }
+
+  // Restore on load
+  applyFlatSensitivity(loadFlatSensitivity());
+
+  flatSensInput.addEventListener('input', () => {
+    const val = parseFloat(flatSensInput.value);
+    applyFlatSensitivity(val);
+    saveFlatSensitivity(val);
+    if (window.recomputeShoreFromDebug && window.recomputeShoreFromDebug()) {
+      drawModalCompass();
+      updateShoreStatusUI();
+      if (lastData) renderDisplay(lastData);
+    }
+  });
 
   // ── Active bearings state ─────────────────────────────────────────────
   let activeBearings = [];   // array of snapped 10° bearings (numbers)
