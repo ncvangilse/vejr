@@ -1,8 +1,13 @@
 ﻿/* ══════════════════════════════════════════════════
    MAIN APP — load, tooltip, kite dialog, URL sync
 ══════════════════════════════════════════════════ */
-let lastData        = null;
+var lastData        = null;
 let lastShoreCoords = null;  // { lat, lon } of the last loaded city
+
+function syncInvertedColorsClass() {
+  const on = window.matchMedia('(inverted-colors: inverted)').matches;
+  document.body.classList.toggle('inverted-colors', on);
+}
 /* ══════════════════════════════════════════════════
    LOAD
 ══════════════════════════════════════════════════ */
@@ -164,7 +169,9 @@ function slicePercentilesFrom(obj, start, n) {
 }
 
 function renderDisplay(d) {
-  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  const portrait       = window.matchMedia('(orientation: portrait)').matches;
+  const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
+  syncInvertedColorsClass();
   const hours = portrait ? 36 : FORECAST_DAYS * 24;
   const n3h = Math.ceil(hours / STEP);
   const n1h = Math.ceil(hours / STEP1H);
@@ -193,7 +200,22 @@ function renderDisplay(d) {
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
-  renderAll(s);
+  renderAll(s, invertedColors);
+  if (invertedColors) {
+    ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
+      const canvas = document.getElementById(id);
+      if (!canvas) return;
+      const ctx2d = canvas.getContext('2d');
+      const img   = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+      const px    = img.data;
+      for (let i = 0; i < px.length; i += 4) {
+        px[i]   = 255 - px[i];
+        px[i+1] = 255 - px[i+1];
+        px[i+2] = 255 - px[i+2];
+      }
+      ctx2d.putImageData(img, 0, 0);
+    });
+  }
 }
 
 /* ══════════════════════════════════════════════════
@@ -1073,6 +1095,10 @@ window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (lastData) renderDisplay(lastData); }, 100);
 });
+window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
+  syncInvertedColorsClass();
+  if (lastData) renderDisplay(lastData);
+});
 // ── Radar pin drag → update location ────────────────────────────────────
 if (window.setRadarDragCallback) {
   window.setRadarDragCallback((lat, lon) => {
@@ -1091,6 +1117,7 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
 }
 
 (function initialLoad() {
+  syncInvertedColorsClass();  // apply before data loads so button is correct immediately
   const model    = getModel();
   const qParam   = getQParam();
   const typed    = document.getElementById('city-input').value.trim();
