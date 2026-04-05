@@ -327,13 +327,94 @@ function stitchCoastWays(coastWays) {
   return chains;
 }
 
+/** True if the point lies within (or on the boundary of) the bounding box. */
+function isInBbox(pt, bbox) {
+  return pt.lat >= bbox.s && pt.lat <= bbox.n &&
+         pt.lon >= bbox.w && pt.lon <= bbox.e;
+}
+
+/**
+ * Find where segment p1→p2 first crosses the bbox boundary (t ∈ (0, 1]).
+ * Tests all four edges and returns the crossing with the smallest t > 0
+ * whose intersection point lies on the bbox edge.  Returns null if none.
+ */
+function bboxSegmentCrossing(p1, p2, bbox) {
+  const dLat = p2.lat - p1.lat;
+  const dLon = p2.lon - p1.lon;
+  const EPS  = 1e-9;
+  const candidates = [];
+
+  const tryEdge = (t, lat, lon) => {
+    if (t > EPS && t <= 1 + EPS &&
+        lat >= bbox.s - EPS && lat <= bbox.n + EPS &&
+        lon >= bbox.w - EPS && lon <= bbox.e + EPS) {
+      candidates.push({ t,
+        lat: Math.max(bbox.s, Math.min(bbox.n, lat)),
+        lon: Math.max(bbox.w, Math.min(bbox.e, lon)) });
+    }
+  };
+
+  if (Math.abs(dLon) > EPS) {
+    const tE = (bbox.e - p1.lon) / dLon;
+    tryEdge(tE, p1.lat + tE * dLat, bbox.e);
+    const tW = (bbox.w - p1.lon) / dLon;
+    tryEdge(tW, p1.lat + tW * dLat, bbox.w);
+  }
+  if (Math.abs(dLat) > EPS) {
+    const tN = (bbox.n - p1.lat) / dLat;
+    tryEdge(tN, bbox.n, p1.lon + tN * dLon);
+    const tS = (bbox.s - p1.lat) / dLat;
+    tryEdge(tS, bbox.s, p1.lon + tS * dLon);
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.t - b.t);
+  return candidates[0];
+}
+
+/**
+ * Walk the chain from its *head* (index 0) and return the point where the
+ * chain first enters the bbox boundary.  If the first node is already inside,
+ * the first node itself is returned.
+ */
+function findBboxEntryCrossing(chain, bbox) {
+  if (isInBbox(chain[0], bbox)) return chain[0];
+  for (let i = 0; i < chain.length - 1; i++) {
+    if (!isInBbox(chain[i], bbox) && isInBbox(chain[i + 1], bbox)) {
+      return bboxSegmentCrossing(chain[i], chain[i + 1], bbox) ?? chain[i + 1];
+    }
+  }
+  return null;
+}
+
+/**
+ * Walk the chain from its *tail* (last index) and return the point where the
+ * chain last exits the bbox boundary.  If the last node is already inside,
+ * the last node itself is returned.
+ */
+function findBboxExitCrossing(chain, bbox) {
+  const last = chain[chain.length - 1];
+  if (isInBbox(last, bbox)) return last;
+  for (let i = chain.length - 1; i > 0; i--) {
+    if (isInBbox(chain[i - 1], bbox) && !isInBbox(chain[i], bbox)) {
+      return bboxSegmentCrossing(chain[i - 1], chain[i], bbox) ?? chain[i - 1];
+    }
+  }
+  return null;
+}
+
 /**
  * Stitch OSM coastline ways into chains, then close every open chain by
- * appending a clockwise bbox-boundary path from the chain's tail back to
- * its head.  Chains that are already closed (islands) are returned as-is.
+ * appending a clockwise bbox-boundary path from the chain's *actual* exit
+ * crossing back to its *actual* entry crossing.
  *
- * The clockwise closure ensures that the winding-number rule correctly
- * classifies sea points even when only a partial coastal slice was fetched.
+ * Using the exact bbox-boundary crossing points (rather than snapping the
+ * chain's raw endpoints) is critical for long coastal ways whose endpoints
+ * lie far outside the bbox: the endpoint's nearest bbox edge may differ from
+ * the edge the chain actually crosses, sending the closure the wrong way
+ * around the bbox and enclosing sea as land.
+ *
+ * Chains that are already closed (islands) are returned unchanged.
  *
  * @param {Array<Array<{lat,lon}>>} coastWays
  * @param {{ s,n,w,e }}             bbox
@@ -349,7 +430,16 @@ function buildClosedCoastRings(coastWays, bbox) {
       Math.abs(head.lat - tail.lat) < TOL &&
       Math.abs(head.lon - tail.lon) < TOL;
     if (closed) return chain;
-    return chain.concat(clockwiseBboxPath(tail, head, bbox));
+
+    // Find the exact points where the chain enters/exits the bbox
+    const entryCrossing = findBboxEntryCrossing(chain, bbox);
+    const exitCrossing  = findBboxExitCrossing(chain, bbox);
+
+    // Fall back to snapping endpoints if crossing detection fails
+    const from = exitCrossing  ?? snapToBbox(tail, bbox);
+    const to   = entryCrossing ?? snapToBbox(head, bbox);
+
+    return chain.concat(clockwiseBboxPath(from, to, bbox));
   });
 }
 
