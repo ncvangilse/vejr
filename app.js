@@ -1,7 +1,7 @@
 ﻿/* ══════════════════════════════════════════════════
    MAIN APP — load, tooltip, kite dialog, URL sync
 ══════════════════════════════════════════════════ */
-let lastData        = null;
+var lastData        = null;
 let lastShoreCoords = null;  // { lat, lon } of the last loaded city
 /* ══════════════════════════════════════════════════
    LOAD
@@ -1072,6 +1072,9 @@ let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (lastData) renderDisplay(lastData); }, 100);
+});
+window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
+  if (lastData) renderDisplay(lastData);
 });
 // ── Radar pin drag → update location ────────────────────────────────────
 if (window.setRadarDragCallback) {

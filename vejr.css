@@ -575,3 +575,8 @@ canvas.main-canvas {
   .y-axis-right { display: none; }
 }
 
+/* ── Inverted colours (iOS): un-invert canvas pixels ── */
+@media (inverted-colors: inverted) {
+  canvas.main-canvas { filter: invert(1); }
+}
+
