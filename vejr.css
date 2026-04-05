@@ -575,4 +575,10 @@ canvas.main-canvas {
   .y-axis-right { display: none; }
 }
 
+/* ── Inverted colours (iOS): pre-invert the dark wind-direction y-axis
+      so the OS double-inversion restores it to dark. ── */
+@media (inverted-colors: inverted) {
+  #ax-dir { background: #e1d5c7 !important; }
+}
+
 

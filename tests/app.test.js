@@ -17,6 +17,11 @@ function makeEl(value = '') {
     textContent: '',
     classList:  { contains: () => false, add: () => {}, remove: () => {} },
     addEventListener: () => {},
+    getContext:  () => ({
+      getImageData:  (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData:  () => {},
+    }),
+    width: 0, height: 0,
   };
 }
 
@@ -349,5 +354,25 @@ describe('inverted-colors change listener', () => {
   it('does not throw when the change handler fires with no data loaded', () => {
     const { invertedMQL } = loadApp();
     expect(() => invertedMQL._handler()).not.toThrow();
+  });
+
+  it('passes invertedColors=true to renderAll when media query matches', () => {
+    const calls = [];
+    const { ctx } = loadApp({
+      invertedColors: true,
+      renderAllSpy: (d, ic) => calls.push(ic),
+    });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0]).toBe(true);
+  });
+
+  it('passes invertedColors=false to renderAll when media query does not match', () => {
+    const calls = [];
+    const { ctx } = loadApp({
+      invertedColors: false,
+      renderAllSpy: (d, ic) => calls.push(ic),
+    });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0]).toBe(false);
   });
 });

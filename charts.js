@@ -38,7 +38,7 @@ function resolveDPI(canvas, cssW, cssH) {
 /* ══════════════════════════════════════════════════
    DRAW TOP ROW (time axis + icons + UV + wind dirs)
 ══════════════════════════════════════════════════ */
-function drawTopRow(times, codes, precips) {
+function drawTopRow(times, codes, precips, invertedColors) {
   const canvas = document.getElementById('c-top');
   const wrap   = canvas.parentElement;
   const cssW   = wrap.clientWidth;
@@ -54,10 +54,20 @@ function drawTopRow(times, codes, precips) {
   const colW = cssW / n;
   const divs = dayDivs(times);
 
+  // When inverted colors is active, the canvas is pre-inverted by JS so that
+  // the OS double-inversion restores the drawn color. Use dark fills so the
+  // result is dark after the double-inversion round-trip.
+  const timeBg  = invertedColors ? '#1e2a38' : '#d8dfe8';
+  const iconBg  = invertedColors ? '#1e2a38' : '#dde3eb';
+  const timeSep = invertedColors ? '#3a4f62' : '#c0c8d0';
+  const textDay = invertedColors ? '#c8d4e0' : '#222';
+  const textHr  = invertedColors ? '#8899aa' : '#556';
+  const divCol  = invertedColors ? 'rgba(255,255,255,0.18)' : '#667788';
+
   /* ---- time axis ---- */
-  ctx.fillStyle = '#d8dfe8';
+  ctx.fillStyle = timeBg;
   ctx.fillRect(0, 0, cssW, TIME_H);
-  ctx.strokeStyle = '#c0c8d0';
+  ctx.strokeStyle = timeSep;
   ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(0,TIME_H); ctx.lineTo(cssW,TIME_H); ctx.stroke();
 
@@ -65,7 +75,7 @@ function drawTopRow(times, codes, precips) {
   const segs = [0,...divs,n];
   for(let s=0;s<segs.length-1;s++){
     const midX = ((segs[s]+segs[s+1])/2) * colW;
-    ctx.fillStyle = '#222';
+    ctx.fillStyle = textDay;
     ctx.font = `700 11px 'IBM Plex Sans', sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -77,7 +87,7 @@ function drawTopRow(times, codes, precips) {
     const h = new Date(t).getHours();
     if(h===0||h%6!==0) return;
     const x = (i+0.5)*colW;
-    ctx.fillStyle = '#556';
+    ctx.fillStyle = textHr;
     ctx.font = `10px 'IBM Plex Mono', monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -85,7 +95,7 @@ function drawTopRow(times, codes, precips) {
   });
 
   /* ---- day dividers through time axis ---- */
-  ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
+  ctx.strokeStyle = divCol; ctx.lineWidth = 1;
   divs.forEach(i=>{
     const x = i*colW;
     ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,TIME_H); ctx.stroke();
@@ -93,13 +103,13 @@ function drawTopRow(times, codes, precips) {
 
   /* ---- icon row ---- */
   const iconY = TIME_H;
-  ctx.fillStyle = '#dde3eb';
+  ctx.fillStyle = iconBg;
   ctx.fillRect(0, iconY, cssW, ICON_H);
 
   // day dividers
   divs.forEach(i=>{
     const x = i*colW;
-    ctx.strokeStyle='#667788'; ctx.lineWidth=1;
+    ctx.strokeStyle=divCol; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(x,iconY); ctx.lineTo(x,iconY+ICON_H); ctx.stroke();
   });
 
@@ -764,8 +774,8 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h)
 /* ══════════════════════════════════════════════════
    RENDER ALL
 ══════════════════════════════════════════════════ */
-function renderAll(d) {
-  drawTopRow(d.times, d.codes, d.precips);
+function renderAll(d, invertedColors) {
+  drawTopRow(d.times, d.codes, d.precips, invertedColors);
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
            d.times, d.precips, d.ensPrecip || null);
   drawWindDir(d.times, d.winds, d.dirs);
