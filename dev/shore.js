@@ -174,276 +174,6 @@ function isLandByRayCross(lat, lon, coastWays, bbox, hasCoast) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   COASTLINE STITCHING + BBOX CLOSURE
-   ──────────────────────────────────────────────────────────────────────────
-   OSM coastline ways fetched by Overpass are *partial* slices of the global
-   coastline ring.  When a continental coast enters our bbox from one side and
-   exits from another, the resulting open chain produces unmatched winding-
-   number crossings that misclassify sea points as land (or vice versa).
-   The fix is to:
-     1. Stitch connected ways into chains (matching shared endpoints).
-     2. Close every open chain by travelling clockwise around the bbox
-        boundary from the chain tail back to its head.
-   This turns the partial OSM data into properly-closed rings that the
-   winding-number algorithm can handle correctly.
-══════════════════════════════════════════════════════════════════════════ */
-
-/**
- * Snap an arbitrary point to the nearest edge of the bounding box.
- * Used to project open-chain endpoints onto the bbox boundary before closure.
- */
-function snapToBbox(pt, bbox) {
-  const clampLat = lat => Math.max(bbox.s, Math.min(bbox.n, lat));
-  const clampLon = lon => Math.max(bbox.w, Math.min(bbox.e, lon));
-
-  const outsideLat = pt.lat > bbox.n || pt.lat < bbox.s;
-  const outsideLon = pt.lon > bbox.e || pt.lon < bbox.w;
-
-  // If the point is outside in exactly one axis, snap to that axis's edge —
-  // this avoids false ties when the point is near the corner in the other axis.
-  if (outsideLat && !outsideLon) {
-    return { lat: pt.lat > bbox.n ? bbox.n : bbox.s, lon: clampLon(pt.lon) };
-  }
-  if (outsideLon && !outsideLat) {
-    return { lat: clampLat(pt.lat), lon: pt.lon > bbox.e ? bbox.e : bbox.w };
-  }
-
-  // Outside in both axes (corner region) or already inside: use nearest edge.
-  const dE = Math.abs(pt.lon - bbox.e), dW = Math.abs(pt.lon - bbox.w);
-  const dN = Math.abs(pt.lat - bbox.n), dS = Math.abs(pt.lat - bbox.s);
-  const m  = Math.min(dE, dW, dN, dS);
-  if (m === dN) return { lat: bbox.n, lon: clampLon(pt.lon) };
-  if (m === dS) return { lat: bbox.s, lon: clampLon(pt.lon) };
-  if (m === dE) return { lat: clampLat(pt.lat), lon: bbox.e };
-  return                { lat: clampLat(pt.lat), lon: bbox.w };
-}
-
-/**
- * Return the intermediate bbox corners plus the snapped `to` point needed to
- * travel *clockwise* around the bbox boundary from `from` to `to`.
- *
- * Clockwise order (north-up): NE(0) → SE(1) → SW(2) → NW(3) → NE …
- *
- * Each boundary point is assigned a clockwise position cpos ∈ [0, 4):
- *   East edge  (lon = bbox.e):  cpos = (bbox.n - lat) / (bbox.n - bbox.s)
- *   South edge (lat = bbox.s):  cpos = 1 + (bbox.e - lon) / (bbox.e - bbox.w)
- *   West edge  (lon = bbox.w):  cpos = 2 + (lat - bbox.s) / (bbox.n - bbox.s)
- *   North edge (lat = bbox.n):  cpos = 3 + (lon - bbox.w) / (bbox.e - bbox.w)
- */
-function clockwiseBboxPath(from, to, bbox) {
-  const { s, n, w, e } = bbox;
-  const CORNERS = [
-    { lat: n, lon: e },   // 0 = NE
-    { lat: s, lon: e },   // 1 = SE
-    { lat: s, lon: w },   // 2 = SW
-    { lat: n, lon: w },   // 3 = NW
-  ];
-  const TOL = 1e-5;
-
-  const cpos = pt => {
-    if (Math.abs(pt.lon - e) < TOL) return       (n - pt.lat) / (n - s);
-    if (Math.abs(pt.lat - s) < TOL) return 1.0 + (e - pt.lon) / (e - w);
-    if (Math.abs(pt.lon - w) < TOL) return 2.0 + (pt.lat - s) / (n - s);
-    return                                 3.0 + (pt.lon - w) / (e - w);
-  };
-
-  const fromSnap = snapToBbox(from, bbox);
-  const toSnap   = snapToBbox(to,   bbox);
-
-  const fromPos = cpos(fromSnap);
-  let   toPos   = cpos(toSnap);
-  if (toPos <= fromPos) toPos += 4.0;   // ensure strictly clockwise advance
-
-  const path = [];
-  for (let ci = 0; ci < 4; ci++) {
-    let cp = ci;
-    while (cp <= fromPos) cp += 4;       // shift corner into (fromPos, ...]
-    if (cp < toPos) path.push(CORNERS[ci]);
-  }
-  path.push(toSnap);
-  return path;
-}
-
-/**
- * Stitch individual OSM coastline way-arrays into continuous chains by
- * matching shared endpoints (within ENDPOINT_TOL degrees ≈ 1 m).
- *
- * Each way in `coastWays` is an array of {lat, lon} nodes.  Ways are
- * reversed as needed when connected at their end rather than their start.
- *
- * Returns an array of chains (each an array of {lat, lon} nodes).
- */
-function stitchCoastWays(coastWays) {
-  if (coastWays.length === 0) return [];
-
-  const ENDPOINT_TOL = 1e-5;
-  const ptKey = pt => `${pt.lat.toFixed(5)},${pt.lon.toFixed(5)}`;
-
-  // index: key → [{wayIdx, side: 'start'|'end'}]
-  const index = new Map();
-  const addToIndex = (pt, wayIdx, side) => {
-    const k = ptKey(pt);
-    if (!index.has(k)) index.set(k, []);
-    index.get(k).push({ wayIdx, side });
-  };
-  for (let i = 0; i < coastWays.length; i++) {
-    const w = coastWays[i];
-    addToIndex(w[0],          i, 'start');
-    addToIndex(w[w.length-1], i, 'end');
-  }
-
-  const used   = new Set();
-  const chains = [];
-
-  for (let i = 0; i < coastWays.length; i++) {
-    if (used.has(i)) continue;
-    used.add(i);
-    let chain = [...coastWays[i]];
-
-    // Extend forward from tail
-    for (;;) {
-      const k       = ptKey(chain[chain.length - 1]);
-      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx));
-      if (!matches.length) break;
-      const { wayIdx, side } = matches[0];
-      used.add(wayIdx);
-      const w = coastWays[wayIdx];
-      chain = chain.concat(side === 'start' ? w.slice(1) : [...w].reverse().slice(1));
-    }
-
-    // Extend backward from head
-    for (;;) {
-      const k       = ptKey(chain[0]);
-      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx));
-      if (!matches.length) break;
-      const { wayIdx, side } = matches[0];
-      used.add(wayIdx);
-      const w = coastWays[wayIdx];
-      chain = (side === 'end' ? w.slice(0, -1) : [...w].reverse().slice(0, -1)).concat(chain);
-    }
-
-    chains.push(chain);
-  }
-  return chains;
-}
-
-/** True if the point lies within (or on the boundary of) the bounding box. */
-function isInBbox(pt, bbox) {
-  return pt.lat >= bbox.s && pt.lat <= bbox.n &&
-         pt.lon >= bbox.w && pt.lon <= bbox.e;
-}
-
-/**
- * Find where segment p1→p2 first crosses the bbox boundary (t ∈ (0, 1]).
- * Tests all four edges and returns the crossing with the smallest t > 0
- * whose intersection point lies on the bbox edge.  Returns null if none.
- */
-function bboxSegmentCrossing(p1, p2, bbox) {
-  const dLat = p2.lat - p1.lat;
-  const dLon = p2.lon - p1.lon;
-  const EPS  = 1e-9;
-  const candidates = [];
-
-  const tryEdge = (t, lat, lon) => {
-    if (t > EPS && t <= 1 + EPS &&
-        lat >= bbox.s - EPS && lat <= bbox.n + EPS &&
-        lon >= bbox.w - EPS && lon <= bbox.e + EPS) {
-      candidates.push({ t,
-        lat: Math.max(bbox.s, Math.min(bbox.n, lat)),
-        lon: Math.max(bbox.w, Math.min(bbox.e, lon)) });
-    }
-  };
-
-  if (Math.abs(dLon) > EPS) {
-    const tE = (bbox.e - p1.lon) / dLon;
-    tryEdge(tE, p1.lat + tE * dLat, bbox.e);
-    const tW = (bbox.w - p1.lon) / dLon;
-    tryEdge(tW, p1.lat + tW * dLat, bbox.w);
-  }
-  if (Math.abs(dLat) > EPS) {
-    const tN = (bbox.n - p1.lat) / dLat;
-    tryEdge(tN, bbox.n, p1.lon + tN * dLon);
-    const tS = (bbox.s - p1.lat) / dLat;
-    tryEdge(tS, bbox.s, p1.lon + tS * dLon);
-  }
-
-  if (!candidates.length) return null;
-  candidates.sort((a, b) => a.t - b.t);
-  return candidates[0];
-}
-
-/**
- * Walk the chain from its *head* (index 0) and return the point where the
- * chain first enters the bbox boundary.  If the first node is already inside,
- * the first node itself is returned.
- */
-function findBboxEntryCrossing(chain, bbox) {
-  if (isInBbox(chain[0], bbox)) return chain[0];
-  for (let i = 0; i < chain.length - 1; i++) {
-    if (!isInBbox(chain[i], bbox) && isInBbox(chain[i + 1], bbox)) {
-      return bboxSegmentCrossing(chain[i], chain[i + 1], bbox) ?? chain[i + 1];
-    }
-  }
-  return null;
-}
-
-/**
- * Walk the chain from its *tail* (last index) and return the point where the
- * chain last exits the bbox boundary.  If the last node is already inside,
- * the last node itself is returned.
- */
-function findBboxExitCrossing(chain, bbox) {
-  const last = chain[chain.length - 1];
-  if (isInBbox(last, bbox)) return last;
-  for (let i = chain.length - 1; i > 0; i--) {
-    if (isInBbox(chain[i - 1], bbox) && !isInBbox(chain[i], bbox)) {
-      return bboxSegmentCrossing(chain[i - 1], chain[i], bbox) ?? chain[i - 1];
-    }
-  }
-  return null;
-}
-
-/**
- * Stitch OSM coastline ways into chains, then close every open chain by
- * appending a clockwise bbox-boundary path from the chain's *actual* exit
- * crossing back to its *actual* entry crossing.
- *
- * Using the exact bbox-boundary crossing points (rather than snapping the
- * chain's raw endpoints) is critical for long coastal ways whose endpoints
- * lie far outside the bbox: the endpoint's nearest bbox edge may differ from
- * the edge the chain actually crosses, sending the closure the wrong way
- * around the bbox and enclosing sea as land.
- *
- * Chains that are already closed (islands) are returned unchanged.
- *
- * @param {Array<Array<{lat,lon}>>} coastWays
- * @param {{ s,n,w,e }}             bbox
- * @returns {Array<Array<{lat,lon}>>}  closed rings
- */
-function buildClosedCoastRings(coastWays, bbox) {
-  const TOL    = 1e-5;
-  const chains = stitchCoastWays(coastWays);
-  return chains.map(chain => {
-    const head = chain[0];
-    const tail = chain[chain.length - 1];
-    const closed =
-      Math.abs(head.lat - tail.lat) < TOL &&
-      Math.abs(head.lon - tail.lon) < TOL;
-    if (closed) return chain;
-
-    // Find the exact points where the chain enters/exits the bbox
-    const entryCrossing = findBboxEntryCrossing(chain, bbox);
-    const exitCrossing  = findBboxExitCrossing(chain, bbox);
-
-    // Fall back to snapping endpoints if crossing detection fails
-    const from = exitCrossing  ?? snapToBbox(tail, bbox);
-    const to   = entryCrossing ?? snapToBbox(head, bbox);
-
-    return chain.concat(clockwiseBboxPath(from, to, bbox));
-  });
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
    OVERPASS QUERY BUILDER + FETCHER
 ══════════════════════════════════════════════════════════════════════════ */
 
@@ -572,15 +302,9 @@ async function analyseShore(lat, lon, onDone) {
 
     const hasCoastData = coastWays.length > 0;
 
-    // Stitch raw ways into chains and close open chains via the bbox boundary
-    // so that the winding-number algorithm always sees properly-closed rings.
-    const closedCoastRings = hasCoastData
-      ? buildClosedCoastRings(coastWays, bbox)
-      : [];
-
     // ── Origin classification (for debug / inland detection) ──
     const originInWater = waterPolys.some(p => pointInPoly(lat, lon, p));
-    const originIsLand  = isLandByRayCross(lat, lon, closedCoastRings, bbox, hasCoastData);
+    const originIsLand  = isLandByRayCross(lat, lon, coastWays, bbox, hasCoastData);
     console.debug(`[shore] Origin (${lat.toFixed(5)}, ${lon.toFixed(5)}): inWaterPoly=${originInWater}, isLand=${originIsLand}, hasCoastData=${hasCoastData}`);
 
     const mask = new Float32Array(SHORE_BEARINGS);
@@ -603,7 +327,7 @@ async function analyseShore(lat, lon, onDone) {
            2. Inside an explicit water-area polygon (lake, reservoir…) → sea
               (overrides coastline "land" only for tagged inland water bodies)
            3. No coastline data → open sea (fallback)                        */
-        const isLandCoast = isLandByRayCross(pLat, pLon, closedCoastRings, bbox, hasCoastData);
+        const isLandCoast = isLandByRayCross(pLat, pLon, coastWays, bbox, hasCoastData);
         const inWaterArea = isLandCoast && waterPolys.some(p => pointInPoly(pLat, pLon, p));
 
         let isSea, reason;
@@ -642,7 +366,6 @@ async function analyseShore(lat, lon, onDone) {
       originInWater,
       originIsLand,
       coastWays,                         // raw ways for debug-map drawing
-      closedCoastRings,                  // stitched + closed rings used for classification
       waterPolys,                        // water-area polys for debug-map drawing
       bearings: debugBearings,
     };
