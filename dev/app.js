@@ -427,40 +427,17 @@ function updateShoreStatusUI() {
    SHORE DEBUG PANEL
 ══════════════════════════════════════════════════ */
 
-/* ── Elevation colour scale for the debug heatmap ──
-   elev     : elevation in metres
-   landMin  : minimum land elevation in the current tile set (metres)
-   landRange: max − min for land pixels (metres), used to normalise
-   Ocean pixels use a fixed blue scale; land pixels are normalised to
-   the observed range so the full palette is always visible.           */
-function elevToRGBA(elev, landMin, landRange) {
-  if (elev < 0) {
-    // Ocean: dark navy at depth → bright cyan at 0 m
-    const t = Math.max(0, Math.min(1, 1 + elev / 200));
-    return [0, Math.round(40 + t * 90), Math.round(100 + t * 130), 230];
-  }
-  // Land: normalise within observed range → green (low) → yellow → brown (high)
-  const t = landRange > 0 ? Math.max(0, Math.min(1, (elev - landMin) / landRange)) : 0;
-  if (t < 0.5) {
-    const u = t / 0.5;
-    return [Math.round(30 + u * 170), Math.round(160 - u * 40), Math.round(30), 230];
-  }
-  const u = (t - 0.5) / 0.5;
-  return [Math.round(200 - u * 60), Math.round(120 - u * 80), Math.round(30 + u * 50), 230];
-}
-
 /* ── Minimap ── */
 function drawShoreDebugMap(d) {
   const canvas = document.getElementById('shore-debug-map');
   if (!canvas) return;
 
-  // Use the CSS-fixed size (200 px) so redraws never change the element dimensions.
-  // Avoid reading canvas.clientWidth — text changes elsewhere in the modal can
-  // cause layout reflows that make clientWidth drift between calls.
-  const SIZE = 200;
+  const SIZE = canvas.clientWidth || 260;
   const dpr  = window.devicePixelRatio || 1;
   canvas.width  = SIZE * dpr;
   canvas.height = SIZE * dpr;
+  canvas.style.width  = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
@@ -510,87 +487,27 @@ function drawShoreDebugMap(d) {
     if (strokeStyle) { ctx.strokeStyle = strokeStyle; ctx.lineWidth = lw || 1; ctx.stroke(); }
   }
 
-  // ── Elevation heatmap — render each tile as a coloured image ──
-  if (d.tiles) {
-    const zoom = d.zoom || 12;
-    const n2   = 2 ** zoom;
-    function tileCornerGeo(tx, ty) {
-      const lon = tx / n2 * 360 - 180;
-      const n   = Math.PI - 2 * Math.PI * ty / n2;
-      const lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-      return { lat, lon };
-    }
+  // ── Water-area polygons (natural=water, reservoir …) ──
+  (d.waterPolys || []).forEach(poly =>
+    drawPoly(poly, 'rgba(30,100,180,0.35)', 'rgba(60,140,220,0.6)', 0.8)
+  );
 
-    // First pass: find land elevation range across all tiles for dynamic scaling
-    let landMin = Infinity, landMax = -Infinity;
-    d.tiles.forEach((imageData) => {
-      const src = imageData.data;
-      for (let i = 0; i < 256 * 256; i++) {
-        const p    = i * 4;
-        const elev = (src[p] * 256 + src[p + 1] + src[p + 2] / 256) - 32768;
-        if (elev >= 0) { if (elev < landMin) landMin = elev; if (elev > landMax) landMax = elev; }
-      }
-    });
-    const landRange = Math.max(1, landMax - landMin);
-
-    // Second pass: render each tile with normalised colours
-    d.tiles.forEach((imageData, key) => {
-      const [tx, ty] = key.split('/').map(Number);
-
-      const tc   = document.createElement('canvas');
-      tc.width   = tc.height = 256;
-      const tCtx = tc.getContext('2d');
-      const img  = tCtx.createImageData(256, 256);
-      const src  = imageData.data;
-      for (let i = 0; i < 256 * 256; i++) {
-        const p    = i * 4;
-        const elev = (src[p] * 256 + src[p + 1] + src[p + 2] / 256) - 32768;
-        const [r, g, b, a] = elevToRGBA(elev, landMin, landRange);
-        img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = a;
-      }
-      tCtx.putImageData(img, 0, 0);
-
-      // Project tile NW/SE corners to debug-map canvas (equirectangular approx.)
-      const nw = tileCornerGeo(tx,     ty);
-      const se = tileCornerGeo(tx + 1, ty + 1);
-      const [x1, y1] = geoToCanvas(nw.lat, nw.lon);
-      const [x2, y2] = geoToCanvas(se.lat, se.lon);
-      ctx.drawImage(tc, x1, y1, x2 - x1, y2 - y1);
-    });
-  }
-
-  // ── Tile outlines ──
-  const zoom = d.zoom || 12;
-  (d.tilesUsed || []).forEach(({ x, y }) => {
-    // Compute the four corners of this tile in geographic coords
-    const n2 = 2 ** zoom;
-    function tileCorner(tx, ty) {
-      const lon = tx / n2 * 360 - 180;
-      const n   = Math.PI - 2 * Math.PI * ty / n2;
-      const lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-      return { lat, lon };
-    }
-    const nw = tileCorner(x,     y);
-    const ne = tileCorner(x + 1, y);
-    const se = tileCorner(x + 1, y + 1);
-    const sw = tileCorner(x,     y + 1);
+  // ── Coastline ways (raw OSM segments) ──
+  (d.coastWays || []).forEach(way => {
+    if (!way || way.length < 2) return;
     ctx.beginPath();
-    [nw, ne, se, sw].forEach((p, i) => {
-      const [cx2, cy2] = geoToCanvas(p.lat, p.lon);
-      i === 0 ? ctx.moveTo(cx2, cy2) : ctx.lineTo(cx2, cy2);
+    way.forEach((p, i) => {
+      const [x, y] = geoToCanvas(p.lat, p.lon);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
-    ctx.closePath();
-    ctx.strokeStyle = 'rgba(100,140,200,0.5)';
-    ctx.lineWidth   = 0.8;
+    ctx.strokeStyle = 'rgba(220,140,50,0.9)';
+    ctx.lineWidth   = 1.5;
     ctx.stroke();
   });
 
   // ── Sample points for each bearing ──
   const REASON_COLOR = {
-    sea:            '#00c8a0',
-    'flat-land':    '#4090e0',
-    hilly:          '#e06020',
-    'tile-missing': '#888',
+    'coast:land':       '#e06020',
     'coast:sea':        '#00c8a0',
     waterArea:          '#4090e0',
     'fallback:sea':     '#80d8b0',
@@ -673,12 +590,11 @@ function drawShoreDebugMap(d) {
 
   // ── Legend ──
   const LEG = [
-    { color: 'rgba(0,80,180,0.9)',    label: 'ocean'          },
-    { color: 'rgba(0,190,120,0.9)',   label: 'low land'       },
-    { color: 'rgba(220,120,40,0.9)',  label: 'highland'       },
-    { color: '#00c8a0',               label: 'sample – sea'   },
-    { color: '#4090e0',               label: 'sample – flat'  },
-    { color: '#e06020',               label: 'sample – hilly' },
+    { color: 'rgba(60,140,220,0.8)',  label: 'water poly' },
+    { color: 'rgba(220,140,50,0.9)',  label: 'coastline way' },
+    { color: '#00c8a0',               label: 'sample – sea'       },
+    { color: '#e06020',               label: 'sample – land'      },
+    { color: '#4090e0',               label: 'sample – water area'},
   ];
   ctx.font = '8px IBM Plex Mono, monospace';
   ctx.textBaseline = 'middle';
@@ -715,41 +631,52 @@ function renderShoreDebug() {
   }
 
   drawShoreDebugMap(d);
+  const originFlags = [
+    d.originInWater && 'in-waterPoly',
+    d.originIsLand  && 'is-land',
+  ].filter(Boolean).join(', ') || 'at-sea';
 
-  const tilesUsed = d.tilesUsed || [];
   metaEl.innerHTML = `
     <span class="sdd-key">Location:</span>
     <span class="sdd-val">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</span>
-    <span class="sdd-key">Zoom:</span>
-    <span class="sdd-val">${d.zoom ?? '—'}</span>
-    <span class="sdd-key">Tiles fetched:</span>
-    <span class="sdd-val">${tilesUsed.length}</span>
+    <span class="sdd-key">OSM elements:</span>
+    <span class="sdd-val">${d.elementCount}</span>
+    <span class="sdd-key">Coast ways:</span>
+    <span class="sdd-val ${d.coastWayCount ? '' : 'sdd-warn'}">${d.coastWayCount}</span>
+    <span class="sdd-key">Water polys:</span>
+    <span class="sdd-val">${d.waterPolyCount}</span>
+    <span class="sdd-key">Origin:</span>
+    <span class="sdd-val">${originFlags}</span>
   `;
 
-  // ── Tiles table (replaces coast ways table) ──
-  if (!tilesUsed.length) {
-    ringsTb.innerHTML = '<tr><td colspan="3" style="color:#778;text-align:center">no tiles</td></tr>';
+  // ── Coast ways table ──
+  const ways = d.coastWays || [];
+  if (!ways.length) {
+    ringsTb.innerHTML = '<tr><td colspan="3" style="color:#778;text-align:center">no coastline data</td></tr>';
   } else {
-    ringsTb.innerHTML = tilesUsed.map(({ x, y }) =>
-      `<tr><td class="sdd-val">${d.zoom}/${x}/${y}</td></tr>`
+    ringsTb.innerHTML = ways.map((w, i) =>
+      `<tr><td>${i}</td><td>${w.length} nodes</td><td class="sdd-val" style="font-size:9px">`
+      + `(${w[0].lat.toFixed(3)},${w[0].lon.toFixed(3)})→`
+      + `(${w[w.length-1].lat.toFixed(3)},${w[w.length-1].lon.toFixed(3)})</td></tr>`
     ).join('');
   }
 
   // ── Bearings table ──
   const REASON_ABBR = {
-    sea:            '~',
-    'flat-land':    'FL',
-    hilly:          '▲',
-    'tile-missing': '?',
+    'coast:land':     'CL',
+    'coast:sea':      'CS',
+    waterArea:        'WA',
+    'fallback:sea':   'FS',
+    'fallback:noCoast': 'NC',
   };
   bearTb.innerHTML = d.bearings.map(row => {
     const pct   = Math.round(row.seaFrac * 100);
     const isSea = row.seaFrac >= 0.5;
     const cells = row.samples.map(s => {
       const abbr = REASON_ABBR[s.reason] ?? s.reason;
-      const elev = Number.isFinite(s.elevation) ? s.elevation.toFixed(0) + 'm' : '?';
-      const cls  = s.isFlatFetch ? 'sdd-sea-cell' : 'sdd-land-cell';
-      return `<td class="${cls}" title="${s.reason} ${elev}">${abbr}</td>`;
+
+      const cls  = s.isSea ? 'sdd-sea-cell' : 'sdd-land-cell';
+      return `<td class="${cls}" title="${s.reason}">${s.isSea ? '~' : '▲'}${abbr}</td>`;
     }).join('');
     return `<tr class="${isSea ? 'sdd-sea-row' : 'sdd-land-row'}">
       <td>${row.bearing}°</td>
@@ -763,48 +690,15 @@ function renderShoreDebug() {
    KITE CONFIG DIALOG
 ══════════════════════════════════════════════════ */
 (function () {
-  const overlay          = document.getElementById('kite-modal-overlay');
-  const minInput         = document.getElementById('kite-min-input');
-  const maxInput         = document.getElementById('kite-max-input');
-  const daylightInput    = document.getElementById('kite-at-night-input');
-  const applyBtn         = document.getElementById('kite-modal-apply');
-  const cancelBtn        = document.getElementById('kite-modal-cancel');
-  const resetBtn         = document.getElementById('kite-modal-reset');
-  const cfgBtn           = document.getElementById('kite-cfg-btn');
-  const shoreFetchBtn    = document.getElementById('kite-shore-fetch-btn');
-  const flatSensInput    = document.getElementById('flat-sensitivity-input');
-  const flatSensVal      = document.getElementById('flat-sensitivity-val');
-
-  const FLAT_STD_DEFAULT = 0.5;  // must match shore.js FLAT_ROUGHNESS_THRESH
-
-  // ── Flat sensitivity persistence ─────────────────────────────────────
-  function loadFlatSensitivity() {
-    const saved = parseFloat(localStorage.getItem('vejr_flat_roughness'));
-    return Number.isFinite(saved) ? saved : FLAT_STD_DEFAULT;
-  }
-  function saveFlatSensitivity(val) {
-    if (val === FLAT_STD_DEFAULT) localStorage.removeItem('vejr_flat_roughness');
-    else localStorage.setItem('vejr_flat_roughness', String(val));
-  }
-  function applyFlatSensitivity(val) {
-    window.SHORE_FLAT_ROUGHNESS_THRESH = val;
-    flatSensInput.value          = val;
-    flatSensVal.textContent      = val === 0 ? 'sea only' : `∇² < ${parseFloat(val.toFixed(2))} m`;
-  }
-
-  // Restore on load
-  applyFlatSensitivity(loadFlatSensitivity());
-
-  flatSensInput.addEventListener('input', () => {
-    const val = parseFloat(flatSensInput.value);
-    applyFlatSensitivity(val);
-    saveFlatSensitivity(val);
-    if (window.recomputeShoreFromDebug && window.recomputeShoreFromDebug()) {
-      drawModalCompass();
-      updateShoreStatusUI();
-      if (lastData) renderDisplay(lastData);
-    }
-  });
+  const overlay       = document.getElementById('kite-modal-overlay');
+  const minInput      = document.getElementById('kite-min-input');
+  const maxInput      = document.getElementById('kite-max-input');
+  const daylightInput = document.getElementById('kite-at-night-input');
+  const applyBtn      = document.getElementById('kite-modal-apply');
+  const cancelBtn     = document.getElementById('kite-modal-cancel');
+  const resetBtn      = document.getElementById('kite-modal-reset');
+  const cfgBtn        = document.getElementById('kite-cfg-btn');
+  const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
 
   // ── Active bearings state ─────────────────────────────────────────────
   let activeBearings = [];   // array of snapped 10° bearings (numbers)

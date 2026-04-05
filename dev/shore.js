@@ -1,56 +1,56 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   SHORE MASK  –  flat-fetch terrain analysis for kitesurfing suitability
+   SHORE MASK  –  land/sea analysis for kitesurfing direction suitability
    ══════════════════════════════════════════════════════════════════════════
    Algorithm
    ─────────
    For each of 36 bearings (0°, 10°, …, 350°) cast 5 sample points at
    1 km, 2 km, 3 km, 4 km and 5 km from the origin.  A bearing is
-   classified as "flat-fetch" (steady wind, good for kiting) when the
-   majority of its samples land over open water OR very flat low terrain.
+   classified as "sea" (steady wind, good for kiting) when the majority
+   of its samples fall over open water.
 
-   Data source – AWS Terrain Tiles (Terrarium format)
-   ───────────────────────────────────────────────────
-   URL pattern:
-     https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png
-
-   Each pixel encodes elevation as:
-     elevation (m) = R×256 + G + B/256 − 32768
-
-   Ocean areas use ETOPO1 bathymetry (negative elevations).
-   Land areas use SRTM (a DSM that captures buildings and vegetation).
-   No API key required.
-
-   At zoom 12 each tile covers ~10 km × ~10 km at 55°N (~40 m/pixel),
-   so the entire 5 km analysis radius fits in 1–4 tiles.
-
-   Flat-fetch classification per sample point
+   Data source – Overpass API (OpenStreetMap)
    ──────────────────────────────────────────
-   elevation < 0                                       → flat-fetch (open ocean)
-   elevation ≥ 0 AND std_dev(3×3 neighbourhood) < 5 m
-               AND elevation < 25 m                   → flat-fetch (flat low land)
-   otherwise                                           → not flat-fetch
+   A single bounding-box Overpass query fetches every OSM element that
+   encodes water surface within the analysis radius:
+
+     • way / relation   natural=water   (lakes, rivers mapped as areas)
+     • way / relation   landuse=reservoir / dock / basin
+     • relation         natural=coastline  (maritime coast, assembled into
+                        closed rings and then used to determine sea side)
+     • way              natural=coastline  (individual coast segments)
+     • node/way/rel     place=sea / place=ocean  (named sea areas)
+
+   Coastline handling
+   ──────────────────
+   OSM coastlines are open ways tagged natural=coastline where the *left*
+   side of the way is sea (ways run clockwise around land masses).
+   We use the **winding-number** rule with an upward (+lat) ray:
+     • upward crossing,   test point left  of edge → +1
+     • downward crossing, test point right of edge → -1
+   winding ≠ 0 → inside land → land; winding = 0 → sea.
+   This is anchor-independent and works correctly near complex coastlines.
+   If no coastline ways are fetched we treat all samples as sea (open ocean).
+
+   Point-in-polygon  –  winding-number + ray-casting O(n) per polygon
+   ────────────────────────────────────────────────────────────────────
+   Coastline classification uses the winding-number rule (see above).
+   Explicit water-area polygons (lakes, reservoirs…) use standard ray-casting.
 
    Result
    ──────
    `window.SHORE_MASK`  – Float32Array(36) where index i covers bearing
-   i*10°.  Value is the fraction of samples (0 – 1) that are flat-fetch.
-   A threshold of 0.5 means the majority are flat-fetch.
+   i*10°.  Value is the fraction of samples (0 – 1) that are over sea.
+   A threshold of 0.5 means the majority are sea.
 
    `window.SHORE_STATUS` – object { state, msg }
      state: 'ok' | 'loading' | 'error' | 'inland'
 ══════════════════════════════════════════════════════════════════════════ */
 
 /* ── constants ─────────────────────────────────────────────────────────── */
-const SHORE_BEARINGS      = 36;      // one every 10°
-const SHORE_SAMPLES       = 5;       // distances: 1,2,3,4,5 km
-const SHORE_MAX_KM        = 5;
-const SHORE_SEA_THRESH    = 0.5;    // fraction of samples that must be flat-fetch
-
-const TERRAIN_TILE_ZOOM   = 12;      // ~40 m/px at 55°N; covers ~10 km per tile
-const FLAT_ROUGHNESS_THRESH = 0.5;   // m — Laplacian magnitude threshold for flat land
-const FLAT_ELEV_MAX       = 25;      // m — max elevation for flat-land classification
-const TERRAIN_TILE_URL    = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium';
-const TILE_FETCH_TIMEOUT  = 15000;   // ms
+const SHORE_BEARINGS    = 36;      // one every 10°
+const SHORE_SAMPLES     = 5;       // distances: 1,2,3,4,5 km
+const SHORE_MAX_KM      = 5;
+const SHORE_SEA_THRESH  = 0.5;    // fraction of samples that must be sea
 
 /* ── public state ──────────────────────────────────────────────────────── */
 window.SHORE_MASK   = null;        // Float32Array(36) or null
@@ -78,194 +78,346 @@ function destPoint(lat, lon, bearingDeg, distKm) {
   return { lat: lat2 * 180/Math.PI, lon: lon2 * 180/Math.PI };
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   TILE COORDINATE MATH  (Web Mercator / EPSG:3857)
-══════════════════════════════════════════════════════════════════════════ */
-
-/**
- * Convert (lat, lon) to Slippy Map tile coordinates at the given zoom level.
- * Returns integer {x, y} tile indices.
- */
-function latLonToTileXY(lat, lon, zoom) {
-  const n      = 2 ** zoom;
-  const x      = Math.floor((lon + 180) / 360 * n);
-  const sinLat = Math.sin(lat * Math.PI / 180);
-  const y      = Math.floor(
-    (1 - Math.log((1 + sinLat) / (1 - sinLat)) / (2 * Math.PI)) / 2 * n
-  );
-  return { x, y };
-}
-
-/**
- * Convert (lat, lon) to pixel coordinates (0–255) within tile (tileX, tileY)
- * at the given zoom level.  Clamps to [0, 255].
- */
-function latLonToPixel(lat, lon, tileX, tileY, zoom) {
-  const n      = 2 ** zoom;
-  const sinLat = Math.sin(lat * Math.PI / 180);
-  const px = ((lon + 180) / 360 * n - tileX) * 256;
-  const py = (
-    (1 - Math.log((1 + sinLat) / (1 - sinLat)) / (2 * Math.PI)) / 2 * n - tileY
-  ) * 256;
+/** Expand bounding box by `padKm` km on each side. */
+function expandBbox(lat, lon, padKm) {
+  const dLat = padKm / 111.32;
+  const dLon = padKm / (111.32 * Math.cos(lat * Math.PI / 180));
   return {
-    px: Math.max(0, Math.min(255, Math.floor(px))),
-    py: Math.max(0, Math.min(255, Math.floor(py))),
+    s: lat - dLat, n: lat + dLat,
+    w: lon - dLon, e: lon + dLon,
   };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   TERRARIUM ELEVATION DECODING
+   POINT-IN-POLYGON  (ray-casting, geographic coordinates)
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Decode a Terrarium-format RGB pixel to metres.
- * elevation = R×256 + G + B/256 − 32768
+ * Standard 2-D ray-casting PIP.
+ * `poly` is an array of {lat, lon} objects forming a closed ring.
+ * Returns true if (lat, lon) is strictly inside the polygon.
  */
-function decodeTerrariumRGB(r, g, b) {
-  return (r * 256 + g + b / 256) - 32768;
+function pointInPoly(lat, lon, poly) {
+  let inside = false;
+  const n = poly.length;
+  let j = n - 1;
+  for (let i = 0; i < n; i++) {
+    const xi = poly[i].lon, yi = poly[i].lat;
+    const xj = poly[j].lon, yj = poly[j].lat;
+    if (((yi > lat) !== (yj > lat)) &&
+        (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+    j = i;
+  }
+  return inside;
+}
+
+/**
+ * Compute the signed crossing contribution of one coastline segment (p3→p4)
+ * for a +lat (upward) ray cast from (lat, lon).
+ *
+ *   OSM coastlines run with sea on the LEFT (clockwise around land masses).
+ *   Upward-ray winding number:
+ *     upward crossing   (p3.lat ≤ lat < p4.lat): point left  of edge → +1
+ *     downward crossing (p4.lat ≤ lat < p3.lat): point right of edge → -1
+ *
+ *   winding ≠ 0 after summing all segments → inside a land ring → land.
+ *   winding = 0 → sea.
+ *
+ * The cross-product sign test (cx > 0 / cx < 0) directly encodes the OSM
+ * left=sea convention so no external "known-sea" anchor point is needed.
+ */
+function signedCrossing(lat, lon, p3, p4) {
+  const y1 = p3.lat, x1 = p3.lon;
+  const y2 = p4.lat, x2 = p4.lon;
+  // cx > 0  ↔  test point is to the LEFT of the directed edge p3→p4
+  const cx = (x2 - x1) * (lat - y1) - (y2 - y1) * (lon - x1);
+  if (y1 <= lat && y2 > lat) {
+    if (cx > 0) return +1;   // upward crossing, point left → entering land
+  } else if (y2 <= lat && y1 > lat) {
+    if (cx < 0) return -1;   // downward crossing, point right → leaving land
+  }
+  return 0;
+}
+
+/**
+ * Determine whether a point (lat, lon) is on land, using raw OSM coastline
+ * segments and the winding-number rule.
+ *
+ *   OSM coastlines run with sea on the LEFT (clockwise around land masses).
+ *   We cast an upward (+lat) ray and accumulate signed crossings (winding
+ *   number).  winding ≠ 0 → point is inside a land ring → land.
+ *   winding = 0 → sea.
+ *
+ *   This is anchor-independent: correctness relies solely on the OSM
+ *   winding convention, not on any external reference point being at sea.
+ *
+ * @param {number}                  lat        – test point latitude
+ * @param {number}                  lon        – test point longitude
+ * @param {Array<Array<{lat: number, lon: number}>>}  coastWays  – raw OSM way segments
+ * @param {{ s,n,w,e }}             bbox       – (unused, kept for API compat)
+ * @param {boolean}                 hasCoast   – whether any coast data exists
+ * @returns {boolean}  true = land
+ */
+function isLandByRayCross(lat, lon, coastWays, bbox, hasCoast) {
+  if (!hasCoast) return false;  // no coast data → open sea
+
+  let winding = 0;
+  for (const way of coastWays) {
+    for (let i = 0; i < way.length - 1; i++) {
+      winding += signedCrossing(lat, lon, way[i], way[i + 1]);
+    }
+  }
+
+  return winding !== 0;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   TILE FETCHING
+   COASTLINE STITCHING + BBOX CLOSURE
+   ──────────────────────────────────────────────────────────────────────────
+   OSM coastline ways fetched by Overpass are *partial* slices of the global
+   coastline ring.  When a continental coast enters our bbox from one side and
+   exits from another, the resulting open chain produces unmatched winding-
+   number crossings that misclassify sea points as land (or vice versa).
+   The fix is to:
+     1. Stitch connected ways into chains (matching shared endpoints).
+     2. Close every open chain by travelling clockwise around the bbox
+        boundary from the chain tail back to its head.
+   This turns the partial OSM data into properly-closed rings that the
+   winding-number algorithm can handle correctly.
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Fetch a single Terrarium PNG tile and return its ImageData (256×256 RGBA).
- * Uses a hidden <img> + <canvas> — no external libraries needed.
+ * Snap an arbitrary point to the nearest edge of the bounding box.
+ * Used to project open-chain endpoints onto the bbox boundary before closure.
  */
-function fetchTerrainTile(tileX, tileY, zoom) {
-  return new Promise((resolve, reject) => {
-    const url   = `${TERRAIN_TILE_URL}/${zoom}/${tileX}/${tileY}.png`;
-    const img   = new Image();
-    img.crossOrigin = 'anonymous';
-    const timer = setTimeout(
-      () => reject(new Error(`Tile ${zoom}/${tileX}/${tileY} timed out`)),
-      TILE_FETCH_TIMEOUT
-    );
-    img.onload = () => {
-      clearTimeout(timer);
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = 256;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        resolve(ctx.getImageData(0, 0, 256, 256));
-      } catch (err) {
-        reject(err);
-      }
-    };
-    img.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error(`Tile ${zoom}/${tileX}/${tileY} failed to load`));
-    };
-    img.src = url;
+function snapToBbox(pt, bbox) {
+  const clampLat = lat => Math.max(bbox.s, Math.min(bbox.n, lat));
+  const clampLon = lon => Math.max(bbox.w, Math.min(bbox.e, lon));
+
+  const outsideLat = pt.lat > bbox.n || pt.lat < bbox.s;
+  const outsideLon = pt.lon > bbox.e || pt.lon < bbox.w;
+
+  // If the point is outside in exactly one axis, snap to that axis's edge —
+  // this avoids false ties when the point is near the corner in the other axis.
+  if (outsideLat && !outsideLon) {
+    return { lat: pt.lat > bbox.n ? bbox.n : bbox.s, lon: clampLon(pt.lon) };
+  }
+  if (outsideLon && !outsideLat) {
+    return { lat: clampLat(pt.lat), lon: pt.lon > bbox.e ? bbox.e : bbox.w };
+  }
+
+  // Outside in both axes (corner region) or already inside: use nearest edge.
+  const dE = Math.abs(pt.lon - bbox.e), dW = Math.abs(pt.lon - bbox.w);
+  const dN = Math.abs(pt.lat - bbox.n), dS = Math.abs(pt.lat - bbox.s);
+  const m  = Math.min(dE, dW, dN, dS);
+  if (m === dN) return { lat: bbox.n, lon: clampLon(pt.lon) };
+  if (m === dS) return { lat: bbox.s, lon: clampLon(pt.lon) };
+  if (m === dE) return { lat: clampLat(pt.lat), lon: bbox.e };
+  return                { lat: clampLat(pt.lat), lon: bbox.w };
+}
+
+/**
+ * Return the intermediate bbox corners plus the snapped `to` point needed to
+ * travel *clockwise* around the bbox boundary from `from` to `to`.
+ *
+ * Clockwise order (north-up): NE(0) → SE(1) → SW(2) → NW(3) → NE …
+ *
+ * Each boundary point is assigned a clockwise position cpos ∈ [0, 4):
+ *   East edge  (lon = bbox.e):  cpos = (bbox.n - lat) / (bbox.n - bbox.s)
+ *   South edge (lat = bbox.s):  cpos = 1 + (bbox.e - lon) / (bbox.e - bbox.w)
+ *   West edge  (lon = bbox.w):  cpos = 2 + (lat - bbox.s) / (bbox.n - bbox.s)
+ *   North edge (lat = bbox.n):  cpos = 3 + (lon - bbox.w) / (bbox.e - bbox.w)
+ */
+function clockwiseBboxPath(from, to, bbox) {
+  const { s, n, w, e } = bbox;
+  const CORNERS = [
+    { lat: n, lon: e },   // 0 = NE
+    { lat: s, lon: e },   // 1 = SE
+    { lat: s, lon: w },   // 2 = SW
+    { lat: n, lon: w },   // 3 = NW
+  ];
+  const TOL = 1e-5;
+
+  const cpos = pt => {
+    if (Math.abs(pt.lon - e) < TOL) return       (n - pt.lat) / (n - s);
+    if (Math.abs(pt.lat - s) < TOL) return 1.0 + (e - pt.lon) / (e - w);
+    if (Math.abs(pt.lon - w) < TOL) return 2.0 + (pt.lat - s) / (n - s);
+    return                                 3.0 + (pt.lon - w) / (e - w);
+  };
+
+  const fromSnap = snapToBbox(from, bbox);
+  const toSnap   = snapToBbox(to,   bbox);
+
+  const fromPos = cpos(fromSnap);
+  let   toPos   = cpos(toSnap);
+  if (toPos <= fromPos) toPos += 4.0;   // ensure strictly clockwise advance
+
+  const path = [];
+  for (let ci = 0; ci < 4; ci++) {
+    let cp = ci;
+    while (cp <= fromPos) cp += 4;       // shift corner into (fromPos, ...]
+    if (cp < toPos) path.push(CORNERS[ci]);
+  }
+  path.push(toSnap);
+  return path;
+}
+
+/**
+ * Stitch individual OSM coastline way-arrays into continuous chains by
+ * matching shared endpoints (within ENDPOINT_TOL degrees ≈ 1 m).
+ *
+ * Each way in `coastWays` is an array of {lat, lon} nodes.  Ways are
+ * reversed as needed when connected at their end rather than their start.
+ *
+ * Returns an array of chains (each an array of {lat, lon} nodes).
+ */
+function stitchCoastWays(coastWays) {
+  if (coastWays.length === 0) return [];
+
+  const ENDPOINT_TOL = 1e-5;
+  const ptKey = pt => `${pt.lat.toFixed(5)},${pt.lon.toFixed(5)}`;
+
+  // index: key → [{wayIdx, side: 'start'|'end'}]
+  const index = new Map();
+  const addToIndex = (pt, wayIdx, side) => {
+    const k = ptKey(pt);
+    if (!index.has(k)) index.set(k, []);
+    index.get(k).push({ wayIdx, side });
+  };
+  for (let i = 0; i < coastWays.length; i++) {
+    const w = coastWays[i];
+    addToIndex(w[0],          i, 'start');
+    addToIndex(w[w.length-1], i, 'end');
+  }
+
+  const used   = new Set();
+  const chains = [];
+
+  for (let i = 0; i < coastWays.length; i++) {
+    if (used.has(i)) continue;
+    used.add(i);
+    let chain = [...coastWays[i]];
+
+    // Extend forward from tail
+    for (;;) {
+      const k       = ptKey(chain[chain.length - 1]);
+      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx));
+      if (!matches.length) break;
+      const { wayIdx, side } = matches[0];
+      used.add(wayIdx);
+      const w = coastWays[wayIdx];
+      chain = chain.concat(side === 'start' ? w.slice(1) : [...w].reverse().slice(1));
+    }
+
+    // Extend backward from head
+    for (;;) {
+      const k       = ptKey(chain[0]);
+      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx));
+      if (!matches.length) break;
+      const { wayIdx, side } = matches[0];
+      used.add(wayIdx);
+      const w = coastWays[wayIdx];
+      chain = (side === 'end' ? w.slice(0, -1) : [...w].reverse().slice(0, -1)).concat(chain);
+    }
+
+    chains.push(chain);
+  }
+  return chains;
+}
+
+/**
+ * Stitch OSM coastline ways into chains, then close every open chain by
+ * appending a clockwise bbox-boundary path from the chain's tail back to
+ * its head.  Chains that are already closed (islands) are returned as-is.
+ *
+ * The clockwise closure ensures that the winding-number rule correctly
+ * classifies sea points even when only a partial coastal slice was fetched.
+ *
+ * @param {Array<Array<{lat,lon}>>} coastWays
+ * @param {{ s,n,w,e }}             bbox
+ * @returns {Array<Array<{lat,lon}>>}  closed rings
+ */
+function buildClosedCoastRings(coastWays, bbox) {
+  const TOL    = 1e-5;
+  const chains = stitchCoastWays(coastWays);
+  return chains.map(chain => {
+    const head = chain[0];
+    const tail = chain[chain.length - 1];
+    const closed =
+      Math.abs(head.lat - tail.lat) < TOL &&
+      Math.abs(head.lon - tail.lon) < TOL;
+    if (closed) return chain;
+    return chain.concat(clockwiseBboxPath(tail, head, bbox));
   });
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   ELEVATION SAMPLING
+   OVERPASS QUERY BUILDER + FETCHER
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Read the elevation (m) at pixel (px, py) from a decoded tile ImageData.
- * Clamps coordinates to [0, 255].
+ * Build an Overpass QL query that fetches, within the bbox:
+ *   - water areas (natural=water, landuse=reservoir|dock|basin)
+ *   - coastline ways (natural=coastline)
+ * Returns geometries as JSON.
  */
-function sampleElevation(imageData, px, py) {
-  const cPx = Math.max(0, Math.min(255, px));
-  const cPy = Math.max(0, Math.min(255, py));
-  const i   = (cPy * 256 + cPx) * 4;
-  return decodeTerrariumRGB(imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]);
+const OVERPASS_SERVER_TIMEOUT = 20;   // seconds – sent inside QL query
+const OVERPASS_CLIENT_TIMEOUT = 25000; // ms – hard browser-side abort
+
+function buildOverpassQuery(bbox) {
+  const b = `${bbox.s},${bbox.w},${bbox.n},${bbox.e}`;
+  return `[out:json][timeout:${OVERPASS_SERVER_TIMEOUT}];
+(
+  way["natural"="water"](${b});
+  relation["natural"="water"](${b});
+  way["landuse"~"^(reservoir|basin|dock)$"](${b});
+  relation["landuse"~"^(reservoir|basin|dock)$"](${b});
+  way["natural"="coastline"](${b});
+);
+out geom;`;
 }
 
-/**
- * Compute the discrete Laplacian magnitude at pixel (px, py): how much the
- * centre pixel's elevation deviates from the mean of its 8 neighbours.
- *
- *   roughness = |centre − mean(neighbours)|
- *
- * This is a high-pass spatial filter.  Unlike std dev it is insensitive to
- * uniform slopes (a linear ramp has centre ≈ mean of neighbours → roughness ≈ 0),
- * and only responds to genuine bumps, depressions, cliffs, or obstacles.
- * Neighbours outside tile bounds are clamped to the edge pixel.
- */
-function laplacianMagnitude(imageData, px, py) {
-  const centre    = sampleElevation(imageData, px, py);
-  const neighbours = [
-    sampleElevation(imageData, px - 1, py - 1),
-    sampleElevation(imageData, px,     py - 1),
-    sampleElevation(imageData, px + 1, py - 1),
-    sampleElevation(imageData, px - 1, py),
-    sampleElevation(imageData, px + 1, py),
-    sampleElevation(imageData, px - 1, py + 1),
-    sampleElevation(imageData, px,     py + 1),
-    sampleElevation(imageData, px + 1, py + 1),
-  ];
-  const mean = neighbours.reduce((s, e) => s + e, 0) / neighbours.length;
-  return Math.abs(centre - mean);
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.openstreetmap.ru/api/interpreter',
+];
+
+/** Fetch with a manual AbortController timeout (works on all browsers). */
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   FLAT-FETCH CLASSIFICATION
-══════════════════════════════════════════════════════════════════════════ */
+async function fetchOverpass(query) {
+  const body = 'data=' + encodeURIComponent(query);
+  const opts  = {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  };
 
-/**
- * Classify a sample point as flat-fetch (returns true) or not (returns false).
- *
- * The roughness threshold is read from `window.SHORE_FLAT_ROUGHNESS_THRESH`
- * at call time so the UI slider can change it without re-fetching tiles.
- * Setting the threshold to 0 disables flat-land detection (sea only).
- *
- * @param {number} elevation  Centre pixel elevation in metres
- * @param {number} roughness  Laplacian magnitude (|centre − mean neighbours|) in metres
- */
-function classifyFlatFetch(elevation, roughness) {
-  const thresh = (typeof window !== 'undefined' && window.SHORE_FLAT_ROUGHNESS_THRESH != null)
-    ? window.SHORE_FLAT_ROUGHNESS_THRESH
-    : FLAT_ROUGHNESS_THRESH;
-  if (elevation < 0) return true;                                        // open ocean
-  if (thresh > 0 && elevation < FLAT_ELEV_MAX && roughness < thresh) return true; // flat low land
-  return false;
-}
-
-/**
- * Re-classify all sample points in SHORE_DEBUG using the current
- * `window.SHORE_FLAT_ROUGHNESS_THRESH` and update SHORE_MASK in-place.
- * Returns true if debug data was available and the mask was updated.
- * This lets the sensitivity slider take effect without re-fetching tiles.
- */
-function recomputeShoreFromDebug() {
-  const d = window.SHORE_DEBUG;
-  if (!d || !d.bearings) return false;
-
-  const mask = new Float32Array(SHORE_BEARINGS);
-  for (let b = 0; b < SHORE_BEARINGS; b++) {
-    const row = d.bearings[b];
-    if (!row) continue;
-    let flatFetchCount = 0;
-    for (const s of row.samples) {
-      const isFlatFetch = classifyFlatFetch(s.elevation, s.roughness);
-      s.isFlatFetch = isFlatFetch;
-      s.isSea       = isFlatFetch;
-      s.reason      = s.elevation < 0 ? 'sea' : isFlatFetch ? 'flat-land' : 'hilly';
-      if (isFlatFetch) flatFetchCount++;
+  let lastErr;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const r = await fetchWithTimeout(endpoint, opts, OVERPASS_CLIENT_TIMEOUT);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } catch (e) {
+      console.warn(`[shore] ${endpoint} failed:`, e.message ?? e);
+      lastErr = e;
+      // On a hard HTTP error (4xx/5xx) from this endpoint skip to the next one.
+      // On a timeout / network error also try the next endpoint.
     }
-    mask[b] = flatFetchCount / SHORE_SAMPLES;
-    row.seaFrac = mask[b];
   }
-
-  window.SHORE_MASK = mask;
-
-  const anyFlatFetch = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
-  const anySea       = d.bearings.some(row => row.samples.some(s => s.elevation < 0));
-  if (!anyFlatFetch && !anySea) {
-    window.SHORE_STATUS = {
-      state: 'inland',
-      msg:   'No open water or flat terrain within 5 km – location appears inland',
-    };
-  } else {
-    window.SHORE_STATUS = { state: 'ok', msg: '' };
-  }
-  return true;
+  throw lastErr;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -273,8 +425,7 @@ function recomputeShoreFromDebug() {
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Analyse the terrain around (lat, lon) within SHORE_MAX_KM using
- * Terrarium elevation tiles.
+ * Analyse the land/sea environment around (lat, lon) within SHORE_MAX_KM.
  * Populates window.SHORE_MASK and window.SHORE_STATUS, then calls onDone().
  *
  * @param {number}   lat
@@ -282,118 +433,141 @@ function recomputeShoreFromDebug() {
  * @param {function} onDone  – called when the mask is ready (or on error)
  */
 async function analyseShore(lat, lon, onDone) {
-  window.SHORE_STATUS = { state: 'loading', msg: 'Fetching elevation tiles…' };
+  window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline data…' };
   window.SHORE_MASK   = null;
   if (onDone) onDone();
 
   try {
-    /* ── Determine which tiles cover the analysis area ── */
-    // Generate all sample points to find their tiles
-    const tileSet = new Map(); // key: "z/x/y" → {x, y}
-    for (let b = 0; b < SHORE_BEARINGS; b++) {
-      for (let s = 1; s <= SHORE_SAMPLES; s++) {
-        const distKm = (s / SHORE_SAMPLES) * SHORE_MAX_KM;
-        const pt     = destPoint(lat, lon, b * 10, distKm);
-        const { x, y } = latLonToTileXY(pt.lat, pt.lon, TERRAIN_TILE_ZOOM);
-        tileSet.set(`${TERRAIN_TILE_ZOOM}/${x}/${y}`, { x, y });
-      }
-    }
-    // Also include the tile containing the origin
-    const originTile = latLonToTileXY(lat, lon, TERRAIN_TILE_ZOOM);
-    tileSet.set(`${TERRAIN_TILE_ZOOM}/${originTile.x}/${originTile.y}`, originTile);
+    const bbox  = expandBbox(lat, lon, SHORE_MAX_KM + 1);
+    const query = buildOverpassQuery(bbox);
+    const data  = await fetchOverpass(query);
 
-    const tileKeys   = [...tileSet.keys()];
-    const tileCoords = [...tileSet.values()];
-    console.debug(`[shore] Fetching ${tileKeys.length} tile(s):`, tileKeys.join(', '));
-
-    /* ── Fetch all tiles in parallel ── */
-    const tileImages = await Promise.all(
-      tileCoords.map(({ x, y }) => fetchTerrainTile(x, y, TERRAIN_TILE_ZOOM))
-    );
-
-    // Build a lookup map: "x/y" → ImageData
-    const tileMap = new Map();
-    tileCoords.forEach(({ x, y }, i) => tileMap.set(`${x}/${y}`, tileImages[i]));
-
-    window.SHORE_STATUS = { state: 'calculating', msg: 'Calculating flat-fetch bearings…' };
+    // Data received — notify UI before the CPU-bound PIP loop
+    window.SHORE_STATUS = { state: 'calculating', msg: 'Calculating sea bearings…' };
     if (onDone) onDone();
 
-    /* ── Classify each sample point ── */
-    const mask          = new Float32Array(SHORE_BEARINGS);
+    console.debug(`[shore] Overpass returned ${data.elements.length} elements for (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
+
+    /* ── Parse elements into polygons and coastline ways ── */
+
+    // Closed water-area polygons (ways and relation outer rings)
+    const waterPolys = [];
+
+    // Raw coastline way node arrays
+    const coastWays  = [];
+
+    // Collect nodes from way/relation geometries (Overpass `out geom` includes coords)
+    for (const el of data.elements) {
+      if (el.type === 'way') {
+        if (!el.geometry || el.geometry.length < 3) continue;
+        const ring = el.geometry.map(g => ({ lat: g.lat, lon: g.lon }));
+
+        if (el.tags?.natural === 'coastline') {
+          coastWays.push(ring);
+        } else {
+          // water area or reservoir
+          waterPolys.push(ring);
+        }
+      } else if (el.type === 'relation') {
+        if (!el.members) continue;
+        for (const m of el.members) {
+          if (m.type === 'way' && m.role === 'outer' && m.geometry?.length >= 3) {
+            waterPolys.push(m.geometry.map(g => ({ lat: g.lat, lon: g.lon })));
+          }
+        }
+      }
+    }
+
+    console.debug(`[shore] Parsed: ${coastWays.length} coastline ways, ${waterPolys.length} water-area polygons`);
+
+    const hasCoastData = coastWays.length > 0;
+
+    // Stitch raw ways into chains and close open chains via the bbox boundary
+    // so that the winding-number algorithm always sees properly-closed rings.
+    const closedCoastRings = hasCoastData
+      ? buildClosedCoastRings(coastWays, bbox)
+      : [];
+
+    // ── Origin classification (for debug / inland detection) ──
+    const originInWater = waterPolys.some(p => pointInPoly(lat, lon, p));
+    const originIsLand  = isLandByRayCross(lat, lon, closedCoastRings, bbox, hasCoastData);
+    console.debug(`[shore] Origin (${lat.toFixed(5)}, ${lon.toFixed(5)}): inWaterPoly=${originInWater}, isLand=${originIsLand}, hasCoastData=${hasCoastData}`);
+
+    const mask = new Float32Array(SHORE_BEARINGS);
     const debugBearings = [];
 
     for (let b = 0; b < SHORE_BEARINGS; b++) {
-      const bearing       = b * 10;
-      let flatFetchCount  = 0;
-      const debugSamples  = [];
+      const bearing = b * 10;
+      let seaCount  = 0;
+      const sampleLog = [];
+      const debugSamples = [];
 
       for (let s = 1; s <= SHORE_SAMPLES; s++) {
-        const distKm        = (s / SHORE_SAMPLES) * SHORE_MAX_KM;
-        const pt            = destPoint(lat, lon, bearing, distKm);
-        const { x: tx, y: ty } = latLonToTileXY(pt.lat, pt.lon, TERRAIN_TILE_ZOOM);
-        const imageData     = tileMap.get(`${tx}/${ty}`);
+        const distKm = (s / SHORE_SAMPLES) * SHORE_MAX_KM;
+        const pt     = destPoint(lat, lon, bearing, distKm);
+        const { lat: pLat, lon: pLon } = pt;
 
-        let elevation, roughness, isFlatFetch, reason;
+        /* Is this sample point over water?
+           Priority order:
+           1. Raw-segment ray-crossing against coastline ways → land or sea
+           2. Inside an explicit water-area polygon (lake, reservoir…) → sea
+              (overrides coastline "land" only for tagged inland water bodies)
+           3. No coastline data → open sea (fallback)                        */
+        const isLandCoast = isLandByRayCross(pLat, pLon, closedCoastRings, bbox, hasCoastData);
+        const inWaterArea = isLandCoast && waterPolys.some(p => pointInPoly(pLat, pLon, p));
 
-        if (!imageData) {
-          // Tile failed to load — treat as unknown (conservative: not flat-fetch)
-          elevation   = NaN;
-          roughness   = NaN;
-          isFlatFetch = false;
-          reason      = 'tile-missing';
+        let isSea, reason;
+        if (!hasCoastData) {
+          isSea = true;  reason = 'fallback:noCoast';
+        } else if (inWaterArea) {
+          isSea = true;  reason = 'waterArea';
+        } else if (isLandCoast) {
+          isSea = false; reason = 'coast:land';
         } else {
-          const { px, py } = latLonToPixel(pt.lat, pt.lon, tx, ty, TERRAIN_TILE_ZOOM);
-          elevation         = sampleElevation(imageData, px, py);
-          roughness         = laplacianMagnitude(imageData, px, py);
-          isFlatFetch       = classifyFlatFetch(elevation, roughness);
-          reason            = elevation < 0
-            ? 'sea'
-            : isFlatFetch ? 'flat-land' : 'hilly';
+          isSea = true;  reason = 'coast:sea';
         }
 
-        if (isFlatFetch) flatFetchCount++;
-        debugSamples.push({
-          distKm, lat: pt.lat, lon: pt.lon,
-          elevation, roughness, isFlatFetch,
-          isSea: isFlatFetch, // alias for debug-map compatibility
-          reason,
-        });
+        sampleLog.push(`${distKm.toFixed(1)}km→${isSea ? 'SEA' : 'LND'}(${reason})`);
+        debugSamples.push({ distKm, lat: pLat, lon: pLon, isSea, reason });
+        if (isSea) seaCount++;
       }
 
-      mask[b] = flatFetchCount / SHORE_SAMPLES;
+      mask[b] = seaCount / SHORE_SAMPLES;
       debugBearings.push({ bearing, seaFrac: mask[b], samples: debugSamples });
-      console.debug(
-        `[shore] ${String(bearing).padStart(3)}°: ` +
-        `${(mask[b] * 100).toFixed(0).padStart(3)}% flat-fetch | ` +
-        debugSamples.map(s => `${s.distKm.toFixed(1)}km→${s.isFlatFetch ? 'FF' : 'LND'}(${s.reason})`).join('  ')
-      );
+      console.debug(`[shore] ${String(bearing).padStart(3, ' ')}°: ${(mask[b]*100).toFixed(0).padStart(3)}% sea | ${sampleLog.join('  ')}`);
     }
 
-    const flatFetchCount = Array.from(mask).filter(v => v >= SHORE_SEA_THRESH).length;
-    console.debug(`[shore] Summary: ${flatFetchCount}/${SHORE_BEARINGS} bearings ≥ ${SHORE_SEA_THRESH * 100}% flat-fetch`);
-
-    // Bounding box for the debug map (same concept as before — 6 km pad around origin)
-    const dLat = 6 / 111.32;
-    const dLon = 6 / (111.32 * Math.cos(lat * Math.PI / 180));
-    const bbox = { s: lat - dLat, n: lat + dLat, w: lon - dLon, e: lon + dLon };
+    const seaBearingCount = Array.from(mask).filter(v => v >= SHORE_SEA_THRESH).length;
+    console.debug(`[shore] Summary: ${seaBearingCount}/${SHORE_BEARINGS} bearings ≥ ${SHORE_SEA_THRESH*100}% sea`);
+    console.debug('[shore] Full mask (% sea per 10°):', Array.from(mask).map((v,i) => `${i*10}°:${(v*100).toFixed(0)}%`).join(' '));
 
     window.SHORE_MASK  = mask;
     window.SHORE_DEBUG = {
       lat, lon,
       bbox,
-      zoom:      TERRAIN_TILE_ZOOM,
-      tilesUsed: tileCoords,
-      tiles:     tileMap,       // Map "x/y" → ImageData, for debug heatmap rendering
-      bearings:  debugBearings,
+      elementCount:   data.elements.length,
+      coastWayCount:  coastWays.length,
+      waterPolyCount: waterPolys.length,
+      hasCoastData,
+      originInWater,
+      originIsLand,
+      coastWays,                         // raw ways for debug-map drawing
+      closedCoastRings,                  // stitched + closed rings used for classification
+      waterPolys,                        // water-area polys for debug-map drawing
+      bearings: debugBearings,
     };
 
-    const anyFlatFetch = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
-    const anySea       = debugBearings.some(row => row.samples.some(s => s.elevation < 0));
-
-    if (!anyFlatFetch && !anySea) {
+    // Determine overall status message
+    const anySeaBearing = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
+    if (!hasCoastData) {
       window.SHORE_STATUS = {
         state: 'inland',
-        msg:   'No open water or flat terrain within 5 km – location appears inland',
+        msg:   'No coastline within 5 km – location appears inland',
+      };
+    } else if (!anySeaBearing) {
+      window.SHORE_STATUS = {
+        state: 'ok',
+        msg:   'Coast nearby but no open-sea bearing found',
       };
     } else {
       window.SHORE_STATUS = { state: 'ok', msg: '' };
@@ -401,9 +575,11 @@ async function analyseShore(lat, lon, onDone) {
   } catch (e) {
     console.warn('[shore] analysis failed:', e);
     window.SHORE_MASK   = null;
+    const isTimeout = e && (e.name === 'AbortError' || e.name === 'TimeoutError'
+                            || /timeout/i.test(e.message));
     window.SHORE_STATUS = {
       state: 'error',
-      msg:   'Elevation tile fetch failed',
+      msg:   isTimeout ? 'Coastline fetch timed out (all mirrors busy)' : 'Coastline fetch failed',
     };
   }
 
@@ -411,12 +587,12 @@ async function analyseShore(lat, lon, onDone) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SHORE COMPASS WIDGET  –  draws a small polar rose showing flat-fetch bearings
+   SHORE COMPASS WIDGET  –  draws a small polar rose showing sea bearings
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
  * Draw the shore-mask compass into a <canvas> element.
- * Sectors coloured teal = flat-fetch, sand = land/hilly, grey = unknown.
+ * Sectors coloured teal = sea, sand = land, grey = unknown.
  * The current wind direction arrow is overlaid if `windDeg` is provided.
  *
  * @param {CanvasRenderingContext2D} ctx
@@ -465,7 +641,7 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBe
     ctx.fillStyle = fillColor;
     ctx.fill();
 
-    // ── Rim band: sea/flat = blue, land = brown, no mask = dark grey ──
+    // ── Rim band: sea = blue, land = brown, no mask = dark grey ──
     if (mask) {
       const isSea = mask[b] >= SHORE_SEA_THRESH;
       ctx.beginPath();
@@ -588,7 +764,7 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBe
 /* ══════════════════════════════════════════════════════════════════════════
    KITE-DIRECTION INTEGRATION
    ──────────────────────────────────────────────────────────────────────────
-   Returns true if bearing `deg` is flat-fetch (wind blows from sea/flat land).
+   Returns true if bearing `deg` faces the sea (wind blows from sea to land).
    Used to gate kite-optimal highlighting.
 ══════════════════════════════════════════════════════════════════════════ */
 function isSeaBearing(deg) {
@@ -598,7 +774,9 @@ function isSeaBearing(deg) {
 }
 
 /* ── Public API ── */
-window.analyseShore            = analyseShore;
-window.drawShoreCompass        = drawShoreCompass;
-window.isSeaBearing            = isSeaBearing;
-window.recomputeShoreFromDebug = recomputeShoreFromDebug;
+window.analyseShore    = analyseShore;
+window.drawShoreCompass = drawShoreCompass;
+window.isSeaBearing    = isSeaBearing;
+
+
+
