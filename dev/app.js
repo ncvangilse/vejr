@@ -3,6 +3,11 @@
 ══════════════════════════════════════════════════ */
 var lastData        = null;
 let lastShoreCoords = null;  // { lat, lon } of the last loaded city
+
+function syncInvertedColorsClass() {
+  const on = window.matchMedia('(inverted-colors: inverted)').matches;
+  document.body.classList.toggle('inverted-colors', on);
+}
 /* ══════════════════════════════════════════════════
    LOAD
 ══════════════════════════════════════════════════ */
@@ -166,6 +171,7 @@ function slicePercentilesFrom(obj, start, n) {
 function renderDisplay(d) {
   const portrait       = window.matchMedia('(orientation: portrait)').matches;
   const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
+  syncInvertedColorsClass();
   const hours = portrait ? 36 : FORECAST_DAYS * 24;
   const n3h = Math.ceil(hours / STEP);
   const n1h = Math.ceil(hours / STEP1H);
@@ -1090,6 +1096,7 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => { if (lastData) renderDisplay(lastData); }, 100);
 });
 window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
+  syncInvertedColorsClass();
   if (lastData) renderDisplay(lastData);
 });
 // ── Radar pin drag → update location ────────────────────────────────────
@@ -1110,6 +1117,7 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
 }
 
 (function initialLoad() {
+  syncInvertedColorsClass();  // apply before data loads so button is correct immediately
   const model    = getModel();
   const qParam   = getQParam();
   const typed    = document.getElementById('city-input').value.trim();

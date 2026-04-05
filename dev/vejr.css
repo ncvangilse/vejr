@@ -575,18 +575,18 @@ canvas.main-canvas {
   .y-axis-right { display: none; }
 }
 
-/* ── Inverted colours (iOS): compensate CSS elements with non-default colors ── */
-@media (inverted-colors: inverted) {
-  /* Dark wind-direction y-axis: pre-invert so OS double-inversion restores it to dark */
-  #ax-dir { background: #e1d5c7 !important; }
+/* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
+      @media (inverted-colors) does not reliably fire in WKWebView) ── */
 
-  /* Kite button: pre-invert all colors so OS restores the original green */
-  #kite-cfg-btn {
-    background: #e5b5d1;
-    color:      #ff174f;
-    border-color: #ff376f;
-  }
-  #kite-cfg-btn:hover { background: #dda5c7; }
+/* Dark wind-direction y-axis: pre-invert so OS double-inversion restores dark */
+body.inverted-colors #ax-dir { background: #e1d5c7 !important; }
+
+/* Kite button: pre-invert all green colors so OS restores the original green */
+body.inverted-colors #kite-cfg-btn {
+  background:   #e5b5d1;
+  color:        #ff174f;
+  border-color: #ff376f;
 }
+body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
 
 
