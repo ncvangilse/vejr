@@ -194,7 +194,7 @@ function renderDisplay(d) {
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
-  renderAll(s);
+  renderAll(s, invertedColors);
   if (invertedColors) {
     ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
       const canvas = document.getElementById(id);
