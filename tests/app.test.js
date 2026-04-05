@@ -17,6 +17,11 @@ function makeEl(value = '') {
     textContent: '',
     classList:  { contains: () => false, add: () => {}, remove: () => {} },
     addEventListener: () => {},
+    getContext:  () => ({
+      getImageData:  (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData:  () => {},
+    }),
+    width: 0, height: 0,
   };
 }
 
@@ -30,7 +35,7 @@ function makeEl(value = '') {
  * @param {boolean} opts.portrait     – simulate portrait orientation (default: false)
  * @param {Function|null} opts.renderAllSpy – optional spy to replace the renderAll stub
  */
-function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, renderAllSpy = null } = {}) {
+function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, invertedColors = false, renderAllSpy = null } = {}) {
   const cityInput        = makeEl();
   const geoCalls         = [];
   const replaceStateCalls = [];
@@ -45,6 +50,12 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
   const search = qParam ? `?q=${encodeURIComponent(qParam)}` : '';
   const href   = `http://localhost/${search}`;
 
+  const invertedMQL = {
+    matches: invertedColors,
+    addEventListener(type, fn) { if (type === 'change') this._handler = fn; },
+    _handler: null,
+  };
+
   const ctx = vm.createContext({
     window: {
       location:             { search, href },
@@ -55,10 +66,13 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
       SHORE_STATUS:         { state: 'idle', msg: '' },
       SHORE_DEBUG:          null,
       devicePixelRatio:     1,
-      matchMedia: (q) => ({
-        matches: q === '(orientation: portrait)' ? portrait : false,
-        addEventListener: () => {},
-      }),
+      matchMedia: (q) => {
+        if (q === '(inverted-colors: inverted)') return invertedMQL;
+        return {
+          matches: q === '(orientation: portrait)' ? portrait : false,
+          addEventListener: () => {},
+        };
+      },
     },
     document: {
       getElementById: (id) => {
@@ -66,6 +80,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
         if (id === 'model-select') return makeEl('dmi_seamless');
         return makeEl();
       },
+      body: { classList: { toggle: () => {}, contains: () => false } },
     },
     localStorage: mockLocalStorage,
     navigator: geoAvailable
@@ -108,7 +123,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
 
   vm.runInContext(APP_SRC, ctx);
 
-  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls };
+  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL };
 }
 
 // ── decideInitialLocation unit tests ─────────────────────────────────────────
@@ -317,5 +332,48 @@ describe('renderDisplay slicing', () => {
     const t3 = new Date(calls[0].times[0]).getTime();
     const t1 = new Date(calls[0].times1h[0]).getTime();
     expect(t3).toBe(t1);
+  });
+});
+
+describe('inverted-colors change listener', () => {
+  const TOTAL_3H = (7 * 24) / 3;
+  const TOTAL_1H = 7 * 24;
+
+  it('registers a change handler on the inverted-colors media query', () => {
+    const { invertedMQL } = loadApp();
+    expect(invertedMQL._handler).toBeTypeOf('function');
+  });
+
+  it('re-renders when the change handler fires and data is loaded', () => {
+    const renderCalls = [];
+    const { ctx, invertedMQL } = loadApp({ renderAllSpy: (d) => renderCalls.push(d) });
+    ctx.lastData = makeData(TOTAL_3H, TOTAL_1H); // set lastData directly (var, so on the vm global)
+    invertedMQL._handler();
+    expect(renderCalls).toHaveLength(1);
+  });
+
+  it('does not throw when the change handler fires with no data loaded', () => {
+    const { invertedMQL } = loadApp();
+    expect(() => invertedMQL._handler()).not.toThrow();
+  });
+
+  it('passes invertedColors=true to renderAll when media query matches', () => {
+    const calls = [];
+    const { ctx } = loadApp({
+      invertedColors: true,
+      renderAllSpy: (d, ic) => calls.push(ic),
+    });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0]).toBe(true);
+  });
+
+  it('passes invertedColors=false to renderAll when media query does not match', () => {
+    const calls = [];
+    const { ctx } = loadApp({
+      invertedColors: false,
+      renderAllSpy: (d, ic) => calls.push(ic),
+    });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0]).toBe(false);
   });
 });
