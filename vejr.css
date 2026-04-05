@@ -589,4 +589,9 @@ body.inverted-colors #kite-cfg-btn {
 }
 body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
 
+/* Kite modal: pre-invert the entire overlay so the OS double-inversion
+   restores all original dark-theme colors (background, text, borders,
+   compass canvas). One rule covers all children. */
+body.inverted-colors #kite-modal-overlay { filter: invert(1); }
+
 
