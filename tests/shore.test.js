@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { loadScripts } from './helpers/loader.js';
 
 const ctx = loadScripts('config.js', 'shore.js');
-const { destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery } = ctx;
+const {
+  destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery,
+  snapToBbox, clockwiseBboxPath, stitchCoastWays, buildClosedCoastRings,
+} = ctx;
 
 // ── destPoint ─────────────────────────────────────────────────────────────
 
@@ -140,6 +143,153 @@ describe('isLandByRayCross', () => {
     ];
     const isLand = isLandByRayCross(5, 5, [landRing], null, true);
     expect(isLand).toBe(false);
+  });
+});
+
+// ── snapToBbox ────────────────────────────────────────────────────────────
+
+describe('snapToBbox', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('snaps a point north of the bbox to the north edge', () => {
+    const snapped = snapToBbox({ lat: 11, lon: 12 }, bbox);
+    expect(snapped.lat).toBe(9);
+    expect(snapped.lon).toBe(12);
+  });
+
+  it('snaps a point east of the bbox to the east edge', () => {
+    const snapped = snapToBbox({ lat: 7, lon: 20 }, bbox);
+    expect(snapped.lon).toBe(14);
+    expect(snapped.lat).toBe(7);
+  });
+
+  it('snaps a point south of the bbox to the south edge', () => {
+    const snapped = snapToBbox({ lat: 2, lon: 12 }, bbox);
+    expect(snapped.lat).toBe(5);
+    expect(snapped.lon).toBe(12);
+  });
+
+  it('snaps a point west of the bbox to the west edge', () => {
+    const snapped = snapToBbox({ lat: 7, lon: 5 }, bbox);
+    expect(snapped.lon).toBe(10);
+    expect(snapped.lat).toBe(7);
+  });
+});
+
+// ── clockwiseBboxPath ─────────────────────────────────────────────────────
+
+describe('clockwiseBboxPath', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('from north edge to south edge includes NE and SE corners', () => {
+    // Exit on north at lon=12, entry on south at lon=12 – going CW means passing NE then SE
+    const path = clockwiseBboxPath({ lat: 9, lon: 12 }, { lat: 5, lon: 12 }, bbox);
+    const lons = path.map(p => p.lon);
+    expect(lons).toContain(14);  // east edge (NE and SE corners)
+    expect(lons).not.toContain(10); // west edge corners should not be in path
+    // Destination point (south edge) is the last element
+    expect(path[path.length - 1]).toEqual({ lat: 5, lon: 12 });
+  });
+
+  it('from east edge to west edge includes SE and SW corners', () => {
+    // Exit on east at lat=7, entry on west at lat=7 – CW: SE then SW
+    const path = clockwiseBboxPath({ lat: 7, lon: 14 }, { lat: 7, lon: 10 }, bbox);
+    const lats = path.map(p => p.lat);
+    expect(lats).toContain(5);   // south edge (SE and SW corners)
+    expect(lats).not.toContain(9); // north corners should not appear
+    expect(path[path.length - 1]).toEqual({ lat: 7, lon: 10 });
+  });
+
+  it('path endpoint is the snapped `to` point', () => {
+    const path = clockwiseBboxPath({ lat: 9, lon: 11 }, { lat: 5, lon: 13 }, bbox);
+    expect(path[path.length - 1]).toEqual({ lat: 5, lon: 13 });
+  });
+});
+
+// ── stitchCoastWays ───────────────────────────────────────────────────────
+
+describe('stitchCoastWays', () => {
+  it('stitches two connected ways into a single chain', () => {
+    const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
+    const wayB = [{ lat: 7, lon: 12 }, { lat: 9, lon: 12 }];
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(1);
+    expect(chains[0].length).toBe(3);
+    expect(chains[0][0]).toEqual({ lat: 5, lon: 12 });
+    expect(chains[0][2]).toEqual({ lat: 9, lon: 12 });
+  });
+
+  it('stitches a reversed second way correctly', () => {
+    const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
+    const wayB = [{ lat: 9, lon: 12 }, { lat: 7, lon: 12 }]; // reversed relative to chain direction
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(1);
+    expect(chains[0][0]).toEqual({ lat: 5, lon: 12 });
+    expect(chains[0][chains[0].length - 1]).toEqual({ lat: 9, lon: 12 });
+  });
+
+  it('recognises a closed ring after stitching', () => {
+    // Two half-rings that together form a complete closed island ring
+    const wayA = [{ lat: 1, lon: -1 }, { lat: 1, lon: 1 }];
+    const wayB = [{ lat: 1, lon: 1 }, { lat: -1, lon: 1 }, { lat: -1, lon: -1 }, { lat: 1, lon: -1 }];
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(1);
+    const c = chains[0];
+    // Head and tail should be the same point (closed)
+    expect(c[0].lat).toBeCloseTo(c[c.length - 1].lat, 5);
+    expect(c[0].lon).toBeCloseTo(c[c.length - 1].lon, 5);
+  });
+
+  it('keeps unconnected ways as separate chains', () => {
+    const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
+    const wayB = [{ lat: 1, lon: 0  }, { lat: 2, lon: 0  }];
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(2);
+  });
+});
+
+// ── buildClosedCoastRings ─────────────────────────────────────────────────
+
+describe('buildClosedCoastRings', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('regression: open N–S coast at lon=12 (sea to the west) – sea west and land east', () => {
+    // Before the fix, the winding number from this open chain gave +1 for the sea
+    // point at (7, 11), misclassifying it as land.
+    const openCoastWay = [
+      { lat: 5, lon: 12 },  // south entry on bbox boundary
+      { lat: 9, lon: 12 },  // north exit on bbox boundary
+    ];
+    const rings = buildClosedCoastRings([openCoastWay], bbox);
+    expect(isLandByRayCross(7, 11, rings, bbox, true)).toBe(false);  // west = SEA
+    expect(isLandByRayCross(7, 13, rings, bbox, true)).toBe(true);   // east = LAND
+  });
+
+  it('closed island ring (two stitched ways) stays closed and classifies correctly', () => {
+    const wayA = [{ lat:  1, lon: -1 }, { lat: 1, lon: 1 }];
+    const wayB = [{ lat:  1, lon:  1 }, { lat: -1, lon: 1 }, { lat: -1, lon: -1 }, { lat: 1, lon: -1 }];
+    const islandBbox = { s: -2, n: 2, w: -2, e: 2 };
+    const rings = buildClosedCoastRings([wayA, wayB], islandBbox);
+    expect(rings.length).toBe(1);
+    // Interior of island = land
+    expect(isLandByRayCross(0, 0, rings, islandBbox, true)).toBe(true);
+    // Exterior of island = sea
+    expect(isLandByRayCross(5, 5, rings, islandBbox, true)).toBe(false);
+  });
+
+  it('two stitchable N–S ways give the same result as one combined way', () => {
+    const combined = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }, { lat: 9, lon: 12 }];
+    const split    = [
+      [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }],
+      [{ lat: 7, lon: 12 }, { lat: 9, lon: 12 }],
+    ];
+    const ringsCombined = buildClosedCoastRings([combined], bbox);
+    const ringsSplit    = buildClosedCoastRings(split,      bbox);
+    // Both should classify the same test points identically
+    for (const [lat, lon] of [[7, 11], [7, 13], [6, 11.5], [8, 12.5]]) {
+      expect(isLandByRayCross(lat, lon, ringsCombined, bbox, true))
+        .toBe(isLandByRayCross(lat, lon, ringsSplit, bbox, true));
+    }
   });
 });
 
