@@ -164,7 +164,8 @@ function slicePercentilesFrom(obj, start, n) {
 }
 
 function renderDisplay(d) {
-  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  const portrait       = window.matchMedia('(orientation: portrait)').matches;
+  const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
   const hours = portrait ? 36 : FORECAST_DAYS * 24;
   const n3h = Math.ceil(hours / STEP);
   const n1h = Math.ceil(hours / STEP1H);
@@ -194,6 +195,21 @@ function renderDisplay(d) {
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
   renderAll(s);
+  if (invertedColors) {
+    ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
+      const canvas = document.getElementById(id);
+      if (!canvas) return;
+      const ctx2d = canvas.getContext('2d');
+      const img   = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+      const px    = img.data;
+      for (let i = 0; i < px.length; i += 4) {
+        px[i]   = 255 - px[i];
+        px[i+1] = 255 - px[i+1];
+        px[i+2] = 255 - px[i+2];
+      }
+      ctx2d.putImageData(img, 0, 0);
+    });
+  }
 }
 
 /* ══════════════════════════════════════════════════
