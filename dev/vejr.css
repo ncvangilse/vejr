@@ -575,10 +575,18 @@ canvas.main-canvas {
   .y-axis-right { display: none; }
 }
 
-/* ── Inverted colours (iOS): pre-invert the dark wind-direction y-axis
-      so the OS double-inversion restores it to dark. ── */
+/* ── Inverted colours (iOS): compensate CSS elements with non-default colors ── */
 @media (inverted-colors: inverted) {
+  /* Dark wind-direction y-axis: pre-invert so OS double-inversion restores it to dark */
   #ax-dir { background: #e1d5c7 !important; }
+
+  /* Kite button: pre-invert all colors so OS restores the original green */
+  #kite-cfg-btn {
+    background: #e5b5d1;
+    color:      #ff174f;
+    border-color: #ff376f;
+  }
+  #kite-cfg-btn:hover { background: #dda5c7; }
 }
 
 

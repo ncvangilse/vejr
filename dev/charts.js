@@ -658,7 +658,7 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 ══════════════════════════════════════════════════ */
 // times/gusts/winds are 1hr resolution; dirs is 3hr (same as drawWindDir);
 // times3h/winds3h are the 3hr arrays used only for kite highlights & pills.
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const cssW   = canvas.parentElement.clientWidth;
@@ -693,7 +693,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h)
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
 
   // --- background ---
-  ctx.fillStyle = '#dde3eb';
+  ctx.fillStyle = invertedColors ? '#1e2a38' : '#dde3eb';
   ctx.fillRect(0, cY, cssW, WIND_H);
 
   // --- kite column highlights (behind everything) — drawn at 3hr width ---
@@ -780,6 +780,6 @@ function renderAll(d, invertedColors) {
            d.times, d.precips, d.ensPrecip || null);
   drawWindDir(d.times, d.winds, d.dirs);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-           d.times, d.winds);
+           d.times, d.winds, invertedColors);
 }
 
