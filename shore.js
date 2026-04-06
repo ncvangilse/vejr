@@ -254,14 +254,18 @@ function clockwiseBboxPath(from, to, bbox) {
   let   toPos   = cpos(toSnap);
   if (toPos <= fromPos) toPos += 4.0;   // ensure strictly clockwise advance
 
-  const path = [];
+  // Collect corners that fall in (fromPos, toPos), sorted by clockwise position.
+  // We must sort by the shifted cp value — not by ci — because when fromPos > some
+  // native corner cpos values, those corners get shifted by +4 and must appear
+  // AFTER the unshifted corners in the clockwise traversal.
+  const corners = [];
   for (let ci = 0; ci < 4; ci++) {
     let cp = ci;
     while (cp <= fromPos) cp += 4;       // shift corner into (fromPos, ...]
-    if (cp < toPos) path.push(CORNERS[ci]);
+    if (cp < toPos) corners.push({ cp, pt: CORNERS[ci] });
   }
-  path.push(toSnap);
-  return path;
+  corners.sort((a, b) => a.cp - b.cp);
+  return [...corners.map(c => c.pt), toSnap];
 }
 
 /**
