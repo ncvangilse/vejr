@@ -379,6 +379,24 @@ describe('buildClosedCoastRings', () => {
     expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(true);
   });
 
+  it('E–W coast running EAST (sea to north, OSM sea-left convention) – sea north, land south', () => {
+    // OSM coastlines have sea to the LEFT of the direction of travel (clockwise
+    // around land masses).  For a coast running EASTWARD, left = north = sea,
+    // so land is to the south.  Endpoints lie far SW and SE (outside bbox).
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const chain = [
+      { lat: 2, lon:  8 },  // far SW, outside bbox
+      { lat: 7, lon: 10 },  // west bbox boundary crossing
+      { lat: 7, lon: 14 },  // east bbox boundary crossing
+      { lat: 2, lon: 16 },  // far SE, outside bbox
+    ];
+    const rings = buildClosedCoastRings([chain], bbox);
+    // Points south of the chain (lat < 7) should be LAND (right of travel)
+    expect(isLandByRayCross(6, 12, rings, bbox, true)).toBe(true);
+    // Points north of the chain (lat > 7) should be SEA (left of travel)
+    expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(false);
+  });
+
   it('two stitchable N–S ways give the same result as one combined way', () => {
     const combined = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }, { lat: 9, lon: 12 }];
     const split    = [
