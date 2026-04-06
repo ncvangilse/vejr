@@ -397,6 +397,30 @@ describe('buildClosedCoastRings', () => {
     expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(false);
   });
 
+  it('U-shaped coast (entry and exit on same south edge) – only encloses peninsula, not the whole bbox', () => {
+    // A peninsula sticking north from below the bbox enters and exits through
+    // the south edge.  The bbox closure must NOT wrap all the way around
+    // (which would classify the entire bbox interior as land).  Instead it
+    // should close directly along the south edge so that only the peninsula
+    // interior is land, and the open sea to the north remains sea.
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    // Chain: comes from far south, enters south edge at lon=11.5, goes north
+    // to lon=12, turns back south, exits south edge at lon=12.5, exits south.
+    // Sea-left convention: going north on left leg → sea to west; going south
+    // on right leg → sea to east.  Interior of U = land (peninsula).
+    const chain = [
+      { lat: 3, lon: 11.5 },  // far south, outside bbox
+      { lat: 7, lon: 11.5 },  // inside, west leg going north
+      { lat: 7, lon: 12.5 },  // inside, top of peninsula
+      { lat: 3, lon: 12.5 },  // far south, outside bbox
+    ];
+    const rings = buildClosedCoastRings([chain], bbox);
+    // Inside the U (peninsula interior) → LAND
+    expect(isLandByRayCross(6, 12, rings, bbox, true)).toBe(true);
+    // Well north of the peninsula (open sea area above) → SEA
+    expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(false);
+  });
+
   it('two stitchable N–S ways give the same result as one combined way', () => {
     const combined = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }, { lat: 9, lon: 12 }];
     const split    = [
