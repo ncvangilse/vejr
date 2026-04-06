@@ -427,7 +427,39 @@ function findBboxExitCrossing(chain, bbox) {
 function buildClosedCoastRings(coastWays, bbox) {
   const TOL    = 1e-5;
   const chains = stitchCoastWays(coastWays);
-  console.debug(`[shore] stitchCoastWays: ${coastWays.length} ways → ${chains.length} chains`);
+
+  // Second-pass fuzzy stitch: some OSM harbours / bridge gaps leave a chain's
+  // tail ~10–100 m from the next chain's head.  The exact-match pass misses
+  // these; here we connect interior-endpoint pairs within FUZZY_TOL degrees
+  // (~100 m) so that each coast crossing the bbox becomes one continuous chain.
+  const FUZZY_TOL = 0.001;
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < chains.length; i++) {
+      const tail = chains[i][chains[i].length - 1];
+      if (!isInBbox(tail, bbox)) continue;            // only fuzzy-stitch interior tails
+      for (let j = 0; j < chains.length; j++) {
+        if (j === i) continue;
+        const head = chains[j][0];
+        if (!isInBbox(head, bbox)) continue;          // only fuzzy-stitch interior heads
+        if (Math.abs(tail.lat - head.lat) < FUZZY_TOL &&
+            Math.abs(tail.lon - head.lon) < FUZZY_TOL) {
+          console.debug(
+            `[shore] fuzzy-stitch chain[${i}].tail=(${tail.lat.toFixed(4)},${tail.lon.toFixed(4)}) ` +
+            `→ chain[${j}].head=(${head.lat.toFixed(4)},${head.lon.toFixed(4)}) ` +
+            `gap=${(Math.hypot(tail.lat-head.lat, tail.lon-head.lon)*111000).toFixed(0)}m`,
+          );
+          chains[i] = chains[i].concat(chains[j].slice(1));
+          chains.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+
+  console.debug(`[shore] stitchCoastWays: ${coastWays.length} ways → ${chains.length} chains (after fuzzy-stitch)`);
   return chains.map((chain, ci) => {
     const head = chain[0];
     const tail = chain[chain.length - 1];
