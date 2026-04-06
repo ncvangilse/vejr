@@ -1,0 +1,63 @@
+name: Build & Deploy (Test)
+run-name: "[build ${{ github.run_number }}] ${{ github.event.head_commit.message }}"
+
+on:
+  push:
+    branches-ignore: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-dev
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate build number
+        id: build
+        run: |
+          BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}-${BRANCH}
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject build number and dev manifest paths
+        run: |
+          BUILD=${{ steps.build.outputs.number }}
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
+          sed -i 's|/vejr/|/vejr/dev/|g' manifest.json
+
+      - name: Deploy to GitHub Pages (test)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: dev
+          keep_files: true
+          exclude_assets: '.github,tests,package.json,CLAUDE.md'
