@@ -423,13 +423,17 @@ function findBboxExitCrossing(chain, bbox) {
 function buildClosedCoastRings(coastWays, bbox) {
   const TOL    = 1e-5;
   const chains = stitchCoastWays(coastWays);
-  return chains.map(chain => {
+  console.debug(`[shore] stitchCoastWays: ${coastWays.length} ways → ${chains.length} chains`);
+  return chains.map((chain, ci) => {
     const head = chain[0];
     const tail = chain[chain.length - 1];
     const closed =
       Math.abs(head.lat - tail.lat) < TOL &&
       Math.abs(head.lon - tail.lon) < TOL;
-    if (closed) return chain;
+    if (closed) {
+      console.debug(`[shore] chain[${ci}]: already closed (${chain.length} nodes)`);
+      return chain;
+    }
 
     // Find the exact points where the chain enters/exits the bbox
     const entryCrossing = findBboxEntryCrossing(chain, bbox);
@@ -439,7 +443,20 @@ function buildClosedCoastRings(coastWays, bbox) {
     const from = exitCrossing  ?? snapToBbox(tail, bbox);
     const to   = entryCrossing ?? snapToBbox(head, bbox);
 
-    return chain.concat(clockwiseBboxPath(from, to, bbox));
+    const closure = clockwiseBboxPath(from, to, bbox);
+    console.debug(
+      `[shore] chain[${ci}]: ${chain.length} nodes, ` +
+      `head=(${head.lat.toFixed(4)},${head.lon.toFixed(4)}) ` +
+      `tail=(${tail.lat.toFixed(4)},${tail.lon.toFixed(4)})`,
+    );
+    console.debug(
+      `[shore] chain[${ci}]: entry=(${to.lat.toFixed(4)},${to.lon.toFixed(4)}) ` +
+      `exit=(${from.lat.toFixed(4)},${from.lon.toFixed(4)}) ` +
+      `closure_pts=${closure.length}: ` +
+      closure.map(p => `(${p.lat.toFixed(4)},${p.lon.toFixed(4)})`).join(' → '),
+    );
+
+    return chain.concat(closure);
   });
 }
 
