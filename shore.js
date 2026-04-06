@@ -250,9 +250,21 @@ function clockwiseBboxPath(from, to, bbox) {
   const fromSnap = snapToBbox(from, bbox);
   const toSnap   = snapToBbox(to,   bbox);
 
-  const fromPos = cpos(fromSnap);
-  let   toPos   = cpos(toSnap);
-  if (toPos <= fromPos) toPos += 4.0;   // ensure strictly clockwise advance
+  const fromPos   = cpos(fromSnap);
+  const origToPos = cpos(toSnap);
+  let   toPos     = origToPos;
+
+  if (toPos <= fromPos) {
+    // The clockwise path would wrap past the origin.  If from and to land on
+    // the same bbox edge (same integer band of cpos), the chain forms a
+    // U-shape that enters and exits through one edge.  Going all the way
+    // around the perimeter in that case wrongly encloses the entire bbox as
+    // land; instead close directly along that edge (short path, no corners).
+    if (Math.floor(fromPos) === Math.floor(origToPos)) {
+      return [toSnap];
+    }
+    toPos += 4.0;   // different edges — proceed with full clockwise advance
+  }
 
   // Collect corners that fall in (fromPos, toPos), sorted by clockwise position.
   // We must sort by the shifted cp value — not by ci — because when fromPos > some
