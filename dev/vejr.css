@@ -575,26 +575,6 @@ canvas.main-canvas {
   .y-axis-right { display: none; }
 }
 
-/* ── Portrait: horizontally scrollable time axis ── */
-@media (orientation: portrait) {
-  #time-scroll {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-  }
-  /* Keep y-axis labels pinned to the left/right edges while charts scroll */
-  #time-scroll .y-axis {
-    position: sticky;
-    left: 0;
-    z-index: 5;
-  }
-  #time-scroll .y-axis-right {
-    position: sticky;
-    right: 0;
-    z-index: 5;
-  }
-}
-
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
       @media (inverted-colors) does not reliably fire in WKWebView) ── */
 
