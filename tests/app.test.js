@@ -272,13 +272,17 @@ describe('renderDisplay slicing', () => {
   const TOTAL_3H = (7 * 24) / 3;   // 56 — full 7-day dataset at 3-hour step
   const TOTAL_1H = 7 * 24;         // 168
 
-  it('slices to 36 h in portrait mode (12×3h entries, 36×1h entries)', () => {
+  it('shows all remaining forecast data from current time in portrait (no 36-hour cap)', () => {
     const calls = [];
     const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
-    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    ctx.renderDisplay(d);
     expect(calls).toHaveLength(1);
-    expect(calls[0].times).toHaveLength(12);     // 36 / 3
-    expect(calls[0].times1h).toHaveLength(36);   // 36 / 1
+    // Should extend to the very end of the input dataset (not capped at 36 h)
+    expect(calls[0].times.at(-1)).toBe(d.times.at(-1));
+    expect(calls[0].times1h.at(-1)).toBe(d.times1h.at(-1));
+    // And should show more slots than the old 36-hour window (12 × 3h)
+    expect(calls[0].times.length).toBeGreaterThan(12);
   });
 
   it('starts from current time, not midnight, in portrait mode', () => {
@@ -291,12 +295,12 @@ describe('renderDisplay slicing', () => {
     expect(firstTime).toBeGreaterThanOrEqual(Date.now() - 3 * 60 * 60 * 1000);
   });
 
-  it('slices ensemble percentile arrays to match 36 h in portrait mode', () => {
+  it('slices ensemble percentile arrays to match the rendered time window in portrait mode', () => {
     const calls = [];
     const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
-    expect(calls[0].ensTemp.p10).toHaveLength(12);
-    expect(calls[0].ensTemp1h.p50).toHaveLength(36);
+    expect(calls[0].ensTemp.p10).toHaveLength(calls[0].times.length);
+    expect(calls[0].ensTemp1h.p50).toHaveLength(calls[0].times1h.length);
   });
 
   it('keeps full 7-day data in landscape mode (56×3h entries, 168×1h entries)', () => {
@@ -332,6 +336,21 @@ describe('renderDisplay slicing', () => {
     const t3 = new Date(calls[0].times[0]).getTime();
     const t1 = new Date(calls[0].times1h[0]).getTime();
     expect(t3).toBe(t1);
+  });
+
+  it('passes a positive numeric portraitColW as third arg to renderAll in portrait mode', () => {
+    const colWs = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d, ic, colW) => colWs.push(colW) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(colWs[0]).toBeTypeOf('number');
+    expect(colWs[0]).toBeGreaterThan(0);
+  });
+
+  it('passes null portraitColW to renderAll in landscape mode', () => {
+    const colWs = [];
+    const { ctx } = loadApp({ portrait: false, renderAllSpy: (d, ic, colW) => colWs.push(colW) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(colWs[0]).toBeNull();
   });
 });
 
