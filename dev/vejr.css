@@ -613,4 +613,8 @@ body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
    compass canvas). One rule covers all children. */
 body.inverted-colors #kite-modal-overlay { filter: invert(1); }
 
+/* Tooltip: same pre-invert trick — preserves dark background, light text,
+   and the weather icon canvas after OS double-inversion. */
+body.inverted-colors #hover-tooltip { filter: invert(1); }
+
 
