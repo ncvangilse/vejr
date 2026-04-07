@@ -38,11 +38,12 @@ function resolveDPI(canvas, cssW, cssH) {
 /* ══════════════════════════════════════════════════
    DRAW TOP ROW (time axis + icons + UV + wind dirs)
 ══════════════════════════════════════════════════ */
-function drawTopRow(times, codes, precips, invertedColors) {
+function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
   const canvas = document.getElementById('c-top');
   const wrap   = canvas.parentElement;
-  const cssW   = wrap.clientWidth;
   const n      = times.length;
+  const cssW   = totalCssW != null ? totalCssW : wrap.clientWidth;
+  const colW   = cssW / n;
 
   const ICON_H   = 36;
   const TIME_H   = 18;
@@ -50,8 +51,6 @@ function drawTopRow(times, codes, precips, invertedColors) {
 
   const ctx = resolveDPI(canvas, cssW, cssH);
   ctx.clearRect(0,0,cssW,cssH);
-
-  const colW = cssW / n;
   const divs = dayDivs(times);
 
   // When inverted colors is active, the canvas is pre-inverted by JS so that
@@ -161,16 +160,15 @@ function drawTopRow(times, codes, precips, invertedColors) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, totalCssW = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
-  const cssW   = wrap.clientWidth;
+  const n      = times.length;
+  const cssW   = totalCssW != null ? totalCssW : wrap.clientWidth;
+  const colW   = cssW / n;
   const cssH   = 130;
   const ctx    = resolveDPI(canvas, cssW, cssH);
   ctx.clearRect(0,0,cssW,cssH);
-
-  const n = times.length;
-  const colW = cssW / n;
   const padT=8, padB=8, ch=cssH-padT-padB;
   let tmin=Math.floor(Math.min(...temps)/5)*5;
   let tmax=Math.ceil( Math.max(...temps)/5)*5;
@@ -407,11 +405,11 @@ function isKiteOptimal(speed, deg, timeStr) {
 /* ══════════════════════════════════════════════════
    DRAW WIND DIRECTION ROW
 ══════════════════════════════════════════════════ */
-function drawWindDir(times, winds, dirs) {
+function drawWindDir(times, winds, dirs, totalCssW = null) {
   const canvas = document.getElementById('c-dir');
   const wrap   = canvas.parentElement;
-  const cssW   = wrap.clientWidth;
   const n      = times.length;
+  const cssW   = totalCssW != null ? totalCssW : wrap.clientWidth;
   const colW   = cssW / n;
   // Compress row height when columns are narrow so arrows always fit snugly.
   // Arrow geometry: tip is size*0.76 above cy, shaft bottom is size*0.50 below cy → total span = size*1.26
@@ -658,16 +656,15 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 ══════════════════════════════════════════════════ */
 // times/gusts/winds are 1hr resolution; dirs is 3hr (same as drawWindDir);
 // times3h/winds3h are the 3hr arrays used only for kite highlights & pills.
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
-  const cssW   = canvas.parentElement.clientWidth;
+  const n      = times.length;
+  const cssW   = totalCssW != null ? totalCssW : canvas.parentElement.clientWidth;
+  const colW   = cssW / n;
   const WIND_H = 130;
   const ctx    = resolveDPI(canvas, cssW, WIND_H);
   ctx.clearRect(0, 0, cssW, WIND_H);
-
-  const n    = times.length;
-  const colW = cssW / n;
   const divs = dayDivs(times);
   const cx2  = i => (i + 0.5) * colW;
 
@@ -774,12 +771,18 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
 /* ══════════════════════════════════════════════════
    RENDER ALL
 ══════════════════════════════════════════════════ */
-function renderAll(d, invertedColors) {
-  drawTopRow(d.times, d.codes, d.precips, invertedColors);
+function renderAll(d, invertedColors, portraitColW = null) {
+  // Compute a single total canvas width anchored to the 3-hour slot count.
+  // Every draw function receives this same value so all four canvases are
+  // *exactly* the same CSS width, guaranteeing perfect time-axis alignment
+  // when the user scrolls — regardless of whether a function uses 3 h or 1 h
+  // resolution data.
+  const totalCssW = portraitColW != null ? d.times.length * portraitColW : null;
+  drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null);
-  drawWindDir(d.times, d.winds, d.dirs);
+           d.times, d.precips, d.ensPrecip || null, totalCssW);
+  drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-           d.times, d.winds, invertedColors);
+           d.times, d.winds, invertedColors, totalCssW);
 }
 

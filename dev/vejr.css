@@ -575,6 +575,21 @@ canvas.main-canvas {
   .y-axis-right { display: none; }
 }
 
+/* ── Portrait: horizontally scrollable canvas area ── */
+/*    Each .chart-canvas-wrap is its own scroll container; JS syncs them.   */
+/*    The .y-axis siblings stay fixed — no sticky needed.                   */
+@media (orientation: portrait) {
+  .chart-canvas-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    /* Hide scrollbar chrome — scrolling still works via swipe/drag */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .chart-canvas-wrap::-webkit-scrollbar { display: none; }
+}
+
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
       @media (inverted-colors) does not reliably fire in WKWebView) ── */
 
