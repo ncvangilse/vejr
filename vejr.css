@@ -593,8 +593,12 @@ canvas.main-canvas {
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
       @media (inverted-colors) does not reliably fire in WKWebView) ── */
 
-/* Dark wind-direction y-axis: pre-invert so OS double-inversion restores dark */
-body.inverted-colors #ax-dir { background: #e1d5c7 !important; }
+/* Pre-invert all chart backgrounds so OS double-inversion restores the same
+   dark blue (#1e2a38) used by the canvas draws in inverted mode.
+   #e1d5c7 = 255-#1e2a38 = invert(#1e2a38). */
+body.inverted-colors .chart-row    { background: #e1d5c7 !important; }
+body.inverted-colors .y-axis       { background: #e1d5c7 !important; }
+body.inverted-colors .y-axis-right { background: #e1d5c7 !important; }
 
 /* Kite button: pre-invert all green colors so OS restores the original green */
 body.inverted-colors #kite-cfg-btn {
@@ -608,5 +612,9 @@ body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
    restores all original dark-theme colors (background, text, borders,
    compass canvas). One rule covers all children. */
 body.inverted-colors #kite-modal-overlay { filter: invert(1); }
+
+/* Tooltip: same pre-invert trick — preserves dark background, light text,
+   and the weather icon canvas after OS double-inversion. */
+body.inverted-colors #hover-tooltip { filter: invert(1); }
 
 
