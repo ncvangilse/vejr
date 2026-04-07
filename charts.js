@@ -446,12 +446,10 @@ function drawWindDir(times, winds, dirs, totalCssW = null) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
   });
 
-  // KITE highlight — dim teal when direction matches; bright teal when fully optimal
+  // KITE highlight — bright teal on all columns where direction matches
   dirs.forEach((deg, i) => {
     if (!isKiteDirOnly(deg, times[i])) return;
-    ctx.fillStyle = isKiteOptimal(winds[i], deg, times[i])
-      ? 'rgba(0,220,180,0.28)'
-      : 'rgba(0,220,180,0.12)';
+    ctx.fillStyle = 'rgba(0,220,180,0.28)';
     ctx.fillRect(i * colW, 0, colW, DIR_H);
   });
 
