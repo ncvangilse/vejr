@@ -2,6 +2,7 @@
    MAIN APP — load, tooltip, kite dialog, URL sync
 ══════════════════════════════════════════════════ */
 var lastData        = null;
+var lastRenderedData = null; // the sliced data passed to the most recent renderAll call
 let lastShoreCoords = null;  // { lat, lon } of the last loaded city
 
 function syncInvertedColorsClass() {
@@ -161,8 +162,12 @@ async function load(cityName, model) {
 }
 /* ══════════════════════════════════════════════════
    PORTRAIT-AWARE RENDERING
-   In portrait mode only the first 36 h are shown.
+   In portrait mode the full remaining forecast is shown in a scrollable
+   canvas — each 3-hour slot is PORTRAIT_COL_W px wide so one icon fits
+   per slot, and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
+const PORTRAIT_COL_W = 24; // px per 3-hour slot in portrait scroll mode
+
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
   return { p10: obj.p10.slice(start, start + n), p50: obj.p50.slice(start, start + n), p90: obj.p90.slice(start, start + n) };
@@ -172,10 +177,8 @@ function renderDisplay(d) {
   const portrait       = window.matchMedia('(orientation: portrait)').matches;
   const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
   syncInvertedColorsClass();
-  const hours = portrait ? 36 : FORECAST_DAYS * 24;
-  const n3h = Math.ceil(hours / STEP);
-  const n1h = Math.ceil(hours / STEP1H);
-  // In portrait, start from the current time rather than midnight.
+  // In portrait, start from the current time and show the full remaining forecast
+  // (scrollable). In landscape show the full 7-day window from midnight.
   let s3 = 0, s1 = 0;
   if (portrait) {
     const now = Date.now();
@@ -187,6 +190,8 @@ function renderDisplay(d) {
     const i1 = d.times1h.findIndex(t => new Date(t).getTime() >= startTime);
     s1 = i1 >= 0 ? i1 : 0;
   }
+  const n3h = portrait ? d.times.length - s3 : Math.ceil(FORECAST_DAYS * 24 / STEP);
+  const n1h = portrait ? d.times1h.length - s1 : Math.ceil(FORECAST_DAYS * 24 / STEP1H);
   const s = {
     times:    d.times.slice(s3, s3 + n3h),    temps:    d.temps.slice(s3, s3 + n3h),
     precips:  d.precips.slice(s3, s3 + n3h),  gusts:    d.gusts.slice(s3, s3 + n3h),
@@ -200,7 +205,9 @@ function renderDisplay(d) {
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
-  renderAll(s, invertedColors);
+  const colW = portrait ? PORTRAIT_COL_W : null;
+  renderAll(s, invertedColors, colW);
+  lastRenderedData = s;
   if (invertedColors) {
     ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
       const canvas = document.getElementById(id);
@@ -231,8 +238,8 @@ function clearCrosshairs() {
   });
 }
 function drawCrosshairs(fracX, idx1h, idx3h) {
-  if (!lastData) return;
-  const d = lastData;
+  if (!lastRenderedData) return;
+  const d = lastRenderedData;
   // Re-derive the same y-mappings used by the draw functions
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
@@ -299,8 +306,8 @@ const WMO_DESC = {
   95:'Thunderstorm',96:'Thunderstorm w/ hail',99:'Thunderstorm w/ heavy hail',
 };
 function showTooltip(idx1h, idx3h) {
-  if (!lastData) return;
-  const d = lastData;
+  if (!lastRenderedData) return;
+  const d = lastRenderedData;
   const tip = document.getElementById('hover-tooltip');
   // Time label from 1hr array for precision
   const t    = new Date(d.times1h[idx1h]);
@@ -391,15 +398,17 @@ function hideTooltip() {
 function attachHoverListeners() {
   const content = document.getElementById('forecast-content');
   content.addEventListener('mousemove', e => {
-    if (!lastData) return;
+    if (!lastRenderedData) return;
     const wrap = e.target.closest('.chart-canvas-wrap');
     if (!wrap) { hideTooltip(); return; }
     const rect  = wrap.getBoundingClientRect();
-    const relX  = e.clientX - rect.left;
-    const span  = rect.width;
+    // In portrait the wrap scrolls horizontally; add scrollLeft so relX is
+    // measured in canvas coordinates, not visible-viewport coordinates.
+    const relX  = e.clientX - rect.left + (wrap.scrollLeft || 0);
+    const span  = wrap.scrollWidth || rect.width;
     const fracX    = Math.max(0, Math.min(1, relX / span));
-    const n1h      = lastData.times1h.length;
-    const n3h      = lastData.times.length;
+    const n1h      = lastRenderedData.times1h.length;
+    const n3h      = lastRenderedData.times.length;
     const idx1h    = Math.min(n1h - 1, Math.floor(fracX * n1h));
     const idx3h    = Math.min(n3h - 1, Math.floor(fracX * n3h));
     drawCrosshairs(fracX, idx1h, idx3h);
@@ -408,6 +417,27 @@ function attachHoverListeners() {
   content.addEventListener('mouseleave', hideTooltip);
 }
 attachHoverListeners();
+
+/* ══════════════════════════════════════════════════
+   PORTRAIT SCROLL SYNC
+   Keep all four .chart-canvas-wrap scroll containers in step so that
+   scrolling any one of them moves the others to the same position.
+══════════════════════════════════════════════════ */
+function initPortraitScrollSync() {
+  const wraps = document.querySelectorAll ? [...document.querySelectorAll('.chart-canvas-wrap')] : [];
+  let syncing = false;
+  wraps.forEach(wrap => {
+    wrap.addEventListener('scroll', () => {
+      if (syncing) return;
+      syncing = true;
+      const left = wrap.scrollLeft;
+      wraps.forEach(w => { if (w !== wrap) w.scrollLeft = left; });
+      syncing = false;
+    }, { passive: true });
+  });
+}
+initPortraitScrollSync();
+
 function getModel() { return document.getElementById('model-select').value; }
 /* ══════════════════════════════════════════════════
    SHORE STATUS UI
