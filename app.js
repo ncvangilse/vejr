@@ -166,7 +166,7 @@ async function load(cityName, model) {
    canvas — each 3-hour slot is PORTRAIT_COL_W px wide so one icon fits
    per slot, and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 36; // px per 3-hour slot in portrait scroll mode
+const PORTRAIT_COL_W = 24; // px per 3-hour slot in portrait scroll mode
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;

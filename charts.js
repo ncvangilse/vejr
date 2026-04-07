@@ -772,11 +772,15 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
    RENDER ALL
 ══════════════════════════════════════════════════ */
 function renderAll(d, invertedColors, portraitColW = null) {
+  // The icon/direction rows use 3-hour data; temp/wind rows use 1-hour data
+  // (3× more columns). Pass colW / 3 to the 1h functions so all four canvases
+  // have the same total CSS width and scroll stays in sync with the time axis.
+  const portrait1hColW = portraitColW != null ? portraitColW / 3 : null;
   drawTopRow(d.times, d.codes, d.precips, invertedColors, portraitColW);
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null, portraitColW);
+           d.times, d.precips, d.ensPrecip || null, portrait1hColW);
   drawWindDir(d.times, d.winds, d.dirs, portraitColW);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-           d.times, d.winds, invertedColors, portraitColW);
+           d.times, d.winds, invertedColors, portrait1hColW);
 }
 
