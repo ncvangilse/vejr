@@ -160,7 +160,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, totalCssW = null) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -169,6 +169,10 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
   const cssH   = 130;
   const ctx    = resolveDPI(canvas, cssW, cssH);
   ctx.clearRect(0,0,cssW,cssH);
+  if (invertedColors) {
+    ctx.fillStyle = '#1e2a38';
+    ctx.fillRect(0, 0, cssW, cssH);
+  }
   const padT=8, padB=8, ch=cssH-padT-padB;
   let tmin=Math.floor(Math.min(...temps)/5)*5;
   let tmax=Math.ceil( Math.max(...temps)/5)*5;
@@ -401,6 +405,13 @@ function isKiteOptimal(speed, deg, timeStr) {
   if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
   return true;
 }
+/** Direction (and daylight/shore) match but speed may be outside the kite window. */
+function isKiteDirOnly(deg, timeStr) {
+  if (KITE_CFG.daylight && isNight(timeStr)) return false;
+  if (!isKiteDir(deg)) return false;
+  if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
+  return true;
+}
 
 /* ══════════════════════════════════════════════════
    DRAW WIND DIRECTION ROW
@@ -435,10 +446,12 @@ function drawWindDir(times, winds, dirs, totalCssW = null) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
   });
 
-  // KITE highlight — teal glow on columns where speed AND direction are optimal AND daylight
+  // KITE highlight — dim teal when direction matches; bright teal when fully optimal
   dirs.forEach((deg, i) => {
-    if (!isKiteOptimal(winds[i], deg, times[i])) return;
-    ctx.fillStyle = 'rgba(0,220,180,0.28)';
+    if (!isKiteDirOnly(deg, times[i])) return;
+    ctx.fillStyle = isKiteOptimal(winds[i], deg, times[i])
+      ? 'rgba(0,220,180,0.28)'
+      : 'rgba(0,220,180,0.12)';
     ctx.fillRect(i * colW, 0, colW, DIR_H);
   });
 
@@ -780,7 +793,7 @@ function renderAll(d, invertedColors, portraitColW = null) {
   const totalCssW = portraitColW != null ? d.times.length * portraitColW : null;
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null, totalCssW);
+           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
            d.times, d.winds, invertedColors, totalCssW);
