@@ -402,8 +402,10 @@ function attachHoverListeners() {
     const wrap = e.target.closest('.chart-canvas-wrap');
     if (!wrap) { hideTooltip(); return; }
     const rect  = wrap.getBoundingClientRect();
-    const relX  = e.clientX - rect.left;
-    const span  = rect.width;
+    // In portrait the wrap scrolls horizontally; add scrollLeft so relX is
+    // measured in canvas coordinates, not visible-viewport coordinates.
+    const relX  = e.clientX - rect.left + (wrap.scrollLeft || 0);
+    const span  = wrap.scrollWidth || rect.width;
     const fracX    = Math.max(0, Math.min(1, relX / span));
     const n1h      = lastRenderedData.times1h.length;
     const n3h      = lastRenderedData.times.length;
@@ -415,6 +417,27 @@ function attachHoverListeners() {
   content.addEventListener('mouseleave', hideTooltip);
 }
 attachHoverListeners();
+
+/* ══════════════════════════════════════════════════
+   PORTRAIT SCROLL SYNC
+   Keep all four .chart-canvas-wrap scroll containers in step so that
+   scrolling any one of them moves the others to the same position.
+══════════════════════════════════════════════════ */
+function initPortraitScrollSync() {
+  const wraps = document.querySelectorAll ? [...document.querySelectorAll('.chart-canvas-wrap')] : [];
+  let syncing = false;
+  wraps.forEach(wrap => {
+    wrap.addEventListener('scroll', () => {
+      if (syncing) return;
+      syncing = true;
+      const left = wrap.scrollLeft;
+      wraps.forEach(w => { if (w !== wrap) w.scrollLeft = left; });
+      syncing = false;
+    }, { passive: true });
+  });
+}
+initPortraitScrollSync();
+
 function getModel() { return document.getElementById('model-select').value; }
 /* ══════════════════════════════════════════════════
    SHORE STATUS UI

@@ -80,6 +80,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
         if (id === 'model-select') return makeEl('dmi_seamless');
         return makeEl();
       },
+      querySelectorAll: () => [],
       body: { classList: { toggle: () => {}, contains: () => false } },
     },
     localStorage: mockLocalStorage,
