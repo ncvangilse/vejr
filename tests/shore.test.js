@@ -220,13 +220,14 @@ describe('stitchCoastWays', () => {
     expect(chains[0][2]).toEqual({ lat: 9, lon: 12 });
   });
 
-  it('stitches a reversed second way correctly', () => {
+  it('does NOT stitch a bad end-to-end connection (reversed way)', () => {
+    // wayB ends at (7,12) — same as wayA's end — so stitching would require
+    // reversing wayB.  Reversal flips the OSM sea-left winding convention and
+    // misclassifies land/sea, so we refuse it and keep both as separate chains.
     const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
-    const wayB = [{ lat: 9, lon: 12 }, { lat: 7, lon: 12 }]; // reversed relative to chain direction
+    const wayB = [{ lat: 9, lon: 12 }, { lat: 7, lon: 12 }]; // end-to-end bad connection
     const chains = stitchCoastWays([wayA, wayB]);
-    expect(chains.length).toBe(1);
-    expect(chains[0][0]).toEqual({ lat: 5, lon: 12 });
-    expect(chains[0][chains[0].length - 1]).toEqual({ lat: 9, lon: 12 });
+    expect(chains.length).toBe(2);
   });
 
   it('recognises a closed ring after stitching', () => {
