@@ -6,6 +6,7 @@ const {
   destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery,
   snapToBbox, clockwiseBboxPath, stitchCoastWays, buildClosedCoastRings,
   isInBbox, bboxSegmentCrossing, findBboxEntryCrossing, findBboxExitCrossing,
+  processShoreData,
 } = ctx;
 
 // ── destPoint ─────────────────────────────────────────────────────────────
@@ -455,5 +456,109 @@ describe('buildOverpassQuery', () => {
   it('fetches coastline ways', () => {
     const query = buildOverpassQuery({ s: 0, w: 0, n: 1, e: 1 });
     expect(query).toContain('natural"="coastline');
+  });
+});
+
+// ── processShoreData ──────────────────────────────────────────────────────
+//
+// processShoreData(lat, lon, data, bbox) is the pure data-processing core
+// extracted from analyseShore.  It takes a raw Overpass response object and
+// returns { mask, coastWays, closedCoastRings, waterPolys, hasCoastData,
+//           originInWater, originIsLand, bearings }.
+//
+// To create a fixture for a real-world location:
+//   1. Open the app in a browser and navigate to the target location.
+//   2. Open DevTools console and run:
+//        copy(JSON.stringify(window.SHORE_DEBUG.rawOverpassData))
+//   3. Paste the result into tests/fixtures/<location>.json
+//   4. Add a test below that imports the fixture and calls processShoreData.
+//
+// Example fixture test:
+//   import vordingborgData from './fixtures/vordingborg.json' assert { type: 'json' };
+//   it('north of Vordingborg should be land', () => {
+//     const lat = 55.008, lon = 11.9106;
+//     const bbox = expandBbox(lat, lon, 6);
+//     const { mask } = processShoreData(lat, lon, vordingborgData, bbox);
+//     // bearing index 0 = 0° (north); must NOT be mostly sea
+//     expect(mask[0]).toBeLessThan(0.5);
+//   });
+
+describe('processShoreData', () => {
+  it('returns no sea bearings for a fully inland location (no coastline)', () => {
+    // Simulate an area with no coastline ways — all bearings should be sea
+    // because the fallback (no coast data → open ocean) fires.
+    const data = { elements: [] };
+    const lat = 55.0, lon = 12.0;
+    const bbox = expandBbox(lat, lon, 6);
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.hasCoastData).toBe(false);
+    expect(result.mask.every(v => v === 1)).toBe(true);  // all sea (fallback)
+  });
+
+  it('classifies origin as land for a simple N–S coast (origin east of coast)', () => {
+    // A single N–S coastline at lon=12 with sea to the west.
+    // Origin at lon=13 (east) should be land.
+    // bbox centred on lon=12, coast runs through the middle; origin is east of it.
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const lat = 7, lon = 13;
+    const data = {
+      elements: [{
+        type: 'way',
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: bbox.s - 0.5, lon: 12 },  // south of bbox
+          { lat: 7,            lon: 12 },   // inside bbox
+          { lat: bbox.n + 0.5, lon: 12 },  // north of bbox
+        ],
+      }],
+    };
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.hasCoastData).toBe(true);
+    expect(result.originIsLand).toBe(true);
+  });
+
+  it('classifies origin as sea for a simple N–S coast (origin west of coast)', () => {
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const lat = 7, lon = 11;
+    const data = {
+      elements: [{
+        type: 'way',
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: bbox.s - 0.5, lon: 12 },
+          { lat: 7,            lon: 12 },
+          { lat: bbox.n + 0.5, lon: 12 },
+        ],
+      }],
+    };
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.hasCoastData).toBe(true);
+    expect(result.originIsLand).toBe(false);
+  });
+
+  it('returns mask[0]=0 (north=land) for origin just south of an E–W westward coast', () => {
+    // Coast runs westward (OSM direction) inside the bbox at lat=6.505.
+    // Sea-left for westward travel → sea to the south; land to the north.
+    // Origin at lat=6.5 (sea side, ~0.5 km south of coast).
+    // All 5 samples at 1–5 km north (lat ≈ 6.509–6.545) lie north of the coast
+    // → all classified as land → mask[0] = 0.
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const lat = 6.5, lon = 12;
+    // Westward chain: NE outside → east bbox edge at lat=6.505 → west bbox edge → NW outside
+    const data = {
+      elements: [{
+        type: 'way',
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: 12,    lon: 16    },  // far NE, outside bbox
+          { lat: 6.505, lon: 14    },  // east bbox edge crossing
+          { lat: 6.505, lon: 10    },  // west bbox edge crossing
+          { lat: 12,    lon:  8    },  // far NW, outside bbox
+        ],
+      }],
+    };
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.originIsLand).toBe(false);   // south of coast = sea
+    expect(result.mask[0]).toBe(0);            // 0° north → all 5 samples are land
   });
 });

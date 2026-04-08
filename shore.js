@@ -605,6 +605,125 @@ async function fetchOverpass(query) {
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
+ * Pure data-processing core: parse a raw Overpass response, build closed rings,
+ * and compute the sea-bearing mask.  No side-effects — suitable for unit tests
+ * with fixture data captured from `window.SHORE_DEBUG.rawOverpassData`.
+ *
+ * @param {number}      lat
+ * @param {number}      lon
+ * @param {object}      data  Raw Overpass JSON ({ elements: [...] })
+ * @param {{ s,n,w,e }} bbox  The bounding box used for the query
+ * @returns {{
+ *   mask:             Float32Array,
+ *   coastWays:        Array,
+ *   closedCoastRings: Array,
+ *   waterPolys:       Array,
+ *   hasCoastData:     boolean,
+ *   originInWater:    boolean,
+ *   originIsLand:     boolean,
+ *   bearings:         Array,
+ * }}
+ */
+function processShoreData(lat, lon, data, bbox) {
+  console.debug(`[shore] Overpass returned ${data.elements.length} elements for (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
+
+  /* ── Parse elements into polygons and coastline ways ── */
+
+  const waterPolys = [];
+  const coastWays  = [];
+
+  for (const el of data.elements) {
+    if (el.type === 'way') {
+      if (!el.geometry || el.geometry.length < 2) continue;
+      const ring = el.geometry.map(g => ({ lat: g.lat, lon: g.lon }));
+
+      if (el.tags?.natural === 'coastline') {
+        coastWays.push(ring);
+      } else if (ring.length >= 3) {
+        // Water-area polygons need ≥ 3 nodes to be a valid polygon
+        waterPolys.push(ring);
+      }
+    } else if (el.type === 'relation') {
+      if (!el.members) continue;
+      for (const m of el.members) {
+        if (m.type === 'way' && m.role === 'outer' && m.geometry?.length >= 3) {
+          waterPolys.push(m.geometry.map(g => ({ lat: g.lat, lon: g.lon })));
+        }
+      }
+    }
+  }
+
+  // Drop water polygons whose bounding-box area is < 10 000 m²  (~100 m × 100 m).
+  const MIN_WATER_POLY_AREA_M2 = 10_000;
+  const waterPolysFiltered = waterPolys.filter(ring => polyBboxAreaM2(ring) >= MIN_WATER_POLY_AREA_M2);
+
+  console.debug(`[shore] Parsed: ${coastWays.length} coastline ways, ${waterPolys.length} water-area polygons (${waterPolys.length - waterPolysFiltered.length} tiny dropped)`);
+
+  const hasCoastData = coastWays.length > 0;
+
+  const closedCoastRings = hasCoastData
+    ? buildClosedCoastRings(coastWays, bbox)
+    : [];
+
+  const originInWater = waterPolysFiltered.some(p => pointInPoly(lat, lon, p));
+  const originIsLand  = isLandByRayCross(lat, lon, closedCoastRings, bbox, hasCoastData);
+  console.debug(`[shore] Origin (${lat.toFixed(5)}, ${lon.toFixed(5)}): inWaterPoly=${originInWater}, isLand=${originIsLand}, hasCoastData=${hasCoastData}`);
+
+  const mask = new Float32Array(SHORE_BEARINGS);
+  const bearings = [];
+
+  for (let b = 0; b < SHORE_BEARINGS; b++) {
+    const bearing = b * 10;
+    let seaCount  = 0;
+    const sampleLog = [];
+    const debugSamples = [];
+
+    for (let s = 1; s <= SHORE_SAMPLES; s++) {
+      const distKm = (s / SHORE_SAMPLES) * SHORE_MAX_KM;
+      const pt     = destPoint(lat, lon, bearing, distKm);
+      const { lat: pLat, lon: pLon } = pt;
+
+      const isLandCoast = isLandByRayCross(pLat, pLon, closedCoastRings, bbox, hasCoastData);
+      const inWaterArea = isLandCoast && waterPolysFiltered.some(p => pointInPoly(pLat, pLon, p));
+
+      let isSea, reason;
+      if (!hasCoastData) {
+        isSea = true;  reason = 'fallback:noCoast';
+      } else if (inWaterArea) {
+        isSea = true;  reason = 'waterArea';
+      } else if (isLandCoast) {
+        isSea = false; reason = 'coast:land';
+      } else {
+        isSea = true;  reason = 'coast:sea';
+      }
+
+      sampleLog.push(`${distKm.toFixed(1)}km→${isSea ? 'SEA' : 'LND'}(${reason})`);
+      debugSamples.push({ distKm, lat: pLat, lon: pLon, isSea, reason });
+      if (isSea) seaCount++;
+    }
+
+    mask[b] = seaCount / SHORE_SAMPLES;
+    bearings.push({ bearing, seaFrac: mask[b], samples: debugSamples });
+    console.debug(`[shore] ${String(bearing).padStart(3, ' ')}°: ${(mask[b]*100).toFixed(0).padStart(3)}% sea | ${sampleLog.join('  ')}`);
+  }
+
+  const seaBearingCount = Array.from(mask).filter(v => v >= SHORE_SEA_THRESH).length;
+  console.debug(`[shore] Summary: ${seaBearingCount}/${SHORE_BEARINGS} bearings ≥ ${SHORE_SEA_THRESH*100}% sea`);
+  console.debug('[shore] Full mask (% sea per 10°):', Array.from(mask).map((v,i) => `${i*10}°:${(v*100).toFixed(0)}%`).join(' '));
+
+  return {
+    mask,
+    coastWays,
+    closedCoastRings,
+    waterPolys: waterPolysFiltered,
+    hasCoastData,
+    originInWater,
+    originIsLand,
+    bearings,
+  };
+}
+
+/**
  * Analyse the land/sea environment around (lat, lon) within SHORE_MAX_KM.
  * Populates window.SHORE_MASK and window.SHORE_STATUS, then calls onDone().
  *
@@ -626,121 +745,25 @@ async function analyseShore(lat, lon, onDone) {
     window.SHORE_STATUS = { state: 'calculating', msg: 'Calculating sea bearings…' };
     if (onDone) onDone();
 
-    console.debug(`[shore] Overpass returned ${data.elements.length} elements for (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
-
-    /* ── Parse elements into polygons and coastline ways ── */
-
-    // Closed water-area polygons (ways and relation outer rings)
-    const waterPolys = [];
-
-    // Raw coastline way node arrays
-    const coastWays  = [];
-
-    // Collect nodes from way/relation geometries (Overpass `out geom` includes coords)
-    for (const el of data.elements) {
-      if (el.type === 'way') {
-        if (!el.geometry || el.geometry.length < 3) continue;
-        const ring = el.geometry.map(g => ({ lat: g.lat, lon: g.lon }));
-
-        if (el.tags?.natural === 'coastline') {
-          coastWays.push(ring);
-        } else {
-          // water area or reservoir
-          waterPolys.push(ring);
-        }
-      } else if (el.type === 'relation') {
-        if (!el.members) continue;
-        for (const m of el.members) {
-          if (m.type === 'way' && m.role === 'outer' && m.geometry?.length >= 3) {
-            waterPolys.push(m.geometry.map(g => ({ lat: g.lat, lon: g.lon })));
-          }
-        }
-      }
-    }
-
-    // Drop water polygons whose bounding-box area is < 10 000 m²  (~100 m × 100 m).
-    // Such tiny ponds/basins can never contain any of our 1-km-spaced sample points
-    // and contribute nothing to the analysis, so filtering them out cuts PIP work.
-    const MIN_WATER_POLY_AREA_M2 = 10_000;
-    const waterPolysFiltered = waterPolys.filter(ring => polyBboxAreaM2(ring) >= MIN_WATER_POLY_AREA_M2);
-
-    console.debug(`[shore] Parsed: ${coastWays.length} coastline ways, ${waterPolys.length} water-area polygons (${waterPolys.length - waterPolysFiltered.length} tiny dropped)`);
-
-    const hasCoastData = coastWays.length > 0;
-
-    // Stitch raw ways into chains and close open chains via the bbox boundary
-    // so that the winding-number algorithm always sees properly-closed rings.
-    const closedCoastRings = hasCoastData
-      ? buildClosedCoastRings(coastWays, bbox)
-      : [];
-
-    // ── Origin classification (for debug / inland detection) ──
-    const originInWater = waterPolysFiltered.some(p => pointInPoly(lat, lon, p));
-    const originIsLand  = isLandByRayCross(lat, lon, closedCoastRings, bbox, hasCoastData);
-    console.debug(`[shore] Origin (${lat.toFixed(5)}, ${lon.toFixed(5)}): inWaterPoly=${originInWater}, isLand=${originIsLand}, hasCoastData=${hasCoastData}`);
-
-    const mask = new Float32Array(SHORE_BEARINGS);
-    const debugBearings = [];
-
-    for (let b = 0; b < SHORE_BEARINGS; b++) {
-      const bearing = b * 10;
-      let seaCount  = 0;
-      const sampleLog = [];
-      const debugSamples = [];
-
-      for (let s = 1; s <= SHORE_SAMPLES; s++) {
-        const distKm = (s / SHORE_SAMPLES) * SHORE_MAX_KM;
-        const pt     = destPoint(lat, lon, bearing, distKm);
-        const { lat: pLat, lon: pLon } = pt;
-
-        /* Is this sample point over water?
-           Priority order:
-           1. Raw-segment ray-crossing against coastline ways → land or sea
-           2. Inside an explicit water-area polygon (lake, reservoir…) → sea
-              (overrides coastline "land" only for tagged inland water bodies)
-           3. No coastline data → open sea (fallback)                        */
-        const isLandCoast = isLandByRayCross(pLat, pLon, closedCoastRings, bbox, hasCoastData);
-        const inWaterArea = isLandCoast && waterPolysFiltered.some(p => pointInPoly(pLat, pLon, p));
-
-        let isSea, reason;
-        if (!hasCoastData) {
-          isSea = true;  reason = 'fallback:noCoast';
-        } else if (inWaterArea) {
-          isSea = true;  reason = 'waterArea';
-        } else if (isLandCoast) {
-          isSea = false; reason = 'coast:land';
-        } else {
-          isSea = true;  reason = 'coast:sea';
-        }
-
-        sampleLog.push(`${distKm.toFixed(1)}km→${isSea ? 'SEA' : 'LND'}(${reason})`);
-        debugSamples.push({ distKm, lat: pLat, lon: pLon, isSea, reason });
-        if (isSea) seaCount++;
-      }
-
-      mask[b] = seaCount / SHORE_SAMPLES;
-      debugBearings.push({ bearing, seaFrac: mask[b], samples: debugSamples });
-      console.debug(`[shore] ${String(bearing).padStart(3, ' ')}°: ${(mask[b]*100).toFixed(0).padStart(3)}% sea | ${sampleLog.join('  ')}`);
-    }
-
-    const seaBearingCount = Array.from(mask).filter(v => v >= SHORE_SEA_THRESH).length;
-    console.debug(`[shore] Summary: ${seaBearingCount}/${SHORE_BEARINGS} bearings ≥ ${SHORE_SEA_THRESH*100}% sea`);
-    console.debug('[shore] Full mask (% sea per 10°):', Array.from(mask).map((v,i) => `${i*10}°:${(v*100).toFixed(0)}%`).join(' '));
+    const result = processShoreData(lat, lon, data, bbox);
+    const { mask, coastWays, closedCoastRings, waterPolys, hasCoastData,
+            originInWater, originIsLand, bearings } = result;
 
     window.SHORE_MASK  = mask;
     window.SHORE_DEBUG = {
       lat, lon,
       bbox,
+      rawOverpassData: data,              // capture for fixture-based testing
       elementCount:   data.elements.length,
       coastWayCount:  coastWays.length,
-      waterPolyCount: waterPolysFiltered.length,
+      waterPolyCount: waterPolys.length,
       hasCoastData,
       originInWater,
       originIsLand,
-      coastWays,                         // raw ways for debug-map drawing
-      closedCoastRings,                  // stitched + closed rings used for classification
-      waterPolys: waterPolysFiltered,    // water-area polys for debug-map drawing (tiny ones dropped)
-      bearings: debugBearings,
+      coastWays,                          // raw ways for debug-map drawing
+      closedCoastRings,                   // stitched + closed rings used for classification
+      waterPolys,                         // water-area polys for debug-map drawing (tiny ones dropped)
+      bearings,
     };
 
     // Determine overall status message
