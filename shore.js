@@ -93,6 +93,23 @@ function expandBbox(lat, lon, padKm) {
 ══════════════════════════════════════════════════════════════════════════ */
 
 /**
+ * Approximate area of a polygon's bounding box in m², used for size filtering.
+ * Fast but rough — good enough to discard tiny ponds/basins.
+ */
+function polyBboxAreaM2(ring) {
+  let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
+  for (const { lat, lon } of ring) {
+    if (lat < latMin) latMin = lat;
+    if (lat > latMax) latMax = lat;
+    if (lon < lonMin) lonMin = lon;
+    if (lon > lonMax) lonMax = lon;
+  }
+  const latSpanM = (latMax - latMin) * 111_320;
+  const lonSpanM = (lonMax - lonMin) * 111_320 * Math.cos((latMin + latMax) * 0.5 * Math.PI / 180);
+  return latSpanM * lonSpanM;
+}
+
+/**
  * Standard 2-D ray-casting PIP.
  * `poly` is an array of {lat, lon} objects forming a closed ring.
  * Returns true if (lat, lon) is strictly inside the polygon.
@@ -633,7 +650,13 @@ async function analyseShore(lat, lon, onDone) {
       }
     }
 
-    console.debug(`[shore] Parsed: ${coastWays.length} coastline ways, ${waterPolys.length} water-area polygons`);
+    // Drop water polygons whose bounding-box area is < 10 000 m²  (~100 m × 100 m).
+    // Such tiny ponds/basins can never contain any of our 1-km-spaced sample points
+    // and contribute nothing to the analysis, so filtering them out cuts PIP work.
+    const MIN_WATER_POLY_AREA_M2 = 10_000;
+    const waterPolysFiltered = waterPolys.filter(ring => polyBboxAreaM2(ring) >= MIN_WATER_POLY_AREA_M2);
+
+    console.debug(`[shore] Parsed: ${coastWays.length} coastline ways, ${waterPolys.length} water-area polygons (${waterPolys.length - waterPolysFiltered.length} tiny dropped)`);
 
     const hasCoastData = coastWays.length > 0;
 
@@ -644,7 +667,7 @@ async function analyseShore(lat, lon, onDone) {
       : [];
 
     // ── Origin classification (for debug / inland detection) ──
-    const originInWater = waterPolys.some(p => pointInPoly(lat, lon, p));
+    const originInWater = waterPolysFiltered.some(p => pointInPoly(lat, lon, p));
     const originIsLand  = isLandByRayCross(lat, lon, closedCoastRings, bbox, hasCoastData);
     console.debug(`[shore] Origin (${lat.toFixed(5)}, ${lon.toFixed(5)}): inWaterPoly=${originInWater}, isLand=${originIsLand}, hasCoastData=${hasCoastData}`);
 
@@ -669,7 +692,7 @@ async function analyseShore(lat, lon, onDone) {
               (overrides coastline "land" only for tagged inland water bodies)
            3. No coastline data → open sea (fallback)                        */
         const isLandCoast = isLandByRayCross(pLat, pLon, closedCoastRings, bbox, hasCoastData);
-        const inWaterArea = isLandCoast && waterPolys.some(p => pointInPoly(pLat, pLon, p));
+        const inWaterArea = isLandCoast && waterPolysFiltered.some(p => pointInPoly(pLat, pLon, p));
 
         let isSea, reason;
         if (!hasCoastData) {
@@ -702,13 +725,13 @@ async function analyseShore(lat, lon, onDone) {
       bbox,
       elementCount:   data.elements.length,
       coastWayCount:  coastWays.length,
-      waterPolyCount: waterPolys.length,
+      waterPolyCount: waterPolysFiltered.length,
       hasCoastData,
       originInWater,
       originIsLand,
       coastWays,                         // raw ways for debug-map drawing
       closedCoastRings,                  // stitched + closed rings used for classification
-      waterPolys,                        // water-area polys for debug-map drawing
+      waterPolys: waterPolysFiltered,    // water-area polys for debug-map drawing (tiny ones dropped)
       bearings: debugBearings,
     };
 
