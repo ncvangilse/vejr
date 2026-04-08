@@ -301,8 +301,15 @@ function clockwiseBboxPath(from, to, bbox) {
  * Stitch individual OSM coastline way-arrays into continuous chains by
  * matching shared endpoints (within ENDPOINT_TOL degrees ≈ 1 m).
  *
- * Each way in `coastWays` is an array of {lat, lon} nodes.  Ways are
- * reversed as needed when connected at their end rather than their start.
+ * Each way in `coastWays` is an array of {lat, lon} nodes.
+ *
+ * IMPORTANT: ways are NEVER reversed during stitching.  OSM coastlines
+ * carry a directional sea-left convention; reversing a way swaps its
+ * winding-number contribution sign and misclassifies land/sea.  For
+ * well-formed OSM data ways always connect end→start (head of next = tail
+ * of current), so no reversal is ever required.  If a bad connection
+ * (end→end or start→start) is encountered the two ways are left as
+ * separate chains — they still contribute with the correct sign.
  *
  * Returns an array of chains (each an array of {lat, lon} nodes).
  */
@@ -333,26 +340,27 @@ function stitchCoastWays(coastWays) {
     used.add(i);
     let chain = [...coastWays[i]];
 
-    // Extend forward from tail
+    // Extend forward from tail: only when next way starts where chain ends
+    // (side==='start').  side==='end' would require reversing the way, which
+    // flips its winding contribution — skip it and leave as a separate chain.
     for (;;) {
       const k       = ptKey(chain[chain.length - 1]);
-      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx));
+      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx) && m.side === 'start');
       if (!matches.length) break;
-      const { wayIdx, side } = matches[0];
+      const { wayIdx } = matches[0];
       used.add(wayIdx);
-      const w = coastWays[wayIdx];
-      chain = chain.concat(side === 'start' ? w.slice(1) : [...w].reverse().slice(1));
+      chain = chain.concat(coastWays[wayIdx].slice(1));
     }
 
-    // Extend backward from head
+    // Extend backward from head: only when previous way ends where chain starts
+    // (side==='end').  side==='start' would require reversal — skip it.
     for (;;) {
       const k       = ptKey(chain[0]);
-      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx));
+      const matches = (index.get(k) || []).filter(m => !used.has(m.wayIdx) && m.side === 'end');
       if (!matches.length) break;
-      const { wayIdx, side } = matches[0];
+      const { wayIdx } = matches[0];
       used.add(wayIdx);
-      const w = coastWays[wayIdx];
-      chain = (side === 'end' ? w.slice(0, -1) : [...w].reverse().slice(0, -1)).concat(chain);
+      chain = coastWays[wayIdx].slice(0, -1).concat(chain);
     }
 
     chains.push(chain);
