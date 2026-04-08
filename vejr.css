@@ -158,7 +158,8 @@ canvas.main-canvas {
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 12px;
   color: #e8eef5;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   min-width: 148px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.45);
   line-height: 1.55;

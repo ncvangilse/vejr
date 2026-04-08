@@ -396,6 +396,7 @@ function hideTooltip() {
   clearCrosshairs();
 }
 function attachHoverListeners() {
+  document.getElementById('hover-tooltip').addEventListener('click', hideTooltip);
   const content = document.getElementById('forecast-content');
   content.addEventListener('mousemove', e => {
     if (!lastRenderedData) return;

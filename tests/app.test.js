@@ -20,6 +20,7 @@ function makeEl(value = '') {
     getContext:  () => ({
       getImageData:  (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
       putImageData:  () => {},
+      clearRect:     () => {},
     }),
     width: 0, height: 0,
   };
@@ -56,6 +57,17 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     _handler: null,
   };
 
+  const tooltipEl = {
+    style: { display: 'none' },
+    _listeners: {},
+    addEventListener(type, fn) { this._listeners[type] = fn; },
+    getContext: () => null,
+    closest: () => null,
+    width: 0, height: 0,
+    value: '', textContent: '',
+    classList: { contains: () => false, add: () => {}, remove: () => {} },
+  };
+
   const ctx = vm.createContext({
     window: {
       location:             { search, href },
@@ -76,8 +88,9 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     },
     document: {
       getElementById: (id) => {
-        if (id === 'city-input')   return cityInput;
-        if (id === 'model-select') return makeEl('dmi_seamless');
+        if (id === 'city-input')      return cityInput;
+        if (id === 'model-select')    return makeEl('dmi_seamless');
+        if (id === 'hover-tooltip')   return tooltipEl;
         return makeEl();
       },
       querySelectorAll: () => [],
@@ -124,7 +137,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
 
   vm.runInContext(APP_SRC, ctx);
 
-  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL };
+  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL, tooltipEl };
 }
 
 // ── decideInitialLocation unit tests ─────────────────────────────────────────
@@ -395,5 +408,21 @@ describe('inverted-colors change listener', () => {
     });
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
     expect(calls[0]).toBe(false);
+  });
+});
+
+// ── tooltip close-on-tap ──────────────────────────────────────────────────────
+
+describe('tooltip close-on-tap', () => {
+  it('registers a click listener on the tooltip element at startup', () => {
+    const { tooltipEl } = loadApp();
+    expect(tooltipEl._listeners['click']).toBeTypeOf('function');
+  });
+
+  it('hides the tooltip when the click listener is invoked', () => {
+    const { tooltipEl } = loadApp();
+    tooltipEl.style.display = 'block';
+    tooltipEl._listeners['click']();
+    expect(tooltipEl.style.display).toBe('none');
   });
 });
