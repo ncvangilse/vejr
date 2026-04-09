@@ -82,3 +82,29 @@ Tests use a VM-based loader (`tests/helpers/loader.js`) that concatenates source
 | `tests/api.test.js` | Ensemble percentile calculations |
 | `tests/config.test.js` | Kite config parsing, URL sync |
 | `tests/shore.test.js` | Coastline analysis, point-in-polygon |
+
+### State Persistence Rules
+
+When working on complex debugging or multi-step reasoning:
+
+- After every major insight, create a checkpoint by writing a short "STATE SUMMARY"
+- Keep summaries under 5 bullet points
+- Focus on:
+  - Current hypothesis
+  - What has been ruled out
+  - Next step
+
+Never continue long reasoning without summarizing first.
+
+### Required Output Format for STATE SUMMARY
+
+Every response must include:
+
+STATE SUMMARY:
+- ...
+
+NEXT ACTION:
+- ...
+
+IMPLEMENTATION PLAN (if applicable):
+- ...
