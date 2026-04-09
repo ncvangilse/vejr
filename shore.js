@@ -415,178 +415,38 @@ function bboxSegmentCrossing(p1, p2, bbox) {
 
 /**
  * Walk the chain from its *head* (index 0) and return the point where the
- * chain first enters the bbox boundary.
- *
- * Case 1 – head is outside: scan forward for the first outside→inside
- *   transition and return the exact bbox-edge crossing on that segment.
- *
- * Case 2 – head is inside: the chain starts inside the bbox, meaning the
- *   global coastline entered the bbox before this fragment begins.  We
- *   extrapolate *backwards* along the first segment (opposite direction) as a
- *   ray and return where that ray intersects the bbox boundary.  This gives
- *   the virtual entry point that the winding-number closure needs, preserving
- *   the correct OSM sea-left winding direction.
- *   Falls back to chain[0] only if the segment is degenerate (zero length).
+ * chain first enters the bbox boundary.  If the first node is already inside,
+ * the first node itself is returned.
  */
 function findBboxEntryCrossing(chain, bbox) {
-  // Case 1: head is outside — find the actual outside→inside crossing.
-  if (!isInBbox(chain[0], bbox)) {
-    for (let i = 0; i < chain.length - 1; i++) {
-      if (!isInBbox(chain[i], bbox) && isInBbox(chain[i + 1], bbox)) {
-        return bboxSegmentCrossing(chain[i], chain[i + 1], bbox) ?? chain[i + 1];
-      }
+  if (isInBbox(chain[0], bbox)) return chain[0];
+  for (let i = 0; i < chain.length - 1; i++) {
+    if (!isInBbox(chain[i], bbox) && isInBbox(chain[i + 1], bbox)) {
+      return bboxSegmentCrossing(chain[i], chain[i + 1], bbox) ?? chain[i + 1];
     }
-    return null;
   }
-
-  // Case 2: head is inside — extrapolate backwards along the first segment.
-  if (chain.length >= 2) {
-    const SCALE = 1000;
-    const dLat  = chain[0].lat - chain[1].lat;
-    const dLon  = chain[0].lon - chain[1].lon;
-    const farPt = { lat: chain[0].lat + SCALE * dLat,
-                    lon: chain[0].lon + SCALE * dLon };
-    const crossing = bboxSegmentCrossing(chain[0], farPt, bbox);
-    if (crossing) return crossing;
-  }
-  return chain[0];   // fallback: degenerate single-node or on-boundary chain
+  return null;
 }
 
 /**
  * Walk the chain from its *tail* (last index) and return the point where the
- * chain last exits the bbox boundary.
- *
- * Case 1 – tail is outside: scan backward for the last inside→outside
- *   transition and return the exact bbox-edge crossing on that segment.
- *
- * Case 2 – tail is inside: the chain ends inside the bbox, meaning the global
- *   coastline continues beyond this fragment.  We extrapolate *forwards* along
- *   the last segment as a ray and return where that ray intersects the bbox
- *   boundary.  This gives the virtual exit point needed for correct closure.
- *   Falls back to chain[last] only if the segment is degenerate.
+ * chain last exits the bbox boundary.  If the last node is already inside,
+ * the last node itself is returned.
  */
 function findBboxExitCrossing(chain, bbox) {
   const last = chain[chain.length - 1];
-
-  // Case 1: tail is outside — find the actual inside→outside crossing.
-  if (!isInBbox(last, bbox)) {
-    for (let i = chain.length - 1; i > 0; i--) {
-      if (isInBbox(chain[i - 1], bbox) && !isInBbox(chain[i], bbox)) {
-        return bboxSegmentCrossing(chain[i - 1], chain[i], bbox) ?? chain[i - 1];
-      }
+  if (isInBbox(last, bbox)) return last;
+  for (let i = chain.length - 1; i > 0; i--) {
+    if (isInBbox(chain[i - 1], bbox) && !isInBbox(chain[i], bbox)) {
+      return bboxSegmentCrossing(chain[i - 1], chain[i], bbox) ?? chain[i - 1];
     }
-    return null;
   }
-
-  // Case 2: tail is inside — extrapolate forwards along the last segment.
-  if (chain.length >= 2) {
-    const n     = chain.length;
-    const SCALE = 1e6;
-    const dLat  = chain[n - 1].lat - chain[n - 2].lat;
-    const dLon  = chain[n - 1].lon - chain[n - 2].lon;
-    const farPt = { lat: last.lat + SCALE * dLat,
-                    lon: last.lon + SCALE * dLon };
-    const crossing = bboxSegmentCrossing(last, farPt, bbox);
-    if (crossing) return crossing;
-  }
-  return last;   // fallback: degenerate single-node or on-boundary chain
+  return null;
 }
 
 /**
- * Clip an open chain to its bbox-interior portion.
- *
- * Returns { entryPt, exitPt, interior } where:
- *   entryPt  – exact point where the chain first enters the bbox boundary
- *   exitPt   – exact point where the chain last  exits  the bbox boundary
- *   interior – the chain nodes between entry and exit (may be empty)
- *
- * If the chain head/tail is already inside the bbox, the virtual
- * entry/exit points are found by extrapolating along the first/last
- * segment outward until it hits the bbox boundary (preserving OSM direction).
- *
- * Returns null only if the chain has no intersection with the bbox at all
- * (should not occur for Overpass-returned ways, which always have ≥1 node
- * inside the query bbox).
- *
- * This is the key primitive used by buildClosedCoastRings to construct gap-
- * free closed rings:
- *   [entryPt, ...interior, exitPt, ...clockwiseBboxClosure...]
- * — no spurious implicit edges between outside-bbox endpoints and the
- * closure path.
- */
-function clipChainToBbox(chain, bbox) {
-  let entryPt, entryAfterIdx;
-  let exitPt,  exitBeforeIdx;
-
-  // SCALE must be large enough that farPt always lies well outside the bbox
-  // even when the first/last segment is very short (e.g. 0.00001°).  A value
-  // of 1e6 gives a worst-case extension of ~100 000° — always beyond any bbox.
-  const SCALE = 1e6;
-
-  // ── Entry ──────────────────────────────────────────────────────────────
-  if (!isInBbox(chain[0], bbox)) {
-    // Head is outside: scan forward for the first outside→inside transition.
-    for (let i = 0; i < chain.length - 1; i++) {
-      if (!isInBbox(chain[i], bbox) && isInBbox(chain[i + 1], bbox)) {
-        entryPt       = bboxSegmentCrossing(chain[i], chain[i + 1], bbox) ?? chain[i + 1];
-        entryAfterIdx = i + 1;
-        break;
-      }
-    }
-    if (entryPt == null) return null;   // chain never enters bbox
-  } else {
-    // Head is inside: extrapolate backwards along the first segment to find
-    // the virtual entry point on the bbox boundary.
-    if (chain.length >= 2) {
-      const dLat  = chain[0].lat - chain[1].lat;
-      const dLon  = chain[0].lon - chain[1].lon;
-      const farPt = { lat: chain[0].lat + SCALE * dLat,
-                      lon: chain[0].lon + SCALE * dLon };
-      entryPt = bboxSegmentCrossing(chain[0], farPt, bbox) ?? chain[0];
-    } else {
-      entryPt = chain[0];
-    }
-    entryAfterIdx = 0;
-  }
-
-  // ── Exit ───────────────────────────────────────────────────────────────
-  const lastIdx = chain.length - 1;
-  if (!isInBbox(chain[lastIdx], bbox)) {
-    // Tail is outside: scan backward for the last inside→outside transition.
-    for (let i = lastIdx; i > 0; i--) {
-      if (isInBbox(chain[i - 1], bbox) && !isInBbox(chain[i], bbox)) {
-        exitPt        = bboxSegmentCrossing(chain[i - 1], chain[i], bbox) ?? chain[i - 1];
-        exitBeforeIdx = i - 1;
-        break;
-      }
-    }
-    if (exitPt == null) return null;    // chain never exits bbox
-  } else {
-    // Tail is inside: extrapolate forwards along the last segment to find
-    // the virtual exit point on the bbox boundary.
-    const n = chain.length;
-    if (n >= 2) {
-      const dLat  = chain[n - 1].lat - chain[n - 2].lat;
-      const dLon  = chain[n - 1].lon - chain[n - 2].lon;
-      const farPt = { lat: chain[n - 1].lat + SCALE * dLat,
-                      lon: chain[n - 1].lon + SCALE * dLon };
-      exitPt = bboxSegmentCrossing(chain[n - 1], farPt, bbox) ?? chain[n - 1];
-    } else {
-      exitPt = chain[lastIdx];
-    }
-    exitBeforeIdx = lastIdx;
-  }
-
-  return {
-    entryPt,
-    exitPt,
-    interior: chain.slice(entryAfterIdx, exitBeforeIdx + 1),
-  };
-}
-
-/**
- * Build closed rings from raw OSM coastline ways by stitching connected ways
- * and appending a clockwise bbox-boundary path from the chain's *actual* exit
+ * Stitch OSM coastline ways into chains, then close every open chain by
+ * appending a clockwise bbox-boundary path from the chain's *actual* exit
  * crossing back to its *actual* entry crossing.
  *
  * Using the exact bbox-boundary crossing points (rather than snapping the
@@ -640,36 +500,36 @@ function buildClosedCoastRings(coastWays, bbox) {
   return chains.map((chain, ci) => {
     const head = chain[0];
     const tail = chain[chain.length - 1];
-
-    // Already-closed island ring — return as-is (no bbox closure needed).
-    if (Math.abs(head.lat - tail.lat) < TOL &&
-        Math.abs(head.lon - tail.lon) < TOL) {
+    const closed =
+      Math.abs(head.lat - tail.lat) < TOL &&
+      Math.abs(head.lon - tail.lon) < TOL;
+    if (closed) {
+      console.debug(`[shore] chain[${ci}]: already closed (${chain.length} nodes)`);
       return chain;
     }
 
-    // Clip chain to its bbox-interior portion.  This eliminates the spurious
-    // implicit gap edges that the old approach introduced by including raw
-    // outside-bbox endpoints in the ring:
-    //   OLD (buggy): [chain[0]…chain[last], exitCrossing,…, entryCrossing]
-    //                implicit close: entryCrossing → chain[0]  ← spurious edge
-    //   NEW (fixed): [entryPt, ...interior, exitPt, ...closure]
-    //                implicit close: closure already ends at entryPt  ← clean
-    const clipped  = clipChainToBbox(chain, bbox);
-    const entryPt  = clipped?.entryPt  ?? snapToBbox(head, bbox);
-    const exitPt   = clipped?.exitPt   ?? snapToBbox(tail, bbox);
-    const interior = clipped?.interior ?? chain;
+    // Find the exact points where the chain enters/exits the bbox
+    const entryCrossing = findBboxEntryCrossing(chain, bbox);
+    const exitCrossing  = findBboxExitCrossing(chain, bbox);
 
-    const closure = clockwiseBboxPath(exitPt, entryPt, bbox);
+    // Fall back to snapping endpoints if crossing detection fails
+    const from = exitCrossing  ?? snapToBbox(tail, bbox);
+    const to   = entryCrossing ?? snapToBbox(head, bbox);
 
+    const closure = clockwiseBboxPath(from, to, bbox);
     console.debug(
-      `[shore] chain[${ci}]: entry=(${entryPt.lat.toFixed(4)},${entryPt.lon.toFixed(4)}) ` +
-      `exit=(${exitPt.lat.toFixed(4)},${exitPt.lon.toFixed(4)}) ` +
-      `interior=${interior.length} nodes, closure_pts=${closure.length}: ` +
+      `[shore] chain[${ci}]: ${chain.length} nodes, ` +
+      `head=(${head.lat.toFixed(4)},${head.lon.toFixed(4)}) ` +
+      `tail=(${tail.lat.toFixed(4)},${tail.lon.toFixed(4)})`,
+    );
+    console.debug(
+      `[shore] chain[${ci}]: entry=(${to.lat.toFixed(4)},${to.lon.toFixed(4)}) ` +
+      `exit=(${from.lat.toFixed(4)},${from.lon.toFixed(4)}) ` +
+      `closure_pts=${closure.length}: ` +
       closure.map(p => `(${p.lat.toFixed(4)},${p.lon.toFixed(4)})`).join(' → '),
     );
 
-    // Closed ring: entryPt → interior nodes → exitPt → CW bbox closure → entryPt
-    return [entryPt, ...interior, exitPt, ...closure];
+    return chain.concat(closure);
   });
 }
 

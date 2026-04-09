@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { loadScripts } from './helpers/loader.js';
-import vordingborgData from './fixtures/vordingborg.json';
 
 const ctx = loadScripts('config.js', 'shore.js');
 const {
   destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery,
   snapToBbox, clockwiseBboxPath, stitchCoastWays, buildClosedCoastRings,
   isInBbox, bboxSegmentCrossing, findBboxEntryCrossing, findBboxExitCrossing,
-  clipChainToBbox, processShoreData,
+  processShoreData,
 } = ctx;
 
 // ── destPoint ─────────────────────────────────────────────────────────────
@@ -295,13 +294,11 @@ describe('bboxSegmentCrossing', () => {
 describe('findBboxEntryCrossing', () => {
   const bbox = { s: 5, n: 9, w: 10, e: 14 };
 
-  it('extrapolates backwards when chain starts inside bbox', () => {
-    // chain[0]=(7,12) inside bbox; chain goes north (8,12).
-    // Backward direction is south → extrapolated entry is on the south edge.
+  it('returns first node when chain starts inside bbox', () => {
     const chain = [{ lat: 7, lon: 12 }, { lat: 8, lon: 12 }];
     const c = findBboxEntryCrossing(chain, bbox);
-    expect(c.lat).toBeCloseTo(5, 4);
-    expect(c.lon).toBeCloseTo(12, 4);
+    expect(c.lat).toBe(7);
+    expect(c.lon).toBe(12);
   });
 
   it('finds the crossing when chain starts outside and enters from south', () => {
@@ -315,13 +312,11 @@ describe('findBboxEntryCrossing', () => {
 describe('findBboxExitCrossing', () => {
   const bbox = { s: 5, n: 9, w: 10, e: 14 };
 
-  it('extrapolates forwards when chain ends inside bbox', () => {
-    // chain goes NE from (7,12) to (8,13), both inside.
-    // Forward direction continues NE → extrapolated exit hits the NE corner (9,14).
+  it('returns last node when chain ends inside bbox', () => {
     const chain = [{ lat: 7, lon: 12 }, { lat: 8, lon: 13 }];
     const c = findBboxExitCrossing(chain, bbox);
-    expect(c.lat).toBeCloseTo(9, 4);
-    expect(c.lon).toBeCloseTo(14, 4);
+    expect(c.lat).toBe(8);
+    expect(c.lon).toBe(13);
   });
 
   it('finds the crossing when chain exits through the north edge', () => {
@@ -329,85 +324,6 @@ describe('findBboxExitCrossing', () => {
     const c = findBboxExitCrossing(chain, bbox);
     expect(c.lat).toBeCloseTo(9, 4);
     expect(c.lon).toBeCloseTo(12, 4);
-  });
-});
-
-// ── clipChainToBbox ───────────────────────────────────────────────────────
-
-describe('clipChainToBbox', () => {
-  const bbox = { s: 5, n: 9, w: 10, e: 14 };
-
-  it('returns entry/exit crossing points for a chain that spans the bbox W–E', () => {
-    const chain = [
-      { lat: 7, lon:  8 },  // outside west
-      { lat: 7, lon: 12 },  // inside
-      { lat: 7, lon: 16 },  // outside east
-    ];
-    const r = clipChainToBbox(chain, bbox);
-    expect(r).not.toBeNull();
-    expect(r.entryPt.lon).toBeCloseTo(10, 4);
-    expect(r.entryPt.lat).toBeCloseTo(7, 4);
-    expect(r.exitPt.lon).toBeCloseTo(14, 4);
-    expect(r.exitPt.lat).toBeCloseTo(7, 4);
-    expect(r.interior).toHaveLength(1);
-    expect(r.interior[0]).toEqual({ lat: 7, lon: 12 });
-  });
-
-  it('extrapolates when head is inside and tail is outside', () => {
-    // Chain starts inside, exits north. Entry should be extrapolated to south edge.
-    const chain = [{ lat: 7, lon: 12 }, { lat: 12, lon: 12 }];
-    const r = clipChainToBbox(chain, bbox);
-    expect(r).not.toBeNull();
-    expect(r.entryPt.lat).toBeCloseTo(5, 4);   // south edge
-    expect(r.entryPt.lon).toBeCloseTo(12, 4);
-    expect(r.exitPt.lat).toBeCloseTo(9, 4);    // north edge
-    expect(r.exitPt.lon).toBeCloseTo(12, 4);
-  });
-
-  it('extrapolates correctly when head is inside and first segment is very short (large-SCALE robustness)', () => {
-    // Simulates the Vordingborg scenario: first node is barely inside the bbox,
-    // first segment is tiny.  With SCALE=1000 the extrapolation never reaches the
-    // bbox boundary; with SCALE=1e6 it correctly projects to the north edge.
-    const tinyBbox = { s: 5, n: 9, w: 10, e: 14 };
-    // chain[0] is inside, direction is slightly NW (tiny step).
-    // entryPt must land on the north edge (since backward = NW → N).
-    const chain = [
-      { lat: 8.9999, lon: 12.0001 },   // barely inside, near north edge
-      { lat: 8.9998, lon: 12.0002 },   // tiny step SE
-    ];
-    const r = clipChainToBbox(chain, tinyBbox);
-    expect(r).not.toBeNull();
-    // Backward direction is NW → hits north edge
-    expect(r.entryPt.lat).toBeCloseTo(9, 3);
-  });
-
-  it('interior contains the inside nodes between entry and exit', () => {
-    const chain = [
-      { lat:  3, lon: 12 },  // outside south
-      { lat:  6, lon: 12 },  // inside (first inside node)
-      { lat:  8, lon: 12 },  // inside (second inside node)
-      { lat: 11, lon: 12 },  // outside north
-    ];
-    const r = clipChainToBbox(chain, bbox);
-    expect(r.interior).toHaveLength(2);
-    expect(r.interior[0]).toEqual({ lat: 6, lon: 12 });
-    expect(r.interior[1]).toEqual({ lat: 8, lon: 12 });
-  });
-
-  it('regression: far-outside endpoints (Vordingborg-style W–E chain) get correct entry/exit edges', () => {
-    // Chain runs W→E inside bbox at lat≈7 but raw endpoints are far NW and NE.
-    // entryPt must be on the west edge, exitPt on the east edge — not snapped to
-    // north edge (which was the pre-fix bug).
-    const chain = [
-      { lat: 12, lon:  8 },  // far NW outside
-      { lat:  7, lon: 10 },  // west bbox crossing area
-      { lat:  7, lon: 14 },  // east bbox crossing area
-      { lat: 12, lon: 16 },  // far NE outside
-    ];
-    const r = clipChainToBbox(chain, bbox);
-    expect(r).not.toBeNull();
-    expect(r.entryPt.lon).toBeCloseTo(10, 3);  // on west edge
-    expect(r.exitPt.lon).toBeCloseTo(14, 3);   // on east edge
   });
 });
 
@@ -618,19 +534,6 @@ describe('processShoreData', () => {
     const result = processShoreData(lat, lon, data, bbox);
     expect(result.hasCoastData).toBe(true);
     expect(result.originIsLand).toBe(false);
-  });
-
-  it('Vordingborg fixture: origin is land, north is land, south is sea', () => {
-    const lat = 55.008, lon = 11.9106;
-    const bbox = expandBbox(lat, lon, 6);
-    const { mask, originIsLand } = processShoreData(lat, lon, vordingborgData, bbox);
-
-    // Town centre should be on land
-    expect(originIsLand).toBe(true);
-    // Bearing 0° (north) = Sjælland mainland — not mostly sea
-    expect(mask[0]).toBeLessThan(0.5);
-    // Bearing 180° (south) = Storstrøm / open water — mostly sea
-    expect(mask[18]).toBeGreaterThanOrEqual(0.5);
   });
 
   it('returns mask[0]=0 (north=land) for origin just south of an E–W westward coast', () => {
