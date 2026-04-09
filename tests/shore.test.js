@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { loadScripts } from './helpers/loader.js';
+import vordingborgData from './fixtures/vordingborg.json';
 
 const ctx = loadScripts('config.js', 'shore.js');
-const { destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery } = ctx;
+const {
+  destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross,
+  buildOverpassQuery, processShoreData,
+} = ctx;
 
 // ── destPoint ─────────────────────────────────────────────────────────────
 
@@ -56,7 +60,6 @@ describe('expandBbox', () => {
 // ── pointInPoly ───────────────────────────────────────────────────────────
 
 describe('pointInPoly', () => {
-  // Unit square centred on origin
   const square = [
     { lat: -1, lon: -1 },
     { lat:  1, lon: -1 },
@@ -87,7 +90,6 @@ describe('pointInPoly', () => {
 // ── signedCrossing ────────────────────────────────────────────────────────
 
 describe('signedCrossing', () => {
-  // Horizontal segment at lat=10, running west→east (left side is north = sea in OSM coastline convention)
   const p3 = { lat: 10, lon: 0 };
   const p4 = { lat: 10, lon: 5 };
 
@@ -112,22 +114,18 @@ describe('isLandByRayCross', () => {
   });
 
   it('returns false (sea) for an empty coast ways array with hasCoast=true', () => {
-    // No segments to cross → winding = 0 → sea
     expect(isLandByRayCross(55, 12, [], null, true)).toBe(false);
   });
 
   it('classifies a point inside a clockwise land ring as land', () => {
-    // Simple clockwise square around (0,0) – OSM convention: sea is LEFT, so
-    // a clockwise ring encircles land.
     const landRing = [
       { lat: -1, lon: -1 },
       { lat:  1, lon: -1 },
       { lat:  1, lon:  1 },
       { lat: -1, lon:  1 },
-      { lat: -1, lon: -1 }, // close
+      { lat: -1, lon: -1 },
     ];
-    const isLand = isLandByRayCross(0, 0, [landRing], null, true);
-    expect(isLand).toBe(true);
+    expect(isLandByRayCross(0, 0, [landRing], null, true)).toBe(true);
   });
 
   it('classifies a point outside the ring as sea', () => {
@@ -138,8 +136,7 @@ describe('isLandByRayCross', () => {
       { lat: -1, lon:  1 },
       { lat: -1, lon: -1 },
     ];
-    const isLand = isLandByRayCross(5, 5, [landRing], null, true);
-    expect(isLand).toBe(false);
+    expect(isLandByRayCross(5, 5, [landRing], null, true)).toBe(false);
   });
 });
 
@@ -160,5 +157,22 @@ describe('buildOverpassQuery', () => {
   it('fetches coastline ways', () => {
     const query = buildOverpassQuery({ s: 0, w: 0, n: 1, e: 1 });
     expect(query).toContain('natural"="coastline');
+  });
+});
+
+// ── processShoreData ──────────────────────────────────────────────────────
+
+describe('processShoreData', () => {
+  it('Vordingborg: origin is land, north is land, south is sea', () => {
+    const lat = 55.008, lon = 11.9106;
+    const bbox = expandBbox(lat, lon, 6);
+    const { mask, originIsLand } = processShoreData(lat, lon, vordingborgData, bbox);
+
+    // Vordingborg town centre is on land
+    expect(originIsLand).toBe(true);
+    // Bearing 0° (north) = Sjælland mainland — should not be mostly sea
+    expect(mask[0]).toBeLessThan(0.5);
+    // Bearing 180° (south) = Storstrøm / open water — should be mostly sea
+    expect(mask[18]).toBeGreaterThanOrEqual(0.5);
   });
 });
