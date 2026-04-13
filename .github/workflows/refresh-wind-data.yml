@@ -8,10 +8,17 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: pages-main       # same group as deploy-prod – prevents gh-pages race
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Fetch wind station data
         run: |
           mkdir deploy
