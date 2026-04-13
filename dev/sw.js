@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.13-30-nchvg-dmi_data-5';
+const CACHE_NAME = 'vejr-2026.04.13-31-nchvg-improved-dmi-popups-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
