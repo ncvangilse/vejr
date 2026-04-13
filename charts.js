@@ -166,7 +166,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null, xMap = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -185,7 +185,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
   if (tmax-tmin < 15) { const mid=(tmin+tmax)/2; tmin=Math.floor((mid-7.5)/5)*5; tmax=tmin+15; }
   const tRange=tmax-tmin;
   const ty=t=>padT+(1-(t-tmin)/tRange)*ch;
-  const cx2=i=>(i+0.5)*colW;
+  const cx2 = xMap ? (i => xMap[i]) : (i => (i + 0.5) * colW);
 
   // 3hr precip geometry
   const pTimes = times3h || times;
@@ -210,7 +210,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
 
   // day dividers
   divs.forEach(i=>{
-    const x=i*colW;
+    const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
     ctx.strokeStyle='#667788'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cssH); ctx.stroke();
   });
@@ -559,10 +559,7 @@ function _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx
 
   // Build a horizontal gradient coloured by the p90 gust speed (top edge of the band).
   const grad = ctx.createLinearGradient(0, 0, cssW, 0);
-  allP90.forEach((g, i) => {
-    const stop = n > 1 ? i / (n - 1) : 0;
-    grad.addColorStop(stop, windColorStr(g, 0.2));
-  });
+  allP90.forEach((g, i) => grad.addColorStop(cx2(i) / cssW, windColorStr(g, 0.2)));
 
   ctx.beginPath();
   ctx.moveTo(cx2(0), wy(allP90[0]));
@@ -673,7 +670,7 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 ══════════════════════════════════════════════════ */
 // times/gusts/winds are 1hr resolution; dirs is 3hr (same as drawWindDir);
 // times3h/winds3h are the 3hr arrays used only for kite highlights & pills.
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const n      = times.length;
@@ -683,7 +680,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const ctx    = resolveDPI(canvas, cssW, WIND_H);
   ctx.clearRect(0, 0, cssW, WIND_H);
   const divs = dayDivs(times);
-  const cx2  = i => (i + 0.5) * colW;
+  const cx2  = xMap ? (i => xMap[i]) : (i => (i + 0.5) * colW);
 
   // 3hr kite data (dirs align with times3h)
   const n3h    = (times3h || times).length;
@@ -722,7 +719,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // --- grid & day dividers ---
   _drawWindGrid(ctx, wLevels, wy, cssW);
   divs.forEach(i => {
-    const x = i * colW;
+    const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
     ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
   });
@@ -737,7 +734,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // --- wind fill (colour-mapped gradient below wind line) ---
   if (n > 1) {
     const grad = ctx.createLinearGradient(0, 0, cssW, 0);
-    winds.forEach((v, i) => grad.addColorStop(i / (n - 1), windColorStr(v, 0.72)));
+    winds.forEach((v, i) => grad.addColorStop(cx2(i) / cssW, windColorStr(v, 0.72)));
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(cx2(0), wy(winds[0]));
@@ -822,25 +819,20 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
    RENDER ALL
 ══════════════════════════════════════════════════ */
 function renderAll(d, invertedColors, portraitColW = null) {
-  // In portrait mode, anchor canvas width to the 1-hour slot count so the
-  // current day is displayed at the finest available time resolution (1h icons).
-  // Each draw function gets the same totalCssW guaranteeing perfect alignment:
-  //   1h data → colW = portraitColW (e.g. 24 px per hour)
-  //   3h data → colW = 3 × portraitColW (e.g. 72 px per 3-hour slot)
-  // In landscape mode use viewport width (null → each canvas measures its wrap).
+  // In portrait mode anchor the canvas width to the DISPLAY series slot count
+  // (N_display × portraitColW).  Curves use xMap1h to align their 1h data points
+  // onto this same grid.  In landscape mode each canvas measures its own wrap.
   const portrait = portraitColW != null;
-  const totalCssW = portrait ? d.times1h.length * portraitColW : null;
+  const totalCssW = portrait ? d.times.length * portraitColW : null;
 
-  // Top row: 1h data in portrait (one icon per hour), 3h data in landscape.
-  if (portrait && d.codes1h) {
-    drawTopRow(d.times1h, d.codes1h, d.precips1h, invertedColors, totalCssW);
-  } else {
-    drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
-  }
+  // Top row always uses the display series (variable-resolution in portrait,
+  // 3h in landscape) so each column is exactly one slot wide.
+  drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW);
+           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW,
+           d.xMap1h || null);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-           d.times, d.winds, invertedColors, totalCssW);
+           d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null);
 }
 

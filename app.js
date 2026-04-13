@@ -183,24 +183,54 @@ function slicePercentilesFrom(obj, start, n) {
 }
 
 /**
+ * Compute CSS x-center positions for each 1h data point on the variable-resolution
+ * display grid.  Each display slot has width portraitColW px; a 1h point that falls
+ * at offset t within a slot of duration D gets centered at:
+ *   x = (slotIndex + (t + 0.5h) / D) * portraitColW
+ * Returns { xMap1h, xFrac1h, slotIdx1h } — parallel arrays of length times1h.length.
+ */
+function computeXMap1h(times1h, displayTimes, portraitColW) {
+  const n1h  = times1h.length;
+  const nDsp = displayTimes.length;
+  const totalCssW = nDsp * portraitColW;
+  const dspMs = displayTimes.map(t => new Date(t).getTime());
+  const HALF_H = 1800000; // 0.5 h in ms
+  const xMap = [], xFrac = [], slotIdx = [];
+  let j = 0;
+  for (let k = 0; k < n1h; k++) {
+    const tk = new Date(times1h[k]).getTime();
+    while (j < nDsp - 1 && dspMs[j + 1] <= tk) j++;
+    const slotDur = j < nDsp - 1
+      ? dspMs[j + 1] - dspMs[j]
+      : (j > 0 ? dspMs[j] - dspMs[j - 1] : 3600000);
+    const x = (j + (tk - dspMs[j] + HALF_H) / slotDur) * portraitColW;
+    xMap.push(x);
+    xFrac.push(x / totalCssW);
+    slotIdx.push(j);
+  }
+  return { xMap1h: xMap, xFrac1h: xFrac, slotIdx1h: slotIdx };
+}
+
+/**
  * Build a variable-resolution display series for portrait mode.
- * Resolution decreases with distance in time from now:
- *   0–24 h  → 1-hour slots   (finest, today)
- *   24–48 h → 3-hour slots   (tomorrow)
- *   48 h+   → 6-hour slots   (days 3-7)
+ * Base resolution decreases with distance from now; nighttime slots are
+ * additionally coarsened by 3× (capped at 6h) so nights compress naturally:
+ *   0–24 h  daytime  → 1h  |  nighttime → 3h
+ *   24–48 h daytime  → 3h  |  nighttime → 6h
+ *   48 h+            → 6h  (always, day or night)
  *
  * For coarse slots the icon/direction is picked from whichever hour in the
- * window is most "daytime" (prefers midday, avoids night). The axis label
- * uses the scheduled step-aligned start time so day dividers land correctly.
+ * window is most "daytime" (prefers midday, avoids night).
  *
- * The returned object exposes both naming conventions (times/times1h, dirs/dirs1h,
- * codes/codes1h, winds/winds1h, precips/precips1h) so renderAll() works without
- * any changes.
+ * The returned object keeps the display series (times/codes/dirs/precips/winds,
+ * length = N_display) separate from the full 1h arrays (times1h/temps1h/etc.,
+ * length = N_1h).  xMap1h / xFrac1h map each 1h point to its CSS x-center on
+ * the display grid so curves can be drawn at full resolution.
  */
 function buildPortraitSeries(s) {
   const t0 = new Date(s.times1h[0]).getTime();
   const times = [], codes = [], dirs = [];
-  const temps = [], precips = [], gusts = [], winds = [];
+  const precips = [], winds = [];
   const hasEns = s.ensTemp1h != null;
   const ensTemp = { p10: [], p50: [], p90: [] };
   const ensWind = { p10: [], p50: [], p90: [] };
@@ -210,7 +240,10 @@ function buildPortraitSeries(s) {
   let i = 0;
   while (i < s.times1h.length) {
     const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
-    const step = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
+    const h = new Date(s.times1h[i]).getHours();
+    const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
+    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
+    const step = Math.min(6, night ? baseStep * 3 : baseStep);
 
     // For coarse steps pick the slot in [i, i+step) that is most daytime.
     let best = i;
@@ -218,9 +251,9 @@ function buildPortraitSeries(s) {
       let bestScore = -Infinity;
       const end = Math.min(i + step, s.times1h.length);
       for (let j = i; j < end; j++) {
-        const h = new Date(s.times1h[j]).getHours();
-        const night = typeof isNight === 'function' ? isNight(s.times1h[j]) : (h < 6 || h >= 20);
-        const score = (night ? 0 : 100) - Math.abs(h - 12);
+        const hj = new Date(s.times1h[j]).getHours();
+        const nj = typeof isNight === 'function' ? isNight(s.times1h[j]) : (hj < 6 || hj >= 20);
+        const score = (nj ? 0 : 100) - Math.abs(hj - 12);
         if (score > bestScore) { bestScore = score; best = j; }
       }
     }
@@ -231,9 +264,7 @@ function buildPortraitSeries(s) {
     codes.push(s.codes1h ? s.codes1h[best] : null);
     dirs.push(s.dirs1h ? s.dirs1h[best]
                        : s.dirs[Math.min(Math.round(best / 3), s.dirs.length - 1)]);
-    temps.push(s.temps1h[best]);
     precips.push(s.precips1h[best]);
-    gusts.push(s.gusts1h[best]);
     winds.push(s.winds1h[best]);
     // Down-sample ensemble percentile bands by picking the best-slot value.
     if (hasEns) {
@@ -248,20 +279,34 @@ function buildPortraitSeries(s) {
     i += step;
   }
 
-  // Both naming conventions point to the same arrays so renderAll needs no changes.
+  // Compute x-positions mapping each 1h point onto the variable-resolution grid.
+  const { xMap1h, xFrac1h, slotIdx1h } = computeXMap1h(s.times1h, times, PORTRAIT_COL_W);
+
   return {
-    times, times1h: times,
-    codes, codes1h: codes,
-    dirs,  dirs1h:  dirs,
-    temps1h: temps,
-    precips, precips1h: precips,
-    gusts1h: gusts,
-    winds, winds1h: winds,
-    // Ensemble percentile bands down-sampled to match the display series resolution.
-    ensTemp:   hasEns ? ensTemp   : null, ensTemp1h:   hasEns ? ensTemp   : null,
-    ensWind:   hasEns ? ensWind   : null, ensWind1h:   hasEns ? ensWind   : null,
-    ensGust:   hasEns ? ensGust   : null, ensGust1h:   hasEns ? ensGust   : null,
-    ensPrecip: hasEns ? ensPrecip : null, ensPrecip1h: hasEns ? ensPrecip : null,
+    // Display series (N_display): icons, arrows, axis ticks, kite highlights.
+    times, codes, dirs,
+    precips,  // representative precip per display slot (for bars in drawTemp)
+    winds,    // representative wind per display slot (for kite highlights in drawWind)
+    ensTemp:   hasEns ? ensTemp   : null,
+    ensWind:   hasEns ? ensWind   : null,
+    ensGust:   hasEns ? ensGust   : null,
+    ensPrecip: hasEns ? ensPrecip : null,
+
+    // Full 1h arrays (N_1h): smooth curves and precise tooltip values.
+    times1h:     s.times1h,
+    temps1h:     s.temps1h,
+    precips1h:   s.precips1h,
+    gusts1h:     s.gusts1h,
+    winds1h:     s.winds1h,
+    codes1h:     s.codes1h,
+    dirs1h:      s.dirs1h,
+    ensTemp1h:   s.ensTemp1h,
+    ensWind1h:   s.ensWind1h,
+    ensGust1h:   s.ensGust1h,
+    ensPrecip1h: s.ensPrecip1h,
+
+    // x-position mapping: each 1h point → CSS x-center on the display grid.
+    xMap1h, xFrac1h, slotIdx1h,
   };
 }
 
@@ -349,12 +394,18 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const ensGustMax    = d.ensGust1h ? Math.max(...d.ensGust1h.p90.filter(v => v != null)) : 0;
   const maxW          = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
   const windDotY      = WIND_padT + (1 - d.winds1h[idx1h] / maxW) * WIND_chartH;
-  // xh-dir snaps to 3hr columns; xh-temp and xh-wind snap to 1hr columns.
-  // xh-top uses 1hr columns when codes1h is present (portrait mode), else 3hr.
+  // When xFrac1h is present (portrait+xMap mode), curve canvases use the precise
+  // per-point fraction; icon/arrow rows snap to the display-slot centre (fracX3h).
   const fracX3h = (idx3h + 0.5) / d.times.length;
   const fracX1h = (idx1h + 0.5) / d.times1h.length;
+  const fracX1h_curve = d.xFrac1h ? d.xFrac1h[idx1h] : fracX1h;
   const DOT_Y   = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC    = { 'xh-top': d.codes1h ? fracX1h : fracX3h, 'xh-temp': fracX1h, 'xh-dir': fracX3h, 'xh-wind': fracX1h };
+  const FRAC    = {
+    'xh-top':  d.xFrac1h ? fracX3h : (d.codes1h ? fracX1h : fracX3h),
+    'xh-temp': fracX1h_curve,
+    'xh-dir':  fracX3h,
+    'xh-wind': fracX1h_curve,
+  };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -414,8 +465,8 @@ function showTooltip(idx1h, idx3h) {
   const prec = d.precips1h[idx1h];
   const wind = d.winds1h[idx1h];
   const gust = Math.max(d.gusts1h[idx1h], wind);
-  // Icon/direction from best-resolution arrays available
-  const dir  = d.dirs[idx3h];
+  // Icon/direction: use 1h arrays (precise) when available, else display-series.
+  const dir  = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
   const code = d.codes1h ? d.codes1h[idx1h] : d.codes[idx3h];
   const windCol = windColorStr(wind);
   const gustCol = windColorStr(gust);
@@ -525,8 +576,25 @@ function attachHoverListeners() {
     const fracX    = Math.max(0, Math.min(1, relX / span));
     const n1h      = lastRenderedData.times1h.length;
     const n3h      = lastRenderedData.times.length;
-    const idx1h    = Math.min(n1h - 1, Math.floor(fracX * n1h));
-    const idx3h    = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    let idx1h, idx3h;
+    if (lastRenderedData.xFrac1h) {
+      // Variable-resolution portrait: binary-search for nearest 1h point.
+      const xf = lastRenderedData.xFrac1h;
+      let lo = 0, hi = n1h - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (xf[mid] <= fracX) lo = mid; else hi = mid - 1;
+      }
+      if (lo < n1h - 1 && Math.abs(xf[lo + 1] - fracX) < Math.abs(xf[lo] - fracX)) lo++;
+      idx1h = lo;
+      // slotIdx1h maps each 1h point to its display slot → valid idx3h.
+      idx3h = lastRenderedData.slotIdx1h
+        ? Math.min(lastRenderedData.slotIdx1h[lo], n3h - 1)
+        : Math.min(lo, n3h - 1);
+    } else {
+      idx1h = Math.min(n1h - 1, Math.floor(fracX * n1h));
+      idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    }
     drawCrosshairs(fracX, idx1h, idx3h);
     showTooltip(idx1h, idx3h);
   });
