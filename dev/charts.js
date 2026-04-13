@@ -127,9 +127,9 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
   });
 
   // icons — drawn on canvas
-  // Stride is a continuous float: MIN_ICON_PX / colW, clamped to [1, 2].
-  // stride=1 → every 3h slot; stride=2 → every 6h. Values in between give
-  // smooth, gradual thinning as the screen narrows.
+  // Stride is a continuous float: MIN_ICON_PX / colW, clamped to [1, 4].
+  // stride=1 → one icon per slot (1h in portrait, 3h in landscape); higher
+  // values skip slots smoothly as the viewport narrows.
   const MIN_ICON_PX = ICON_H * 0.65;
   const iconStride  = Math.min(4, Math.max(1, MIN_ICON_PX / colW));
   if (iconStride !== drawTopRow._lastStride) {
