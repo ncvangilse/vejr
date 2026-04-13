@@ -73,7 +73,7 @@
         <div id="updated-text">—</div>
         <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
         <div id="shore-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
-        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.13-24-nchvg-pixel_based_bearings</div>
+        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.13-25-nchvg-wind_speeds</div>
       </div>
     </div>
 
@@ -128,6 +128,7 @@
   <div id="radar-header">
     <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – precipitation</span>
     <span id="radar-tile-counter" title="Tile requests today (max ~1000)">0 / 1000 tiles</span>
+    <button id="radar-wind-toggle" class="active" title="Toggle Danish wind station overlay">💨 Wind</button>
     <span id="radar-source-label">RainViewer</span>
   </div>
   <div id="radar-map">
@@ -164,8 +165,7 @@
       <div id="shore-compass-wrap">
         <canvas id="shore-compass-canvas" style="cursor:pointer;"></canvas>
         <div id="shore-compass-legend">
-          <span class="sc-leg sea">■ Sea</span>
-          <span class="sc-leg land">■ Land</span>
+          <span class="sc-leg sea">■ Sea</span>          <span class="sc-leg land">■ Land</span>
           <span class="sc-leg sel">■ Selected</span>
           <span class="sc-leg unsel">■ Unselected</span>
         </div>
