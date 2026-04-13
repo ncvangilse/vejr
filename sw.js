@@ -60,7 +60,11 @@ self.addEventListener('fetch', event => {
     url.pathname.endsWith('.css')
   ) {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
+      fetch(event.request).catch(() =>
+        caches.match(event.request).then(
+          r => r || new Response('', { status: 503, statusText: 'Offline' })
+        )
+      )
     );
     return;
   }
