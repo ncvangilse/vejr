@@ -1,2 +1,16 @@
+# JS dependencies
 node_modules/
-package-lock.json
+
+# Test output artefacts
+test*.txt
+test*.json
+test-*.txt
+test-*.json
+
+# JetBrains IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+

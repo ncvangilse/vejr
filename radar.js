@@ -28,7 +28,12 @@
   function attachMapDrag(mapEl) {
     let dragging = false, lastX = 0, lastY = 0;
     function isMarkerTarget(e) {
-      return e.target && e.target.closest && e.target.closest('.radar-loc-wrap');
+      const t = e.target;
+      if (!t || !t.closest) return false;
+      return t.closest('.radar-loc-wrap') ||
+             t.closest('.ws-badge') ||
+             t.closest('.leaflet-popup-content-wrapper') ||
+             t.closest('.leaflet-popup-close-button');
     }
     function onStart(x, y) { dragging = true; lastX = x; lastY = y; }
     function onMove(x, y) {
@@ -240,6 +245,11 @@
             stageFrame((radarIdx + 1) % radarFrames.length, false);
         }, 400);
       });
+
+      // First-time init: load wind stations and start auto-refresh
+      refreshWindStations();
+      setInterval(refreshWindStations, 10 * 60 * 1000);
+      initWindToggle();
     }
     radarMap.setView([lat, lon], 7);
   }
@@ -381,6 +391,108 @@
    * @param {function(lat: number, lon: number): void} cb
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
+
+  // ── Wind station overlay ──────────────────────────────────────────────
+  const WIND_DIRECT = 'https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json';
+  // On GitHub Pages a scheduled workflow writes this file to the same origin
+  // (no CORS). On localhost it 404s and we fall back to proxy.
+  const WIND_SAME_ORIGIN = './wind-speeds.json';
+  // Public CORS proxies – fallback for local development only.
+  const WIND_PROXIES = [
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(WIND_DIRECT),
+    'https://corsproxy.io/?url='          + encodeURIComponent(WIND_DIRECT),
+  ];
+  let windLayer   = null;
+  let windVisible = true;
+
+  async function fetchWindJson() {
+    // 1. Same-origin (GitHub Pages) – no CORS, no console noise on 404
+    try {
+      const r = await fetch(WIND_SAME_ORIGIN, { cache: 'no-store' });
+      if (r.ok) return r.json();
+    } catch (_) {}
+    // 2. CORS proxies (local dev fallback)
+    for (const url of WIND_PROXIES) {
+      try {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (r.ok) return r.json();
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  const DIR_DEG = {
+    N:0, NNE:22, NE:45, ENE:67, E:90, ESE:112, SE:135, SSE:157,
+    S:180, SSW:202, SW:225, WSW:247, W:270, WNW:292, NW:315, NNW:337,
+  };
+
+  function windColor(mps) {
+    const s = parseFloat(mps) || 0;
+    if (s <  5) return '#27a045';   // calm – green
+    if (s < 10) return '#c8a000';   // moderate – amber
+    if (s < 15) return '#d95f00';   // strong – orange
+    return '#cc2200';               // very strong – red
+  }
+
+  async function refreshWindStations() {
+    if (!radarMap) return;
+    try {
+      const geo = await fetchWindJson();
+      if (!geo) return;
+
+      if (windLayer) { radarMap.removeLayer(windLayer); windLayer = null; }
+      windLayer = L.layerGroup();
+
+      (geo.features || []).forEach(f => {
+        const [lon, lat] = f.geometry.coordinates;
+        const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+        const spd = parseFloat(windSpeed) || 0;
+        const deg = DIR_DEG[windDirection] ?? 0;
+        const col = windColor(spd);
+
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="ws-wrap">` +
+                `<div class="ws-arrow" style="transform:rotate(${deg}deg)">↑</div>` +
+                `<div class="ws-badge" style="background:${col}">${spd}</div>` +
+                `</div>`,
+          iconSize:    [22, 36],
+          iconAnchor:  [11, 18],
+          popupAnchor: [0, -22],
+        });
+
+        L.marker([lat, lon], { icon, interactive: true })
+          .bindPopup(
+            `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
+            `<b style="font-size:14px">${spd} m/s</b><br>` +
+            `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
+            `</div>`,
+            { maxWidth: 200 }
+          )
+          .addTo(windLayer);
+      });
+
+      if (windVisible) windLayer.addTo(radarMap);
+    } catch (e) {
+      console.warn('Wind stations load failed', e);
+    }
+  }
+
+  function initWindToggle() {
+    const btn = document.getElementById('radar-wind-toggle');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      windVisible = !windVisible;
+      btn.classList.toggle('active', windVisible);
+      if (!radarMap) return;
+      if (windVisible) {
+        if (windLayer) windLayer.addTo(radarMap);
+        else refreshWindStations();
+      } else {
+        if (windLayer) radarMap.removeLayer(windLayer);
+      }
+    });
+  }
 })();
 
 
