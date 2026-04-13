@@ -19,6 +19,7 @@ const KITE_DEFAULTS = {
   max:  9,
   dirs: [90, 270],   // exact bearings (snapped to nearest 10°)
   daylight: true,
+  seaThresh: 0.75,   // fraction of samples over water required for a sea bearing
 };
 const KITE_STORAGE_KEY = 'vejr_kite_cfg';
 
@@ -30,13 +31,18 @@ function snapBearing(deg) {
 function parseKiteParams() {
   const p = new URLSearchParams(window.location.search);
   const cfg = { ...KITE_DEFAULTS };
-  const hasUrlParams = p.has('kite_min') || p.has('kite_max') || p.has('kite_dirs') || p.has('kite_at_night');
+  const hasUrlParams = p.has('kite_min') || p.has('kite_max') || p.has('kite_dirs')
+                     || p.has('kite_at_night') || p.has('kite_sea_thresh');
 
   if (hasUrlParams) {
     if (p.has('kite_min'))  cfg.min  = parseFloat(p.get('kite_min'))  || cfg.min;
     if (p.has('kite_max'))  cfg.max  = parseFloat(p.get('kite_max'))  || cfg.max;
     if (p.has('kite_dirs')) cfg.dirs = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v)).map(snapBearing);
     if (p.has('kite_at_night')) cfg.daylight = p.get('kite_at_night') !== '0' ? false : true;
+    if (p.has('kite_sea_thresh')) {
+      const v = parseFloat(p.get('kite_sea_thresh'));
+      if (!isNaN(v) && v >= 0.1 && v <= 1.0) cfg.seaThresh = v;
+    }
     // Persist URL-provided settings so they survive future Home Screen launches
     try { localStorage.setItem(KITE_STORAGE_KEY, JSON.stringify(cfg)); } catch(_) {}
   } else {
@@ -49,6 +55,7 @@ function parseKiteParams() {
         if (typeof saved.max     === 'number')  cfg.max     = saved.max;
         if (Array.isArray(saved.dirs))          cfg.dirs    = saved.dirs;
         if (typeof saved.daylight === 'boolean') cfg.daylight = saved.daylight;
+        if (typeof saved.seaThresh === 'number') cfg.seaThresh = saved.seaThresh;
       }
     } catch(_) { /* ignore corrupt storage */ }
   }
@@ -72,6 +79,8 @@ function setKiteParams(cfg) {
   url.searchParams.delete('kite_tol');
   if (cfg.daylight !== def.daylight) url.searchParams.set('kite_at_night', '1');
   else url.searchParams.delete('kite_at_night');
+  if (cfg.seaThresh !== def.seaThresh) url.searchParams.set('kite_sea_thresh', cfg.seaThresh);
+  else url.searchParams.delete('kite_sea_thresh');
   window.history.replaceState(null, '', url.toString());
 }
 

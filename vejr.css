@@ -368,6 +368,18 @@ canvas.main-canvas {
 }
 .kite-field input[type="number"]:focus { border-color: #00c890; }
 .kite-field-unit { font-size: 11px; color: #5a8a7a; }
+.kite-field input[type="range"] {
+  flex: 1;
+  accent-color: #00c890;
+  cursor: pointer;
+  height: 4px;
+}
+.kite-sea-thresh-label {
+  min-width: 34px;
+  text-align: right;
+  font-family: 'IBM Plex Mono', monospace;
+  color: #00c890;
+}
 .kite-modal-actions {
   display: flex;
   gap: 8px;

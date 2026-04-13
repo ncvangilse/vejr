@@ -41,7 +41,11 @@
 const SHORE_BEARINGS   = 36;     // one every 10°
 const SHORE_SAMPLES    = 5;      // distances: 1, 2, 3, 4, 5 km
 const SHORE_MAX_KM     = 5;
-const SHORE_SEA_THRESH = 0.5;   // fraction of samples that must be water
+// Initialised from KITE_CFG (config.js loads first) so the saved setting is
+// honoured immediately.  Can be updated at runtime via window.setShoreSeaThresh.
+let SHORE_SEA_THRESH = (typeof KITE_CFG !== 'undefined' && typeof KITE_CFG.seaThresh === 'number')
+  ? KITE_CFG.seaThresh
+  : 0.75;   // fraction of samples that must be water
 
 /* ── WMS constants ──────────────────────────────────────────────────────── */
 const WMS_BASE    = 'https://services.terrascope.be/wms/v2';
@@ -526,8 +530,10 @@ async function analyseShore(lat, lon, onDone) {
  * @param {number|null} windDeg  current wind direction (meteorological, from)
  * @param {boolean} isGood       whether current wind is kite-optimal
  * @param {number[]} [selectedBearings]  bearings currently selected in the dialog (snapped to 10°)
+ * @param {number}  [seaThresh]         override threshold for preview; defaults to SHORE_SEA_THRESH
  */
-function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBearings) {
+function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBearings, seaThresh) {
+  const SEA_THRESH = (seaThresh != null) ? seaThresh : SHORE_SEA_THRESH;
   const TWO_PI  = Math.PI * 2;
   const DEG2RAD = Math.PI / 180;
   const innerR  = radius * 0.28;
@@ -563,7 +569,7 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBe
     ctx.fill();
 
     if (mask) {
-      const isWater = mask[b] >= SHORE_SEA_THRESH;
+      const isWater = mask[b] >= SEA_THRESH;
       ctx.beginPath();
       ctx.arc(cx, cy, rimR,  startAngle, endAngle);
       ctx.arc(cx, cy, fillR, endAngle,   startAngle, true);
@@ -681,6 +687,9 @@ function isSeaBearing(deg) {
 window.analyseShore     = analyseShore;
 window.drawShoreCompass = drawShoreCompass;
 window.isSeaBearing     = isSeaBearing;
+/** Update the sea-bearing threshold at runtime (called from the kite dialog). */
+window.setShoreSeaThresh = (v) => { SHORE_SEA_THRESH = v; };
+window.getShoreSeaThresh = ()  => SHORE_SEA_THRESH;
 
 
 
