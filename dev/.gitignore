@@ -1,8 +1,6 @@
 # JS dependencies
 node_modules/
 
-wind-speeds.json
-
 # Test output artefacts
 test*.txt
 test*.json

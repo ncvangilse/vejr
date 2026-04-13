@@ -31,7 +31,7 @@
       const t = e.target;
       if (!t || !t.closest) return false;
       return t.closest('.radar-loc-wrap') ||
-             t.closest('.ws-wrap') ||
+             t.closest('.ws-badge') ||
              t.closest('.leaflet-popup-content-wrapper') ||
              t.closest('.leaflet-popup-close-button');
     }
@@ -146,7 +146,7 @@
   // ── Create a tile layer, fire onReady() when all viewport tiles loaded
   function makeLayer(frame, opacity, onReady) {
     const l = new SafeTileLayer(frameUrl(frame), {
-      opacity, tileSize: 256, maxZoom: 12,
+      opacity, tileSize: 256, maxZoom: 10,
       keepBuffer: 0, updateWhenIdle: true,
     });
     let pending = 0, errors = 0, probeUrl = null;
@@ -227,7 +227,7 @@
         dragging: false, inertia: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
+        maxZoom: 10,
       }).addTo(radarMap);
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
@@ -427,31 +427,11 @@
   };
 
   function windColor(mps) {
-    // Same ramp as WINDY_RAMP in charts.js – alpha forced to 1 for solid badge.
-    const r = [
-      [ 0, 130, 190, 255],
-      [ 2, 130, 190, 255],
-      [ 4, 100, 180, 255],
-      [ 7,  50, 200,  80],
-      [10, 255, 160,  20],
-      [13, 220,  30,  30],
-      [16, 160,  30, 220],
-      [19,  60,  10, 180],
-      [22,  20,  40, 160],
-      [27, 140, 180, 240],
-      [32, 220, 235, 255],
-    ];
     const s = parseFloat(mps) || 0;
-    if (s <= r[0][0]) return `rgb(${r[0][1]},${r[0][2]},${r[0][3]})`;
-    for (let i = 1; i < r.length; i++) {
-      if (s <= r[i][0]) {
-        const t = (s - r[i-1][0]) / (r[i][0] - r[i-1][0]);
-        const lerp = (a, b) => Math.round(a + (b - a) * t);
-        return `rgb(${lerp(r[i-1][1],r[i][1])},${lerp(r[i-1][2],r[i][2])},${lerp(r[i-1][3],r[i][3])})`;
-      }
-    }
-    const last = r[r.length-1];
-    return `rgb(${last[1]},${last[2]},${last[3]})`;
+    if (s <  5) return '#27a045';   // calm – green
+    if (s < 10) return '#c8a000';   // moderate – amber
+    if (s < 15) return '#d95f00';   // strong – orange
+    return '#cc2200';               // very strong – red
   }
 
   async function refreshWindStations() {
@@ -469,31 +449,16 @@
         const spd = parseFloat(windSpeed) || 0;
         const deg = DIR_DEG[windDirection] ?? 0;
         const col = windColor(spd);
-        // Arrow points WHERE wind goes (same convention as forecast chart)
-        const rot = (deg - 180 + 360) % 360;
-
-        // SVG arrow matching drawWindArrow() in charts.js (size=16):
-        //   shaftTop=-3, shaftBot=8, tip=-12, base half-width=6
-        // viewBox centred at (0,0) so SVG transform="rotate(rot)" spins around
-        // the arrow's own centre.  overflow:visible prevents clipping.
-        const halo  = 'rgba(255,255,255,0.8)';
-        const arrow =
-          `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
-               `style="display:block;overflow:visible">` +
-            `<g transform="rotate(${rot})">` +
-              `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
-              `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
-              `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
-              `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
-            `</g>` +
-          `</svg>`;
 
         const icon = L.divIcon({
           className: '',
-          html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
-          iconSize:    [24, 38],
-          iconAnchor:  [12, 12],
-          popupAnchor: [0, -14],
+          html: `<div class="ws-wrap">` +
+                `<div class="ws-arrow" style="transform:rotate(${deg}deg)">↑</div>` +
+                `<div class="ws-badge" style="background:${col}">${spd}</div>` +
+                `</div>`,
+          iconSize:    [22, 36],
+          iconAnchor:  [11, 18],
+          popupAnchor: [0, -22],
         });
 
         L.marker([lat, lon], { icon, interactive: true })

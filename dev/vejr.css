@@ -597,19 +597,33 @@ canvas.main-canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   font-family: 'IBM Plex Mono', monospace;
-  cursor: pointer;
+  pointer-events: none;
 }
-.ws-speed {
+.ws-arrow {
+  font-size: 11px;
+  line-height: 1;
+  display: inline-block;
+  transform-origin: center center;
+  color: #222;
+  text-shadow: 0 0 3px rgba(255,255,255,0.9);
+}
+.ws-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 10px;
   font-weight: 700;
-  line-height: 1;
-  text-align: center;
-  /* white halo so the number stays legible on any map background */
-  text-shadow:
-    0 0 3px #fff,
-    0 0 6px rgba(255,255,255,0.85);
+  color: #fff;
+  border: 1.5px solid rgba(255,255,255,0.85);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 
 /* ── Portrait: hide right-side rain axis to save lateral space ── */
