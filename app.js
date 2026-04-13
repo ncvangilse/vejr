@@ -1008,6 +1008,7 @@ async function loadAtCoords(lat, lon, model) {
 
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    let reverseCountryCode = null;
     try {
       const r = await fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
@@ -1017,6 +1018,7 @@ async function loadAtCoords(lat, lon, model) {
         const d = await r.json();
         displayName = d.address?.city || d.address?.town || d.address?.village
                       || d.display_name.split(',')[0];
+        reverseCountryCode = (d.address?.country_code || '').toUpperCase() || null;
       }
     } catch(_) { /* keep coord string */ }
 
@@ -1137,6 +1139,10 @@ async function loadAtCoords(lat, lon, model) {
     }
     lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
+    // DMI observations (fire-and-forget; re-renders when done)
+    if (reverseCountryCode) {
+      loadDmiObservations(lat, lon, reverseCountryCode).catch(() => null);
+    }
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display          = 'none';

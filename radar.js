@@ -115,8 +115,26 @@
     }, 60000);
   }
 
-  // ── Safe tile layer: guards _tileOnError against removed tiles ────────
+  // ── Transparent 1×1 placeholder — returned instead of making an HTTP
+  //    request when we know the tile would 429 (or just to fill gaps).
+  const TRANSPARENT_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+  // ── Safe tile layer: guards _tileOnError against removed tiles, and
+  //    short-circuits createTile while rate-limited so no new 429s are fired.
   const SafeTileLayer = L.TileLayer.extend({
+    createTile(coords, done) {
+      // While rate-limited, return a transparent placeholder immediately —
+      // no HTTP request, no browser console noise.
+      if (rateLimited) {
+        const img = document.createElement('img');
+        img.setAttribute('role', 'presentation');
+        img.setAttribute('alt', '');
+        img.src = TRANSPARENT_TILE;
+        setTimeout(() => done(null, img), 0);
+        return img;
+      }
+      return L.TileLayer.prototype.createTile.call(this, coords, done);
+    },
     _tileOnError(done, tile, e) {
       if (!tile || !tile.el) return;
       try { L.TileLayer.prototype._tileOnError.call(this, done, tile, e); }
@@ -159,7 +177,8 @@
     l.on('tileload', (e) => {
       errors = 0;
       _everLoadedTile = true;
-      if (e.tile && e.tile.src) bumpCountIfNew(e.tile.src.split('?')[0]);
+      if (e.tile && e.tile.src && e.tile.src.startsWith('http'))
+        bumpCountIfNew(e.tile.src.split('?')[0]);
       if (--pending === 0 && onReady) { onReady(); onReady = null; }
     });
     l.on('tileerror', (e) => {
@@ -404,13 +423,17 @@
   ];
   let windLayer   = null;
   let windVisible = true;
+  let dmiMarker   = null;   // DMI nearest-station arrow marker (lives inside windLayer)
 
   async function fetchWindJson() {
-    // 1. Same-origin (GitHub Pages) – no CORS, no console noise on 404
-    try {
-      const r = await fetch(WIND_SAME_ORIGIN, { cache: 'no-store' });
-      if (r.ok) return r.json();
-    } catch (_) {}
+    // 1. Same-origin (GitHub Pages) – skip on localhost to avoid a noisy 404
+    const onLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!onLocalhost) {
+      try {
+        const r = await fetch(WIND_SAME_ORIGIN, { cache: 'no-store' });
+        if (r.ok) return r.json();
+      } catch (_) {}
+    }
     // 2. CORS proxies (local dev fallback)
     for (const url of WIND_PROXIES) {
       try {
@@ -455,63 +478,194 @@
   }
 
   async function refreshWindStations() {
-    if (!radarMap) return;
+    console.log('[WindStations] refreshWindStations called — radarMap:', !!radarMap, '| windVisible:', windVisible, '| windLayer before rebuild:', !!windLayer);
+    if (!radarMap) { console.log('[WindStations] skip — radarMap null'); return; }
+
+    // Always rebuild windLayer so the DMI marker is shown even when the
+    // wind-speeds.json fetch fails or returns null.
+    dmiMarker = null;
+    if (windLayer) { radarMap.removeLayer(windLayer); windLayer = null; }
+    windLayer = L.layerGroup();
+    console.log('[WindStations] new windLayer created, fetching wind JSON…');
+
     try {
       const geo = await fetchWindJson();
-      if (!geo) return;
+      console.log('[WindStations] fetchWindJson done — geo:', geo ? `${(geo.features||[]).length} features` : 'null');
+      if (geo) {
+        (geo.features || []).forEach(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+          const spd = parseFloat(windSpeed) || 0;
+          const deg = DIR_DEG[windDirection] ?? 0;
+          const col = windColor(spd);
+          // Arrow points WHERE wind goes (same convention as forecast chart)
+          const rot = (deg - 180 + 360) % 360;
 
-      if (windLayer) { radarMap.removeLayer(windLayer); windLayer = null; }
-      windLayer = L.layerGroup();
+          const halo  = 'rgba(255,255,255,0.8)';
+          const arrow =
+            `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
+                 `style="display:block;overflow:visible">` +
+              `<g transform="rotate(${rot})">` +
+                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
+                `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
+                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
+                `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
+              `</g>` +
+            `</svg>`;
 
-      (geo.features || []).forEach(f => {
-        const [lon, lat] = f.geometry.coordinates;
-        const { windSpeed, windDirection, windDirectionDanish } = f.properties;
-        const spd = parseFloat(windSpeed) || 0;
-        const deg = DIR_DEG[windDirection] ?? 0;
-        const col = windColor(spd);
-        // Arrow points WHERE wind goes (same convention as forecast chart)
-        const rot = (deg - 180 + 360) % 360;
+          const icon = L.divIcon({
+            className: '',
+            html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
+            iconSize:    [24, 38],
+            iconAnchor:  [12, 12],
+            popupAnchor: [0, -14],
+          });
 
-        // SVG arrow matching drawWindArrow() in charts.js (size=16):
-        //   shaftTop=-3, shaftBot=8, tip=-12, base half-width=6
-        // viewBox centred at (0,0) so SVG transform="rotate(rot)" spins around
-        // the arrow's own centre.  overflow:visible prevents clipping.
-        const halo  = 'rgba(255,255,255,0.8)';
-        const arrow =
-          `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
-               `style="display:block;overflow:visible">` +
-            `<g transform="rotate(${rot})">` +
-              `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
-              `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
-              `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
-              `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
-            `</g>` +
-          `</svg>`;
-
-        const icon = L.divIcon({
-          className: '',
-          html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
-          iconSize:    [24, 38],
-          iconAnchor:  [12, 12],
-          popupAnchor: [0, -14],
+          L.marker([lat, lon], { icon, interactive: true })
+            .bindPopup(
+              `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
+              `<b style="font-size:14px">${spd} m/s</b><br>` +
+              `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
+              `</div>`,
+              { maxWidth: 200 }
+            )
+            .addTo(windLayer);
         });
-
-        L.marker([lat, lon], { icon, interactive: true })
-          .bindPopup(
-            `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
-            `<b style="font-size:14px">${spd} m/s</b><br>` +
-            `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
-            `</div>`,
-            { maxWidth: 200 }
-          )
-          .addTo(windLayer);
-      });
-
-      if (windVisible) windLayer.addTo(radarMap);
+      }
     } catch (e) {
-      console.warn('Wind stations load failed', e);
+      console.warn('[WindStations] fetchWindJson threw:', e);
     }
+
+    console.log('[WindStations] windVisible:', windVisible, '— adding windLayer to map:', windVisible);
+    if (windVisible) windLayer.addTo(radarMap);
+    console.log('[WindStations] windLayer on map:', radarMap.hasLayer(windLayer), '— calling _refreshDmiMarker');
+    _refreshDmiMarker();
   }
+
+  // ── DMI station marker: shows nearest station with current wind as an
+  //    arrow badge identical to the wind-speeds.json station markers.
+  function _refreshDmiMarker() {
+    console.log('[DMI marker] _refreshDmiMarker called — radarMap:', !!radarMap,
+      '| windLayer:', !!windLayer,
+      '| windLayer on map:', radarMap ? radarMap.hasLayer(windLayer) : 'n/a',
+      '| windVisible:', windVisible,
+      '| DMI_OBS:', window.DMI_OBS ? `${window.DMI_OBS.stationName} (${window.DMI_OBS.obs?.length} obs)` : 'null',
+      '| DMI_OBS_STATUS:', window.DMI_OBS_STATUS?.state);
+
+    // Remove stale marker (it was in the previous windLayer if any)
+    if (dmiMarker) {
+      console.log('[DMI marker] removing stale dmiMarker');
+      try { if (windLayer) windLayer.removeLayer(dmiMarker); } catch (_) {}
+      dmiMarker = null;
+    }
+    if (!radarMap) {
+      console.log('[DMI marker] skip — radarMap not ready');
+      return;
+    }
+
+    // windLayer may not exist yet if refreshWindStations() is still in-flight.
+    // In that case retry after a short delay; refreshWindStations() will also
+    // call _refreshDmiMarker() itself when it finishes.
+    if (!windLayer) {
+      console.log('[DMI marker] windLayer not ready — will retry in 500 ms');
+      setTimeout(_refreshDmiMarker, 500);
+      return;
+    }
+
+    const obs = window.DMI_OBS;
+    if (!obs) {
+      // DMI is still in-flight — retry in 500 ms.  loadDmiObservations() also
+      // calls window.refreshDmiMarker() when done, so this is a safety net only.
+      if (window.DMI_OBS_STATUS && window.DMI_OBS_STATUS.state === 'loading') {
+        console.log('[DMI marker] DMI_OBS still loading — retry in 500 ms');
+        setTimeout(_refreshDmiMarker, 500);
+      } else {
+        console.log('[DMI marker] DMI_OBS null, state:', window.DMI_OBS_STATUS?.state, '— no marker needed');
+      }
+      return;
+    }
+    if (!obs.obs || !obs.obs.length) {
+      console.log('[DMI marker] skip — obs array empty');
+      return;
+    }
+
+    // Require at least a valid wind speed.
+    const latestWind = [...obs.obs].reverse().find(
+      o => o.wind != null && isFinite(o.wind)
+    );
+    if (!latestWind) {
+      console.log('[DMI marker] skip — no valid wind reading in', obs.obs.length, 'entries. Sample:', JSON.stringify(obs.obs.slice(-3)));
+      return;
+    }
+
+    const spd = latestWind.wind;
+    const col = windColor(spd);
+
+    // Direction is optional — find the nearest obs that has one, within 30 min.
+    const dirEntries = obs.obs.filter(o => o.dir != null && isFinite(o.dir));
+    let dir = null;
+    if (dirEntries.length) {
+      const closest = dirEntries.reduce((a, b) =>
+        Math.abs(a.t - latestWind.t) <= Math.abs(b.t - latestWind.t) ? a : b
+      );
+      if (Math.abs(closest.t - latestWind.t) <= 30 * 60 * 1000) dir = closest.dir;
+    }
+
+    const halo = 'rgba(255,255,255,0.8)';
+    let innerSvg;
+    if (dir != null) {
+      const rot = (dir - 180 + 360) % 360;
+      innerSvg =
+        `<g transform="rotate(${rot})">` +
+          `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
+          `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
+          `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
+          `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
+        `</g>`;
+    } else {
+      // No direction data available — show a filled circle instead.
+      innerSvg = `<circle r="7" fill="${halo}"/><circle r="6" fill="${col}" opacity="0.9"/>`;
+    }
+    const arrow =
+      `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
+        innerSvg +
+      `</svg>`;
+
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${Math.round(spd)}</div></div>`,
+      iconSize:    [24, 38],
+      iconAnchor:  [12, 12],
+      popupAnchor: [0, -14],
+    });
+
+    const compassPts = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    const compass = dir != null ? compassPts[Math.round(dir / 22.5) % 16] : null;
+    const dirLine = compass
+      ? `From <b>${compass}</b> (${Math.round(dir)}°)<br>`
+      : '';
+
+    dmiMarker = L.marker([obs.lat, obs.lon], { icon, interactive: true, zIndexOffset: 500 })
+      .bindPopup(
+        `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:140px">` +
+        `<b style="font-size:14px">${spd.toFixed(1)} m/s</b><br>` +
+        dirLine +
+        `<span style="color:#888">${obs.stationName} (${obs.distKm} km) · DMI</span>` +
+        `</div>`,
+        { maxWidth: 200 }
+      );
+
+    console.log(
+      `[DMI marker] placing at (${obs.lat}, ${obs.lon}) — ${obs.stationName},`,
+      `speed: ${spd.toFixed(1)} m/s, dir: ${dir != null ? Math.round(dir) + '°' : 'n/a'},`,
+      `windLayer on map: ${radarMap.hasLayer(windLayer)},`,
+      `windVisible: ${windVisible}`
+    );
+    dmiMarker.addTo(windLayer);
+    console.log('[DMI marker] addTo(windLayer) done — windLayer layers:', windLayer.getLayers().length,
+      '| windLayer on map:', radarMap.hasLayer(windLayer));
+  }
+  window.refreshDmiMarker = _refreshDmiMarker;
 
   function initWindToggle() {
     const btn = document.getElementById('radar-wind-toggle');
@@ -521,7 +675,7 @@
       btn.classList.toggle('active', windVisible);
       if (!radarMap) return;
       if (windVisible) {
-        if (windLayer) windLayer.addTo(radarMap);
+        if (windLayer) { windLayer.addTo(radarMap); _refreshDmiMarker(); }
         else refreshWindStations();
       } else {
         if (windLayer) radarMap.removeLayer(windLayer);

@@ -112,6 +112,30 @@ describe('_dmiMergeObs', () => {
     expect(obs[0].gust).toBe(8.1);
   });
 
+  it('merges wind direction by timestamp', () => {
+    const windF = [{ properties: { value: 5.2, observed: '2024-01-01T12:00:00Z' } }];
+    const gustF = [{ properties: { value: 8.1, observed: '2024-01-01T12:00:00Z' } }];
+    const dirF  = [{ properties: { value: 270,  observed: '2024-01-01T12:00:00Z' } }];
+    const obs = _dmiMergeObs(windF, gustF, dirF);
+    expect(obs).toHaveLength(1);
+    expect(obs[0].dir).toBe(270);
+  });
+
+  it('sets dir=null when no direction features provided', () => {
+    const windF = [{ properties: { value: 5.2, observed: '2024-01-01T12:00:00Z' } }];
+    const obs = _dmiMergeObs(windF, []);
+    expect(obs[0].dir).toBeNull();
+  });
+
+  it('creates standalone dir-only entry when no wind/gust match', () => {
+    const dirF = [{ properties: { value: 90, observed: '2024-01-01T12:00:00Z' } }];
+    const obs  = _dmiMergeObs([], [], dirF);
+    expect(obs).toHaveLength(1);
+    expect(obs[0].wind).toBeNull();
+    expect(obs[0].gust).toBeNull();
+    expect(obs[0].dir).toBe(90);
+  });
+
   it('handles wind-only observations (no gust match)', () => {
     const windF = [
       { properties: { value: 5.0, observed: '2024-01-01T12:00:00Z' } },
@@ -211,12 +235,16 @@ describe('loadDmiObservations', () => {
     const gustFC    = makeObsFC([
       { param: 'wind_gust_always_10min', value: 8.4, time: '2024-01-01T10:00:00Z' },
     ]);
+    const dirFC     = makeObsFC([
+      { param: 'wind_dir', value: 270, time: '2024-01-01T10:00:00Z' },
+      { param: 'wind_dir', value: 265, time: '2024-01-01T10:10:00Z' },
+    ]);
 
     let fetchCount = 0;
     ctx.fetch = () => {
       fetchCount++;
-      // 1st call = station, 2nd = wind_speed, 3rd = wind_gust_always_10min
-      const payloads = [stationFC, windFC, gustFC];
+      // 1st call = station, 2nd = wind_speed, 3rd = wind_gust_always_10min, 4th = wind_dir
+      const payloads = [stationFC, windFC, gustFC, dirFC];
       const payload  = payloads[fetchCount - 1] || { features: [] };
       return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
     };
@@ -227,9 +255,47 @@ describe('loadDmiObservations', () => {
     expect(ctx.window.DMI_OBS).not.toBeNull();
     expect(ctx.window.DMI_OBS.stationName).toBe('Kastrup');
     expect(ctx.window.DMI_OBS.obs).toHaveLength(2);
-    // First obs should have both wind and gust merged
+    // First obs should have wind, gust and direction merged
     const first = ctx.window.DMI_OBS.obs.find(o => o.wind === 5.2);
     expect(first.gust).toBe(8.4);
+    expect(first.dir).toBe(270);
+  });
+
+  it('calls window.refreshDmiMarker after a successful load', async () => {
+    const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
+    const windFC    = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
+    let fetchCount = 0;
+    ctx.fetch = () => {
+      fetchCount++;
+      const payloads = [stationFC, windFC, { features: [] }, { features: [] }];
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(payloads[fetchCount - 1] || { features: [] }) });
+    };
+
+    let markerRefreshCalled = false;
+    ctx.window.refreshDmiMarker = () => { markerRefreshCalled = true; };
+
+    await loadDmiObservations(55.67, 12.57, 'DK');
+
+    expect(markerRefreshCalled).toBe(true);
+  });
+
+  it('does NOT call window.refreshDmiMarker for non-DK locations', async () => {
+    let markerRefreshCalled = false;
+    ctx.window.refreshDmiMarker = () => { markerRefreshCalled = true; };
+
+    await loadDmiObservations(51.5, -0.1, 'GB');
+
+    expect(markerRefreshCalled).toBe(false);
+  });
+
+  it('does NOT call window.refreshDmiMarker when no station is found', async () => {
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ features: [] }) });
+    let markerRefreshCalled = false;
+    ctx.window.refreshDmiMarker = () => { markerRefreshCalled = true; };
+
+    await loadDmiObservations(55.67, 12.57, 'DK');
+
+    expect(markerRefreshCalled).toBe(false);
   });
 
   it('builds URLs without api-key parameter', async () => {

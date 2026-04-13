@@ -68,18 +68,23 @@ async function _dmiObs(stationId, paramId, fromIso, toIso) {
   return r.json();
 }
 
-/* ── Merge separate wind-speed and wind-gust feature arrays into a single
-   time-sorted observation array.  Public for testing. ── */
-function _dmiMergeObs(windFeatures, gustFeatures) {
+/* ── Merge wind-speed, wind-gust, and wind-direction feature arrays into a
+   single time-sorted observation array.  Public for testing. ── */
+function _dmiMergeObs(windFeatures, gustFeatures, dirFeatures) {
   const byTime = {};
   for (const f of (windFeatures || [])) {
     const t = new Date(f.properties.observed).getTime();
-    byTime[t] = { t, wind: f.properties.value, gust: null };
+    byTime[t] = { t, wind: f.properties.value, gust: null, dir: null };
   }
   for (const f of (gustFeatures || [])) {
     const t = new Date(f.properties.observed).getTime();
     if (byTime[t]) byTime[t].gust = f.properties.value;
-    else           byTime[t] = { t, wind: null, gust: f.properties.value };
+    else           byTime[t] = { t, wind: null, gust: f.properties.value, dir: null };
+  }
+  for (const f of (dirFeatures || [])) {
+    const t = new Date(f.properties.observed).getTime();
+    if (byTime[t]) byTime[t].dir = f.properties.value;
+    else           byTime[t] = { t, wind: null, gust: null, dir: f.properties.value };
   }
   return Object.values(byTime).sort((a, b) => a.t - b.t);
 }
@@ -90,11 +95,13 @@ function _dmiMergeObs(windFeatures, gustFeatures) {
    Populates window.DMI_OBS and triggers a re-render when done.
 ══════════════════════════════════════════════════ */
 async function loadDmiObservations(lat, lon, countryCode) {
+  console.log('[DMI] loadDmiObservations called — lat:', lat, 'lon:', lon, 'countryCode:', countryCode);
   window.DMI_OBS        = null;
   window.DMI_OBS_STATUS = { state: 'idle', msg: '' };
   if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 
   if (!DMI_COUNTRIES.includes(countryCode)) {
+    console.log('[DMI] country', countryCode, 'not in DMI coverage — skipping');
     window.DMI_OBS_STATUS = { state: 'not-dk', msg: '' };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
     return;
@@ -106,10 +113,12 @@ async function loadDmiObservations(lat, lon, countryCode) {
 
     const station = await _dmiFindStation(lat, lon);
     if (!station) {
+      console.log('[DMI] no active station found within 0.5° of', lat, lon);
       window.DMI_OBS_STATUS = { state: 'no-station', msg: 'No station nearby' };
       if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
       return;
     }
+    console.log('[DMI] nearest station:', station.name, '— id:', station.id, '— dist:', station.dist.toFixed(1), 'km');
 
     window.DMI_OBS_STATUS = { state: 'loading', msg: `Loading ${station.name}…` };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
@@ -120,12 +129,20 @@ async function loadDmiObservations(lat, lon, countryCode) {
     const fromIso = new Date(fromMs).toISOString().slice(0, 19) + 'Z';
     const toIso   = now.toISOString().slice(0, 19) + 'Z';
 
-    const [windResp, gustResp] = await Promise.all([
+    const [windResp, gustResp, dirResp] = await Promise.all([
       _dmiObs(station.id, 'wind_speed',             fromIso, toIso),
       _dmiObs(station.id, 'wind_gust_always_10min', fromIso, toIso).catch(() => null),
+      _dmiObs(station.id, 'wind_dir',               fromIso, toIso).catch(() => null),
     ]);
+    console.log('[DMI] wind_speed features:', windResp.features?.length,
+                '| wind_gust features:', gustResp?.features?.length ?? 'err',
+                '| wind_dir features:', dirResp?.features?.length ?? 'err');
 
-    const obs = _dmiMergeObs(windResp.features, (gustResp && gustResp.features) || []);
+    const obs = _dmiMergeObs(
+      windResp.features,
+      (gustResp && gustResp.features) || [],
+      (dirResp  && dirResp.features)  || [],
+    );
 
     window.DMI_OBS = {
       stationId:   station.id,
@@ -141,6 +158,18 @@ async function loadDmiObservations(lat, lon, countryCode) {
     };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 
+    // Update the radar map marker for the nearest DMI station.
+    console.log('[DMI] window.DMI_OBS set — stationName:', window.DMI_OBS.stationName,
+      '| obs.length:', obs.length,
+      '| lat:', window.DMI_OBS.lat, 'lon:', window.DMI_OBS.lon);
+    console.log('[DMI] window.refreshDmiMarker defined:', !!window.refreshDmiMarker,
+      '| window.radarMap (if exposed):', !!(window.radarMap));
+    if (window.refreshDmiMarker) {
+      window.refreshDmiMarker();
+    } else {
+      console.warn('[DMI] window.refreshDmiMarker is NOT defined — marker will not be placed until next wind refresh');
+    }
+
     // Re-render the charts now that observations are available.
     // Double rAF ensures lastData has been set by the time renderDisplay runs.
     if (window.lastData && window.renderDisplay) {
@@ -148,6 +177,7 @@ async function loadDmiObservations(lat, lon, countryCode) {
     }
 
   } catch (e) {
+    console.error('[DMI] loadDmiObservations error:', e);
     window.DMI_OBS_STATUS = { state: 'error', msg: e.message || 'unavailable' };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
   }

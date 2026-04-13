@@ -94,6 +94,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
         return makeEl();
       },
       querySelectorAll: () => [],
+      querySelector: () => null,
       body: { classList: { toggle: () => {}, contains: () => false } },
     },
     localStorage: mockLocalStorage,
@@ -426,3 +427,112 @@ describe('tooltip close-on-tap', () => {
     expect(tooltipEl.style.display).toBe('none');
   });
 });
+
+// ── loadAtCoords — DMI country-code wiring ────────────────────────────────────
+
+/**
+ * Minimal hourly weather response suitable for loadAtCoords to complete.
+ */
+function makeWeatherResponse(nHours = 72) {
+  const base  = new Date('2026-04-13T00:00:00Z');
+  const times = Array.from({ length: nHours }, (_, i) =>
+    new Date(base.getTime() + i * 3_600_000).toISOString().slice(0, 16));
+  const fill  = (v = 0) => times.map(() => v);
+  return {
+    hourly: {
+      time:              times,
+      temperature_2m:    fill(10),
+      precipitation:     fill(0),
+      windspeed_10m:     fill(5),
+      windgusts_10m:     fill(8),
+      winddirection_10m: fill(180),
+      weathercode:       fill(1),
+    },
+    daily: {
+      sunrise: ['2026-04-13T06:00'],
+      sunset:  ['2026-04-13T20:00'],
+    },
+  };
+}
+
+/**
+ * Like loadApp() but adds the extra globals required for loadAtCoords to
+ * run to completion (DA_DAYS3, DA_MON, requestAnimationFrame, loadDmiObservations).
+ */
+function loadAppForCoords(extraCtx = {}) {
+  const base = loadApp();
+  const { ctx } = base;
+  ctx.DA_DAYS3              = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  ctx.DA_MON                = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  ctx.requestAnimationFrame = (fn) => { try { fn(); } catch (_) {} };
+  ctx.loadDmiObservations   = () => Promise.resolve();   // default no-op spy
+  Object.assign(ctx, extraCtx);
+  return base;
+}
+
+describe('loadAtCoords — DMI country-code wiring', () => {
+  it('calls loadDmiObservations with uppercased country_code from reverse geocode', async () => {
+    const weather  = makeWeatherResponse();
+    const dmiCalls = [];
+    const { ctx }  = loadAppForCoords();
+
+    ctx.loadDmiObservations = (lat, lon, cc) => { dmiCalls.push({ lat, lon, cc }); return Promise.resolve(); };
+    ctx.fetchWeather        = () => Promise.resolve(weather);
+    ctx.fetchEnsemble       = () => Promise.resolve(null);
+    // ctx.fetch is used only for the Nominatim reverse-geocode inside loadAtCoords
+    ctx.fetch = (url) => {
+      if (url.includes('nominatim')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            display_name: 'Copenhagen, Denmark',
+            address: { city: 'Copenhagen', country_code: 'dk' },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    };
+
+    await ctx.loadAtCoords(55.67, 12.57, 'best_match');
+
+    expect(dmiCalls).toHaveLength(1);
+    expect(dmiCalls[0].lat).toBe(55.67);
+    expect(dmiCalls[0].lon).toBe(12.57);
+    expect(dmiCalls[0].cc).toBe('DK');   // must be uppercased
+  });
+
+  it('does NOT call loadDmiObservations when reverse geocode fails (network error)', async () => {
+    const weather  = makeWeatherResponse();
+    const dmiCalls = [];
+    const { ctx }  = loadAppForCoords();
+
+    ctx.loadDmiObservations = (lat, lon, cc) => { dmiCalls.push({ lat, lon, cc }); return Promise.resolve(); };
+    ctx.fetchWeather        = () => Promise.resolve(weather);
+    ctx.fetchEnsemble       = () => Promise.resolve(null);
+    ctx.fetch               = () => Promise.reject(new Error('network'));  // Nominatim fails
+
+    await ctx.loadAtCoords(55.67, 12.57, 'best_match');
+
+    expect(dmiCalls).toHaveLength(0);   // reverseCountryCode is null → no DMI call
+  });
+
+  it('does NOT call loadDmiObservations when reverse geocode returns no country_code', async () => {
+    const weather  = makeWeatherResponse();
+    const dmiCalls = [];
+    const { ctx }  = loadAppForCoords();
+
+    ctx.loadDmiObservations = (lat, lon, cc) => { dmiCalls.push({ lat, lon, cc }); return Promise.resolve(); };
+    ctx.fetchWeather        = () => Promise.resolve(weather);
+    ctx.fetchEnsemble       = () => Promise.resolve(null);
+    ctx.fetch = () => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ display_name: 'Unknown', address: {} }),  // no country_code field
+    });
+
+    await ctx.loadAtCoords(55.67, 12.57, 'best_match');
+
+    expect(dmiCalls).toHaveLength(0);
+  });
+});
+
+
