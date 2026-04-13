@@ -146,7 +146,7 @@
   // ── Create a tile layer, fire onReady() when all viewport tiles loaded
   function makeLayer(frame, opacity, onReady) {
     const l = new SafeTileLayer(frameUrl(frame), {
-      opacity, tileSize: 256, maxZoom: 10,
+      opacity, tileSize: 256, maxZoom: 12,
       keepBuffer: 0, updateWhenIdle: true,
     });
     let pending = 0, errors = 0, probeUrl = null;
@@ -227,7 +227,7 @@
         dragging: false, inertia: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 10,
+        maxZoom: 19,
       }).addTo(radarMap);
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
