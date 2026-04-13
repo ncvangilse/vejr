@@ -1082,7 +1082,15 @@ async function loadAtCoords(lat, lon, model) {
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
-    // ── Do NOT call loadRadar here – radar map position is already correct ──
+    // Call loadRadar only when the section is not yet visible (i.e. on a fresh
+    // page load restored from a dragged-pin URL).  When called from a live drag
+    // the radar is already initialised and correctly positioned, so skip it.
+    if (window.loadRadar) {
+      const radarSection = document.getElementById('radar-section');
+      if (!radarSection || radarSection.style.display !== 'flex') {
+        window.loadRadar(lat, lon);
+      }
+    }
     lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
   } catch(e) {
