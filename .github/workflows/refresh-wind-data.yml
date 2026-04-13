@@ -1,0 +1,27 @@
+name: Refresh wind station data
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes
+  workflow_dispatch:           # allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch wind station data
+        run: |
+          mkdir deploy
+          curl -fsSL -o deploy/wind-speeds.json \
+            "https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json"
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: deploy
+          keep_files: true   # preserve the rest of the site
+
