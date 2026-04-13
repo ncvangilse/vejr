@@ -154,6 +154,8 @@ async function load(cityName, model) {
     // Store coords for on-demand shore analysis (triggered from the kite modal)
     lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     updateShoreStatusUI();
+    // DMI observations (fire-and-forget; re-renders when done)
+    loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -343,6 +345,20 @@ function showTooltip(idx1h, idx3h) {
   const desc    = WMO_DESC[code] || 'Unknown';
   const kiteRow = isKiteOptimal(wind, dir, d.times1h[idx1h])
     ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>` : '';
+  // DMI observed wind nearest to this time slot (within 30 min)
+  let obsRow = '';
+  if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
+    const hoverT = new Date(d.times1h[idx1h]).getTime();
+    const nearest = window.DMI_OBS.obs.reduce((a, b) =>
+      Math.abs(a.t - hoverT) < Math.abs(b.t - hoverT) ? a : b
+    );
+    if (Math.abs(nearest.t - hoverT) < 30 * 60 * 1000) {
+      const wStr = nearest.wind != null ? `${nearest.wind.toFixed(1)} m/s` : '—';
+      const gStr = nearest.gust != null ? ` / gust ${nearest.gust.toFixed(1)} m/s` : '';
+      obsRow = `<div class="tt-row"><span class="tt-label" title="DMI ${window.DMI_OBS.stationName}">Observed</span>`
+             + `<span class="tt-val" style="color:#ffe040;font-size:10px">${wStr}${gStr}</span></div>`;
+    }
+  }
   tip.innerHTML = `
     <div class="tt-time">${day} at ${h}:00</div>
     ${kiteRow}
@@ -373,6 +389,7 @@ function showTooltip(idx1h, idx3h) {
       <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
     </div>
     ${gustUncRow}
+    ${obsRow}
     <div class="tt-row">
       <span class="tt-label">Direction</span>
       <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
@@ -474,6 +491,33 @@ function updateShoreStatusUI() {
   }
   renderShoreDebug();
 }
+
+/* ══════════════════════════════════════════════════
+   DMI OBSERVATION STATUS UI
+══════════════════════════════════════════════════ */
+function updateDmiObsStatusUI() {
+  const el = document.getElementById('dmi-obs-status');
+  if (!el) return;
+  const s = window.DMI_OBS_STATUS || { state: 'idle', msg: '' };
+  let text = '', color = '#778';
+  if (s.state === 'loading') {
+    text  = `📡 DMI: ${s.msg || 'loading…'}`;
+    color = '#778';
+  } else if (s.state === 'ok') {
+    text  = `📡 ${s.msg}`;
+    color = '#5a9';
+  } else if (s.state === 'no-station') {
+    text  = '📡 DMI: no station nearby';
+    color = '#aa8844';
+  } else if (s.state === 'error') {
+    text  = `📡 DMI: ${s.msg}`;
+    color = '#a77';
+  }
+  // 'idle' and 'not-dk' show nothing
+  el.textContent = text;
+  el.style.color  = color;
+}
+window.updateDmiObsStatusUI = updateDmiObsStatusUI;
 
 /* ══════════════════════════════════════════════════
    SHORE DEBUG PANEL

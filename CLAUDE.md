@@ -35,6 +35,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `api.js` | Weather/ensemble/geocoding API calls + ensemble percentile math |
 | `config.js` | Constants, kite settings, URL↔localStorage sync |
 | `charts.js` | Canvas drawing: temp, precip, wind, cloud, kite highlights |
+| `dmi.js` | DMI FriData observation API: nearest station lookup, wind obs fetch, chart overlay |
 | `shore.js` | Land/sea pixel analysis for kitesurfing (Terrascope WMS / ESA WorldCover) |
 | `radar.js` | RainViewer radar map (Leaflet, frame animation, tile rate limiting) |
 | `weather-icons.js` | WMO code → canvas icon renderer |
@@ -59,6 +60,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Ensemble bands** — temperature/wind show p10–p90 shaded confidence regions
 - **Kite config** — URL params + localStorage bidirectional sync (shareable links + iOS Home Screen survival)
 - **Land/sea threshold** — `SHORE_SEA_THRESH` (default 0.75) is a `let` in shore.js, initialised from `KITE_CFG.seaThresh` (config.js loads first). Persisted as `kite_sea_thresh` URL param. Exposed via `window.setShoreSeaThresh` / `window.getShoreSeaThresh`. The kite dialog has a range slider (10–100 %, step 5) that previews the threshold live on the compass and commits it on Apply.
+- **DMI observations** — `dmi.js` fetches real wind measurements from the nearest DMI automatic weather station (within ~50 km). Only activates for DK/GL/FO. Uses the keyless open-data endpoint `https://opendataapi.dmi.dk/v2/metObs` — no registration needed. Observations (10-min intervals, past 48 h) are overlaid as yellow/orange dots on the wind chart. Status shown in the header next to ensemble status. Non-fatal: silently skipped outside Denmark or when the API is unavailable.
 - **Land/sea analysis** — single Terrascope WMS `GetMap` request (512×512 PNG) for a ~12 km bbox; pixel RGB matched against ESA WorldCover official class colours (class 80 water = rgb(0,100,200), class 90 wetland = rgb(0,150,160)); no new library required
 - **iOS inverted colors** — canvas pixels pre-inverted in JS to survive OS double-inversion
 - **Service Worker strategy** — network-only for all API calls, network-first for app files, cache-first for static assets
@@ -82,4 +84,5 @@ Tests use a VM-based loader (`tests/helpers/loader.js`) that concatenates source
 | `tests/app.test.js` | Load pipeline, render, kite settings |
 | `tests/api.test.js` | Ensemble percentile calculations |
 | `tests/config.test.js` | Kite config parsing, URL sync |
+| `tests/dmi.test.js` | DMI key storage, haversine, station finder, obs merge, load flow |
 | `tests/shore.test.js` | WMS URL builder, pixel classifier, coordinate mapping, mask computation |

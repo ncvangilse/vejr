@@ -38,6 +38,7 @@ export function loadScripts(...relPaths) {
     localStorage:       mockLocalStorage,
     console,
     Math,
+    Date,
     Array, Float32Array, Set, Map,
     Number, String, Boolean, Object,
     parseInt, parseFloat, isNaN, isFinite,
@@ -45,6 +46,7 @@ export function loadScripts(...relPaths) {
     URL, URLSearchParams,
     Promise, Error,
     setTimeout, clearTimeout,
+    requestAnimationFrame: (fn) => setTimeout(fn, 0),
     fetch: () => Promise.reject(new Error('fetch not mocked in tests')),
   });
 
