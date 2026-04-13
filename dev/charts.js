@@ -81,10 +81,16 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
     ctx.fillText(DA_DAYS[new Date(times[segs[s]]).getDay()], midX, TIME_H/2);
   }
 
-  // hour ticks 6,12,18
+  // Hour tick marks: every 3h for 1h-resolution data, every 6h for 3h-resolution data.
+  // With PORTRAIT_COL_W = 24 px per slot: 3h ticks are 72 px apart (1h data),
+  // or 6h ticks are 48 px apart (3h data) — both comfortable.
+  const stepHours = times.length >= 2
+    ? (new Date(times[1]).getTime() - new Date(times[0]).getTime()) / 3600000
+    : 3;
+  const tickEvery = stepHours <= 1 ? 3 : 6;
   times.forEach((t,i)=>{
     const h = new Date(t).getHours();
-    if(h===0||h%6!==0) return;
+    if(h===0||h%tickEvery!==0) return;
     const x = (i+0.5)*colW;
     ctx.fillStyle = textHr;
     ctx.font = `10px 'IBM Plex Mono', monospace`;
@@ -160,7 +166,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, totalCssW = null) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -169,6 +175,10 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
   const cssH   = 130;
   const ctx    = resolveDPI(canvas, cssW, cssH);
   ctx.clearRect(0,0,cssW,cssH);
+  if (invertedColors) {
+    ctx.fillStyle = '#1e2a38';
+    ctx.fillRect(0, 0, cssW, cssH);
+  }
   const padT=8, padB=8, ch=cssH-padT-padB;
   let tmin=Math.floor(Math.min(...temps)/5)*5;
   let tmax=Math.ceil( Math.max(...temps)/5)*5;
@@ -401,6 +411,13 @@ function isKiteOptimal(speed, deg, timeStr) {
   if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
   return true;
 }
+/** Direction (and daylight/shore) match but speed may be outside the kite window. */
+function isKiteDirOnly(deg, timeStr) {
+  if (KITE_CFG.daylight && isNight(timeStr)) return false;
+  if (!isKiteDir(deg)) return false;
+  if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
+  return true;
+}
 
 /* ══════════════════════════════════════════════════
    DRAW WIND DIRECTION ROW
@@ -435,9 +452,9 @@ function drawWindDir(times, winds, dirs, totalCssW = null) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
   });
 
-  // KITE highlight — teal glow on columns where speed AND direction are optimal AND daylight
+  // KITE highlight — bright teal on all columns where direction matches
   dirs.forEach((deg, i) => {
-    if (!isKiteOptimal(winds[i], deg, times[i])) return;
+    if (!isKiteDirOnly(deg, times[i])) return;
     ctx.fillStyle = 'rgba(0,220,180,0.28)';
     ctx.fillRect(i * colW, 0, colW, DIR_H);
   });
@@ -772,15 +789,23 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
    RENDER ALL
 ══════════════════════════════════════════════════ */
 function renderAll(d, invertedColors, portraitColW = null) {
-  // Compute a single total canvas width anchored to the 3-hour slot count.
-  // Every draw function receives this same value so all four canvases are
-  // *exactly* the same CSS width, guaranteeing perfect time-axis alignment
-  // when the user scrolls — regardless of whether a function uses 3 h or 1 h
-  // resolution data.
-  const totalCssW = portraitColW != null ? d.times.length * portraitColW : null;
-  drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
+  // In portrait mode, anchor canvas width to the 1-hour slot count so the
+  // current day is displayed at the finest available time resolution (1h icons).
+  // Each draw function gets the same totalCssW guaranteeing perfect alignment:
+  //   1h data → colW = portraitColW (e.g. 24 px per hour)
+  //   3h data → colW = 3 × portraitColW (e.g. 72 px per 3-hour slot)
+  // In landscape mode use viewport width (null → each canvas measures its wrap).
+  const portrait = portraitColW != null;
+  const totalCssW = portrait ? d.times1h.length * portraitColW : null;
+
+  // Top row: 1h data in portrait (one icon per hour), 3h data in landscape.
+  if (portrait && d.codes1h) {
+    drawTopRow(d.times1h, d.codes1h, d.precips1h, invertedColors, totalCssW);
+  } else {
+    drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
+  }
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null, totalCssW);
+           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
            d.times, d.winds, invertedColors, totalCssW);

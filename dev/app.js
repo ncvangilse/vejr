@@ -45,8 +45,8 @@ async function load(cityName, model) {
       });
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
-    // 1-hour resolution arrays for smooth curves (temp, wind speed/gust, precip)
-    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[];
+    // 1-hour resolution arrays for smooth curves (temp, wind speed/gust, precip) and icons
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[];
     const totalH=FORECAST_DAYS*24;
     for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP){
       times.push(H.time[i]);
@@ -71,6 +71,11 @@ async function load(cityName, model) {
       winds1h.push(H.windspeed_10m[i]);
       const rawGust1h = H.windgusts_10m[i];
       gusts1h.push(rawGust1h != null ? rawGust1h : H.windspeed_10m[i]);
+      // Weather codes at 1h resolution (portrait mode shows finest available icons)
+      const dmiCode1h  = H.weathercode[i];
+      const iconCode1h = iconCodes ? (iconCodes[i] ?? dmiCode1h) : dmiCode1h;
+      codes1h.push((iconCodes && dmiCode1h >= 80 && dmiCode1h <= 82 && iconCode1h >= 95)
+        ? iconCode1h : dmiCode1h);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',
@@ -144,7 +149,7 @@ async function load(cityName, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
-      times1h, temps1h, precips1h, gusts1h, winds1h,
+      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     // Double rAF ensures layout is complete before measuring canvas width
@@ -163,10 +168,11 @@ async function load(cityName, model) {
 /* ══════════════════════════════════════════════════
    PORTRAIT-AWARE RENDERING
    In portrait mode the full remaining forecast is shown in a scrollable
-   canvas — each 3-hour slot is PORTRAIT_COL_W px wide so one icon fits
-   per slot, and the user can swipe to travel through time.
+   canvas — each 1-hour slot is PORTRAIT_COL_W px wide (one icon per slot)
+   so the current day is shown at the finest available time resolution,
+   and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 24; // px per 3-hour slot in portrait scroll mode
+const PORTRAIT_COL_W = 24; // px per 1-hour slot in portrait scroll mode
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
@@ -200,6 +206,7 @@ function renderDisplay(d) {
     ensTemp:  slicePercentilesFrom(d.ensTemp,  s3, n3h), ensWind:  slicePercentilesFrom(d.ensWind,  s3, n3h),
     ensGust:  slicePercentilesFrom(d.ensGust,  s3, n3h), ensPrecip: slicePercentilesFrom(d.ensPrecip, s3, n3h),
     times1h:  d.times1h.slice(s1, s1 + n1h),  temps1h:  d.temps1h.slice(s1, s1 + n1h),
+    codes1h:  d.codes1h ? d.codes1h.slice(s1, s1 + n1h) : null,
     precips1h: d.precips1h.slice(s1, s1 + n1h), gusts1h: d.gusts1h.slice(s1, s1 + n1h),
     winds1h:  d.winds1h.slice(s1, s1 + n1h),
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
@@ -254,11 +261,12 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const ensGustMax    = d.ensGust1h ? Math.max(...d.ensGust1h.p90.filter(v => v != null)) : 0;
   const maxW          = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
   const windDotY      = WIND_padT + (1 - d.winds1h[idx1h] / maxW) * WIND_chartH;
-  // xh-top and xh-dir snap to 3hr columns; xh-temp and xh-wind snap to 1hr columns
+  // xh-dir snaps to 3hr columns; xh-temp and xh-wind snap to 1hr columns.
+  // xh-top uses 1hr columns when codes1h is present (portrait mode), else 3hr.
   const fracX3h = (idx3h + 0.5) / d.times.length;
   const fracX1h = (idx1h + 0.5) / d.times1h.length;
   const DOT_Y   = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC    = { 'xh-top': fracX3h, 'xh-temp': fracX1h, 'xh-dir': fracX3h, 'xh-wind': fracX1h };
+  const FRAC    = { 'xh-top': d.codes1h ? fracX1h : fracX3h, 'xh-temp': fracX1h, 'xh-dir': fracX3h, 'xh-wind': fracX1h };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -318,9 +326,9 @@ function showTooltip(idx1h, idx3h) {
   const prec = d.precips1h[idx1h];
   const wind = d.winds1h[idx1h];
   const gust = Math.max(d.gusts1h[idx1h], wind);
-  // Icon/direction from 3hr arrays
+  // Icon/direction from best-resolution arrays available
   const dir  = d.dirs[idx3h];
-  const code = d.codes[idx3h];
+  const code = d.codes1h ? d.codes1h[idx1h] : d.codes[idx3h];
   const windCol = windColorStr(wind);
   const gustCol = windColorStr(gust);
   const tp10 = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
@@ -396,6 +404,7 @@ function hideTooltip() {
   clearCrosshairs();
 }
 function attachHoverListeners() {
+  document.getElementById('hover-tooltip').addEventListener('click', hideTooltip);
   const content = document.getElementById('forecast-content');
   content.addEventListener('mousemove', e => {
     if (!lastRenderedData) return;
@@ -984,7 +993,7 @@ async function loadAtCoords(lat, lon, model) {
       });
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
-    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[];
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[];
     const totalH = FORECAST_DAYS * 24;
     for (let i = 0; i < Math.min(totalH, H.time.length); i += STEP) {
       times.push(H.time[i]);
@@ -1007,6 +1016,11 @@ async function loadAtCoords(lat, lon, model) {
       winds1h.push(H.windspeed_10m[i]);
       const rawGust1h = H.windgusts_10m[i];
       gusts1h.push(rawGust1h != null ? rawGust1h : H.windspeed_10m[i]);
+      // Weather codes at 1h resolution (portrait mode shows finest available icons)
+      const dmiCode1h  = H.weathercode[i];
+      const iconCode1h = iconCodes ? (iconCodes[i] ?? dmiCode1h) : dmiCode1h;
+      codes1h.push((iconCodes && dmiCode1h >= 80 && dmiCode1h <= 82 && iconCode1h >= 95)
+        ? iconCode1h : dmiCode1h);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',      'dmi_seamless':        'DMI HARMONIE',
@@ -1060,7 +1074,7 @@ async function loadAtCoords(lat, lon, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
-      times1h, temps1h, precips1h, gusts1h, winds1h,
+      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
