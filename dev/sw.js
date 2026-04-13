@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.13-29-claude-portrait-time-zoom-GARRM-5';
+const CACHE_NAME = 'vejr-2026.04.13-30-nchvg-dmi_data-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
@@ -60,7 +60,11 @@ self.addEventListener('fetch', event => {
     url.pathname.endsWith('.css')
   ) {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
+      fetch(event.request).catch(() =>
+        caches.match(event.request).then(
+          r => r || new Response('', { status: 503, statusText: 'Offline' })
+        )
+      )
     );
     return;
   }

@@ -81,16 +81,10 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
     ctx.fillText(DA_DAYS[new Date(times[segs[s]]).getDay()], midX, TIME_H/2);
   }
 
-  // Hour tick marks: every 3h for 1h-resolution data, every 6h for 3h-resolution data.
-  // With PORTRAIT_COL_W = 24 px per slot: 3h ticks are 72 px apart (1h data),
-  // or 6h ticks are 48 px apart (3h data) — both comfortable.
-  const stepHours = times.length >= 2
-    ? (new Date(times[1]).getTime() - new Date(times[0]).getTime()) / 3600000
-    : 3;
-  const tickEvery = stepHours <= 1 ? 3 : 6;
+  // hour ticks 6,12,18
   times.forEach((t,i)=>{
     const h = new Date(t).getHours();
-    if(h===0||h%tickEvery!==0) return;
+    if(h===0||h%6!==0) return;
     const x = (i+0.5)*colW;
     ctx.fillStyle = textHr;
     ctx.font = `10px 'IBM Plex Mono', monospace`;
@@ -127,9 +121,9 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
   });
 
   // icons — drawn on canvas
-  // Stride is a continuous float: MIN_ICON_PX / colW, clamped to [1, 4].
-  // stride=1 → one icon per slot (1h in portrait, 3h in landscape); higher
-  // values skip slots smoothly as the viewport narrows.
+  // Stride is a continuous float: MIN_ICON_PX / colW, clamped to [1, 2].
+  // stride=1 → every 3h slot; stride=2 → every 6h. Values in between give
+  // smooth, gradual thinning as the screen narrows.
   const MIN_ICON_PX = ICON_H * 0.65;
   const iconStride  = Math.min(4, Math.max(1, MIN_ICON_PX / colW));
   if (iconStride !== drawTopRow._lastStride) {
@@ -166,7 +160,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null, xMap = null) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -185,7 +179,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
   if (tmax-tmin < 15) { const mid=(tmin+tmax)/2; tmin=Math.floor((mid-7.5)/5)*5; tmax=tmin+15; }
   const tRange=tmax-tmin;
   const ty=t=>padT+(1-(t-tmin)/tRange)*ch;
-  const cx2 = xMap ? (i => xMap[i]) : (i => (i + 0.5) * colW);
+  const cx2=i=>(i+0.5)*colW;
 
   // 3hr precip geometry
   const pTimes = times3h || times;
@@ -210,7 +204,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
 
   // day dividers
   divs.forEach(i=>{
-    const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
+    const x=i*colW;
     ctx.strokeStyle='#667788'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cssH); ctx.stroke();
   });
@@ -559,7 +553,10 @@ function _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx
 
   // Build a horizontal gradient coloured by the p90 gust speed (top edge of the band).
   const grad = ctx.createLinearGradient(0, 0, cssW, 0);
-  allP90.forEach((g, i) => grad.addColorStop(cx2(i) / cssW, windColorStr(g, 0.2)));
+  allP90.forEach((g, i) => {
+    const stop = n > 1 ? i / (n - 1) : 0;
+    grad.addColorStop(stop, windColorStr(g, 0.2));
+  });
 
   ctx.beginPath();
   ctx.moveTo(cx2(0), wy(allP90[0]));
@@ -670,7 +667,7 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 ══════════════════════════════════════════════════ */
 // times/gusts/winds are 1hr resolution; dirs is 3hr (same as drawWindDir);
 // times3h/winds3h are the 3hr arrays used only for kite highlights & pills.
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const n      = times.length;
@@ -680,7 +677,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const ctx    = resolveDPI(canvas, cssW, WIND_H);
   ctx.clearRect(0, 0, cssW, WIND_H);
   const divs = dayDivs(times);
-  const cx2  = xMap ? (i => xMap[i]) : (i => (i + 0.5) * colW);
+  const cx2  = i => (i + 0.5) * colW;
 
   // 3hr kite data (dirs align with times3h)
   const n3h    = (times3h || times).length;
@@ -719,7 +716,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // --- grid & day dividers ---
   _drawWindGrid(ctx, wLevels, wy, cssW);
   divs.forEach(i => {
-    const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
+    const x = i * colW;
     ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
   });
@@ -734,7 +731,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // --- wind fill (colour-mapped gradient below wind line) ---
   if (n > 1) {
     const grad = ctx.createLinearGradient(0, 0, cssW, 0);
-    winds.forEach((v, i) => grad.addColorStop(cx2(i) / cssW, windColorStr(v, 0.72)));
+    winds.forEach((v, i) => grad.addColorStop(i / (n - 1), windColorStr(v, 0.72)));
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(cx2(0), wy(winds[0]));
@@ -778,6 +775,39 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     });
   }
 
+  // --- DMI observed wind dots ---
+  // Yellow dots  = 10-min mean wind speed from the nearest DMI station.
+  // Orange dots  = 10-min gust (wind_gust_always_10min) — faint, drawn first so
+  //                the wind dots appear on top.
+  // x-mapping: elapsed hours from times[0] × colW, centred like cx2().
+  if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
+    const t0ms = new Date(times[0]).getTime();
+    ctx.save();
+    for (const ob of window.DMI_OBS.obs) {
+      const fracH = (ob.t - t0ms) / 3600000;
+      const x = (fracH + 0.5) * colW;
+      if (x < -8 || x > cssW + 8) continue;
+      // gust dot (faint orange — drawn first so wind dot appears on top)
+      if (ob.gust != null && isFinite(ob.gust)) {
+        ctx.beginPath();
+        ctx.arc(x, wy(ob.gust), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,150,50,0.65)';
+        ctx.fill();
+      }
+      // wind dot (yellow, slightly larger and more opaque)
+      if (ob.wind != null && isFinite(ob.wind)) {
+        ctx.beginPath();
+        ctx.arc(x, wy(ob.wind), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,240,80,0.9)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   // --- axis labels ---
   _drawWindAxisLabels(wLevels, wy, WIND_H);
 }
@@ -786,20 +816,17 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
    RENDER ALL
 ══════════════════════════════════════════════════ */
 function renderAll(d, invertedColors, portraitColW = null) {
-  // In portrait mode anchor the canvas width to the DISPLAY series slot count
-  // (N_display × portraitColW).  Curves use xMap1h to align their 1h data points
-  // onto this same grid.  In landscape mode each canvas measures its own wrap.
-  const portrait = portraitColW != null;
-  const totalCssW = portrait ? d.times.length * portraitColW : null;
-
-  // Top row always uses the display series (variable-resolution in portrait,
-  // 3h in landscape) so each column is exactly one slot wide.
+  // Compute a single total canvas width anchored to the 3-hour slot count.
+  // Every draw function receives this same value so all four canvases are
+  // *exactly* the same CSS width, guaranteeing perfect time-axis alignment
+  // when the user scrolls — regardless of whether a function uses 3 h or 1 h
+  // resolution data.
+  const totalCssW = portraitColW != null ? d.times.length * portraitColW : null;
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW,
-           d.xMap1h || null);
+           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-           d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null);
+           d.times, d.winds, invertedColors, totalCssW);
 }
 
