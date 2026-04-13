@@ -278,7 +278,7 @@ function makeData(n3h, n1h, base = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000
     gusts: num3(), winds: num3(), dirs: num3(), codes: num3(),
     ensTemp: pct3(), ensWind: pct3(), ensGust: pct3(), ensPrecip: pct3(),
     times1h: arr1(), temps1h: num1(), precips1h: num1(),
-    gusts1h: num1(), winds1h: num1(),
+    gusts1h: num1(), winds1h: num1(), codes1h: num1(),
     ensTemp1h: pct1(), ensWind1h: pct1(), ensGust1h: pct1(), ensPrecip1h: pct1(),
   };
 }
@@ -316,6 +316,22 @@ describe('renderDisplay slicing', () => {
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
     expect(calls[0].ensTemp.p10).toHaveLength(calls[0].times.length);
     expect(calls[0].ensTemp1h.p50).toHaveLength(calls[0].times1h.length);
+  });
+
+  it('slices codes1h to match the 1h time window in portrait mode', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0].codes1h).not.toBeNull();
+    expect(calls[0].codes1h).toHaveLength(calls[0].times1h.length);
+  });
+
+  it('passes codes1h in landscape mode too (sliced to full 7-day window)', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: false, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0].codes1h).not.toBeNull();
+    expect(calls[0].codes1h).toHaveLength(calls[0].times1h.length);
   });
 
   it('keeps full 7-day data in landscape mode (56×3h entries, 168×1h entries)', () => {
