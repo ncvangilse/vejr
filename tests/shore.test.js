@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { loadScripts } from './helpers/loader.js';
+import vordingborgData from './fixtures/vordingborg.json' with { type: 'json' };
 
 const ctx = loadScripts('config.js', 'shore.js');
-const { destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery } = ctx;
+const {
+  destPoint, expandBbox, pointInPoly, signedCrossing, isLandByRayCross, buildOverpassQuery,
+  snapToBbox, clockwiseBboxPath, stitchCoastWays, buildClosedCoastRings,
+  isInBbox, bboxSegmentCrossing, findBboxEntryCrossing, findBboxExitCrossing,
+  processShoreData,
+} = ctx;
 
 // ── destPoint ─────────────────────────────────────────────────────────────
 
@@ -143,6 +149,297 @@ describe('isLandByRayCross', () => {
   });
 });
 
+// ── snapToBbox ────────────────────────────────────────────────────────────
+
+describe('snapToBbox', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('snaps a point north of the bbox to the north edge', () => {
+    const snapped = snapToBbox({ lat: 11, lon: 12 }, bbox);
+    expect(snapped.lat).toBe(9);
+    expect(snapped.lon).toBe(12);
+  });
+
+  it('snaps a point east of the bbox to the east edge', () => {
+    const snapped = snapToBbox({ lat: 7, lon: 20 }, bbox);
+    expect(snapped.lon).toBe(14);
+    expect(snapped.lat).toBe(7);
+  });
+
+  it('snaps a point south of the bbox to the south edge', () => {
+    const snapped = snapToBbox({ lat: 2, lon: 12 }, bbox);
+    expect(snapped.lat).toBe(5);
+    expect(snapped.lon).toBe(12);
+  });
+
+  it('snaps a point west of the bbox to the west edge', () => {
+    const snapped = snapToBbox({ lat: 7, lon: 5 }, bbox);
+    expect(snapped.lon).toBe(10);
+    expect(snapped.lat).toBe(7);
+  });
+});
+
+// ── clockwiseBboxPath ─────────────────────────────────────────────────────
+
+describe('clockwiseBboxPath', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('from north edge to south edge includes NE and SE corners', () => {
+    // Exit on north at lon=12, entry on south at lon=12 – going CW means passing NE then SE
+    const path = clockwiseBboxPath({ lat: 9, lon: 12 }, { lat: 5, lon: 12 }, bbox);
+    const lons = path.map(p => p.lon);
+    expect(lons).toContain(14);  // east edge (NE and SE corners)
+    expect(lons).not.toContain(10); // west edge corners should not be in path
+    // Destination point (south edge) is the last element
+    expect(path[path.length - 1]).toEqual({ lat: 5, lon: 12 });
+  });
+
+  it('from east edge to west edge includes SE and SW corners', () => {
+    // Exit on east at lat=7, entry on west at lat=7 – CW: SE then SW
+    const path = clockwiseBboxPath({ lat: 7, lon: 14 }, { lat: 7, lon: 10 }, bbox);
+    const lats = path.map(p => p.lat);
+    expect(lats).toContain(5);   // south edge (SE and SW corners)
+    expect(lats).not.toContain(9); // north corners should not appear
+    expect(path[path.length - 1]).toEqual({ lat: 7, lon: 10 });
+  });
+
+  it('path endpoint is the snapped `to` point', () => {
+    const path = clockwiseBboxPath({ lat: 9, lon: 11 }, { lat: 5, lon: 13 }, bbox);
+    expect(path[path.length - 1]).toEqual({ lat: 5, lon: 13 });
+  });
+});
+
+// ── stitchCoastWays ───────────────────────────────────────────────────────
+
+describe('stitchCoastWays', () => {
+  it('stitches two connected ways into a single chain', () => {
+    const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
+    const wayB = [{ lat: 7, lon: 12 }, { lat: 9, lon: 12 }];
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(1);
+    expect(chains[0].length).toBe(3);
+    expect(chains[0][0]).toEqual({ lat: 5, lon: 12 });
+    expect(chains[0][2]).toEqual({ lat: 9, lon: 12 });
+  });
+
+  it('does NOT stitch a bad end-to-end connection (reversed way)', () => {
+    // wayB ends at (7,12) — same as wayA's end — so stitching would require
+    // reversing wayB.  Reversal flips the OSM sea-left winding convention and
+    // misclassifies land/sea, so we refuse it and keep both as separate chains.
+    const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
+    const wayB = [{ lat: 9, lon: 12 }, { lat: 7, lon: 12 }]; // end-to-end bad connection
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(2);
+  });
+
+  it('recognises a closed ring after stitching', () => {
+    // Two half-rings that together form a complete closed island ring
+    const wayA = [{ lat: 1, lon: -1 }, { lat: 1, lon: 1 }];
+    const wayB = [{ lat: 1, lon: 1 }, { lat: -1, lon: 1 }, { lat: -1, lon: -1 }, { lat: 1, lon: -1 }];
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(1);
+    const c = chains[0];
+    // Head and tail should be the same point (closed)
+    expect(c[0].lat).toBeCloseTo(c[c.length - 1].lat, 5);
+    expect(c[0].lon).toBeCloseTo(c[c.length - 1].lon, 5);
+  });
+
+  it('keeps unconnected ways as separate chains', () => {
+    const wayA = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }];
+    const wayB = [{ lat: 1, lon: 0  }, { lat: 2, lon: 0  }];
+    const chains = stitchCoastWays([wayA, wayB]);
+    expect(chains.length).toBe(2);
+  });
+});
+
+// ── isInBbox / bboxSegmentCrossing / findBboxEntryCrossing / findBboxExitCrossing ──
+
+describe('isInBbox', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('returns true for a point inside', () => {
+    expect(isInBbox({ lat: 7, lon: 12 }, bbox)).toBe(true);
+  });
+
+  it('returns false for a point outside', () => {
+    expect(isInBbox({ lat: 10, lon: 12 }, bbox)).toBe(false);
+    expect(isInBbox({ lat: 7, lon: 15 }, bbox)).toBe(false);
+  });
+
+  it('returns true for a point on the boundary', () => {
+    expect(isInBbox({ lat: 9, lon: 12 }, bbox)).toBe(true);
+  });
+});
+
+describe('bboxSegmentCrossing', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('finds east-edge crossing for a segment going right', () => {
+    const c = bboxSegmentCrossing({ lat: 7, lon: 12 }, { lat: 7, lon: 16 }, bbox);
+    expect(c.lat).toBeCloseTo(7, 5);
+    expect(c.lon).toBeCloseTo(14, 5);
+  });
+
+  it('finds north-edge crossing for a segment going up', () => {
+    const c = bboxSegmentCrossing({ lat: 7, lon: 12 }, { lat: 11, lon: 12 }, bbox);
+    expect(c.lat).toBeCloseTo(9, 5);
+    expect(c.lon).toBeCloseTo(12, 5);
+  });
+
+  it('returns null for a segment that does not cross the bbox', () => {
+    // Both outside, does not cross
+    expect(bboxSegmentCrossing({ lat: 0, lon: 0 }, { lat: 1, lon: 1 }, bbox)).toBeNull();
+  });
+});
+
+describe('findBboxEntryCrossing', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('returns first node when chain starts inside bbox', () => {
+    const chain = [{ lat: 7, lon: 12 }, { lat: 8, lon: 12 }];
+    const c = findBboxEntryCrossing(chain, bbox);
+    expect(c.lat).toBe(7);
+    expect(c.lon).toBe(12);
+  });
+
+  it('finds the crossing when chain starts outside and enters from south', () => {
+    const chain = [{ lat: 3, lon: 12 }, { lat: 7, lon: 12 }];
+    const c = findBboxEntryCrossing(chain, bbox);
+    expect(c.lat).toBeCloseTo(5, 4);
+    expect(c.lon).toBeCloseTo(12, 4);
+  });
+});
+
+describe('findBboxExitCrossing', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('returns last node when chain ends inside bbox', () => {
+    const chain = [{ lat: 7, lon: 12 }, { lat: 8, lon: 13 }];
+    const c = findBboxExitCrossing(chain, bbox);
+    expect(c.lat).toBe(8);
+    expect(c.lon).toBe(13);
+  });
+
+  it('finds the crossing when chain exits through the north edge', () => {
+    const chain = [{ lat: 7, lon: 12 }, { lat: 11, lon: 12 }];
+    const c = findBboxExitCrossing(chain, bbox);
+    expect(c.lat).toBeCloseTo(9, 4);
+    expect(c.lon).toBeCloseTo(12, 4);
+  });
+});
+
+// ── buildClosedCoastRings ─────────────────────────────────────────────────
+
+describe('buildClosedCoastRings', () => {
+  const bbox = { s: 5, n: 9, w: 10, e: 14 };
+
+  it('regression: open N–S coast at lon=12 (sea to the west) – sea west and land east', () => {
+    // Before the fix, the winding number from this open chain gave +1 for the sea
+    // point at (7, 11), misclassifying it as land.
+    const openCoastWay = [
+      { lat: 5, lon: 12 },  // south entry on bbox boundary
+      { lat: 9, lon: 12 },  // north exit on bbox boundary
+    ];
+    const rings = buildClosedCoastRings([openCoastWay], bbox);
+    expect(isLandByRayCross(7, 11, rings, bbox, true)).toBe(false);  // west = SEA
+    expect(isLandByRayCross(7, 13, rings, bbox, true)).toBe(true);   // east = LAND
+  });
+
+  it('closed island ring (two stitched ways) stays closed and classifies correctly', () => {
+    const wayA = [{ lat:  1, lon: -1 }, { lat: 1, lon: 1 }];
+    const wayB = [{ lat:  1, lon:  1 }, { lat: -1, lon: 1 }, { lat: -1, lon: -1 }, { lat: 1, lon: -1 }];
+    const islandBbox = { s: -2, n: 2, w: -2, e: 2 };
+    const rings = buildClosedCoastRings([wayA, wayB], islandBbox);
+    expect(rings.length).toBe(1);
+    // Interior of island = land
+    expect(isLandByRayCross(0, 0, rings, islandBbox, true)).toBe(true);
+    // Exterior of island = sea
+    expect(isLandByRayCross(5, 5, rings, islandBbox, true)).toBe(false);
+  });
+
+  it('regression (Vordingborg): E–W coast whose raw endpoints lie far NE/NW of bbox', () => {
+    // The chain represents a coast running west across the bbox (sea to south).
+    // Its OSM-way endpoints are far outside the bbox — one to the NE, one to the NW.
+    // Before the bbox-crossing fix, both endpoints snapped to the north edge;
+    // the CW closure then went the long way round (via SE/SW corners) and
+    // enclosed the southern sea area as land.
+    // After the fix, actual crossing points on the east/west edges are used,
+    // and the closure correctly goes via the NW/NE corners (land to the north).
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    // Chain: starts far NE (lat=12, lon=16), crosses east bbox edge, runs west
+    // through the bbox at lat=7, crosses west bbox edge, ends far NW (lat=12, lon=8).
+    const chain = [
+      { lat: 12, lon: 16 },  // far NE, outside bbox
+      { lat:  7, lon: 14 },  // east bbox boundary crossing area
+      { lat:  7, lon: 10 },  // west bbox boundary crossing area
+      { lat: 12, lon:  8 },  // far NW, outside bbox
+    ];
+    const rings = buildClosedCoastRings([chain], bbox);
+    // Points south of the chain (lat < 7) should be SEA
+    expect(isLandByRayCross(6, 12, rings, bbox, true)).toBe(false);
+    expect(isLandByRayCross(5.5, 11, rings, bbox, true)).toBe(false);
+    // Points north of the chain (lat > 7) should be LAND
+    expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(true);
+  });
+
+  it('E–W coast running EAST (sea to north, OSM sea-left convention) – sea north, land south', () => {
+    // OSM coastlines have sea to the LEFT of the direction of travel (clockwise
+    // around land masses).  For a coast running EASTWARD, left = north = sea,
+    // so land is to the south.  Endpoints lie far SW and SE (outside bbox).
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const chain = [
+      { lat: 2, lon:  8 },  // far SW, outside bbox
+      { lat: 7, lon: 10 },  // west bbox boundary crossing
+      { lat: 7, lon: 14 },  // east bbox boundary crossing
+      { lat: 2, lon: 16 },  // far SE, outside bbox
+    ];
+    const rings = buildClosedCoastRings([chain], bbox);
+    // Points south of the chain (lat < 7) should be LAND (right of travel)
+    expect(isLandByRayCross(6, 12, rings, bbox, true)).toBe(true);
+    // Points north of the chain (lat > 7) should be SEA (left of travel)
+    expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(false);
+  });
+
+  it('U-shaped coast (entry and exit on same south edge) – only encloses peninsula, not the whole bbox', () => {
+    // A peninsula sticking north from below the bbox enters and exits through
+    // the south edge.  The bbox closure must NOT wrap all the way around
+    // (which would classify the entire bbox interior as land).  Instead it
+    // should close directly along the south edge so that only the peninsula
+    // interior is land, and the open sea to the north remains sea.
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    // Chain: comes from far south, enters south edge at lon=11.5, goes north
+    // to lon=12, turns back south, exits south edge at lon=12.5, exits south.
+    // Sea-left convention: going north on left leg → sea to west; going south
+    // on right leg → sea to east.  Interior of U = land (peninsula).
+    const chain = [
+      { lat: 3, lon: 11.5 },  // far south, outside bbox
+      { lat: 7, lon: 11.5 },  // inside, west leg going north
+      { lat: 7, lon: 12.5 },  // inside, top of peninsula
+      { lat: 3, lon: 12.5 },  // far south, outside bbox
+    ];
+    const rings = buildClosedCoastRings([chain], bbox);
+    // Inside the U (peninsula interior) → LAND
+    expect(isLandByRayCross(6, 12, rings, bbox, true)).toBe(true);
+    // Well north of the peninsula (open sea area above) → SEA
+    expect(isLandByRayCross(8, 12, rings, bbox, true)).toBe(false);
+  });
+
+  it('two stitchable N–S ways give the same result as one combined way', () => {
+    const combined = [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }, { lat: 9, lon: 12 }];
+    const split    = [
+      [{ lat: 5, lon: 12 }, { lat: 7, lon: 12 }],
+      [{ lat: 7, lon: 12 }, { lat: 9, lon: 12 }],
+    ];
+    const ringsCombined = buildClosedCoastRings([combined], bbox);
+    const ringsSplit    = buildClosedCoastRings(split,      bbox);
+    // Both should classify the same test points identically
+    for (const [lat, lon] of [[7, 11], [7, 13], [6, 11.5], [8, 12.5]]) {
+      expect(isLandByRayCross(lat, lon, ringsCombined, bbox, true))
+        .toBe(isLandByRayCross(lat, lon, ringsSplit, bbox, true));
+    }
+  });
+});
+
 // ── buildOverpassQuery ────────────────────────────────────────────────────
 
 describe('buildOverpassQuery', () => {
@@ -160,5 +457,122 @@ describe('buildOverpassQuery', () => {
   it('fetches coastline ways', () => {
     const query = buildOverpassQuery({ s: 0, w: 0, n: 1, e: 1 });
     expect(query).toContain('natural"="coastline');
+  });
+});
+
+// ── processShoreData ──────────────────────────────────────────────────────
+//
+// processShoreData(lat, lon, data, bbox) is the pure data-processing core
+// extracted from analyseShore.  It takes a raw Overpass response object and
+// returns { mask, coastWays, closedCoastRings, waterPolys, hasCoastData,
+//           originInWater, originIsLand, bearings }.
+//
+// To create a fixture for a real-world location:
+//   1. Open the app in a browser and navigate to the target location.
+//   2. Open DevTools console and run:
+//        copy(JSON.stringify(window.SHORE_DEBUG.rawOverpassData))
+//   3. Paste the result into tests/fixtures/<location>.json
+//   4. Add a test below that imports the fixture and calls processShoreData.
+//
+// Example fixture test:
+//   import vordingborgData from './fixtures/vordingborg.json' assert { type: 'json' };
+//   it('north of Vordingborg should be land', () => {
+//     const lat = 55.008, lon = 11.9106;
+//     const bbox = expandBbox(lat, lon, 6);
+//     const { mask } = processShoreData(lat, lon, vordingborgData, bbox);
+//     // bearing index 0 = 0° (north); must NOT be mostly sea
+//     expect(mask[0]).toBeLessThan(0.5);
+//   });
+
+describe('processShoreData', () => {
+  it('returns no sea bearings for a fully inland location (no coastline)', () => {
+    // Simulate an area with no coastline ways — all bearings should be sea
+    // because the fallback (no coast data → open ocean) fires.
+    const data = { elements: [] };
+    const lat = 55.0, lon = 12.0;
+    const bbox = expandBbox(lat, lon, 6);
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.hasCoastData).toBe(false);
+    expect(result.mask.every(v => v === 1)).toBe(true);  // all sea (fallback)
+  });
+
+  it('classifies origin as land for a simple N–S coast (origin east of coast)', () => {
+    // A single N–S coastline at lon=12 with sea to the west.
+    // Origin at lon=13 (east) should be land.
+    // bbox centred on lon=12, coast runs through the middle; origin is east of it.
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const lat = 7, lon = 13;
+    const data = {
+      elements: [{
+        type: 'way',
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: bbox.s - 0.5, lon: 12 },  // south of bbox
+          { lat: 7,            lon: 12 },   // inside bbox
+          { lat: bbox.n + 0.5, lon: 12 },  // north of bbox
+        ],
+      }],
+    };
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.hasCoastData).toBe(true);
+    expect(result.originIsLand).toBe(true);
+  });
+
+  it('classifies origin as sea for a simple N–S coast (origin west of coast)', () => {
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const lat = 7, lon = 11;
+    const data = {
+      elements: [{
+        type: 'way',
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: bbox.s - 0.5, lon: 12 },
+          { lat: 7,            lon: 12 },
+          { lat: bbox.n + 0.5, lon: 12 },
+        ],
+      }],
+    };
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.hasCoastData).toBe(true);
+    expect(result.originIsLand).toBe(false);
+  });
+
+  it('Vordingborg fixture: origin is land, north is land, south is sea', () => {
+    const lat = 55.008, lon = 11.9106;
+    const bbox = expandBbox(lat, lon, 6);
+    const { mask, originIsLand } = processShoreData(lat, lon, vordingborgData, bbox);
+
+    // Town centre should be on land
+    expect(originIsLand).toBe(true);
+    // Bearing 0° (north) = Sjælland mainland — not mostly sea
+    expect(mask[0]).toBeLessThan(0.5);
+    // Bearing 180° (south) = Storstrøm / open water — mostly sea
+    expect(mask[18]).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('returns mask[0]=0 (north=land) for origin just south of an E–W westward coast', () => {
+    // Coast runs westward (OSM direction) inside the bbox at lat=6.505.
+    // Sea-left for westward travel → sea to the south; land to the north.
+    // Origin at lat=6.5 (sea side, ~0.5 km south of coast).
+    // All 5 samples at 1–5 km north (lat ≈ 6.509–6.545) lie north of the coast
+    // → all classified as land → mask[0] = 0.
+    const bbox = { s: 5, n: 9, w: 10, e: 14 };
+    const lat = 6.5, lon = 12;
+    // Westward chain: NE outside → east bbox edge at lat=6.505 → west bbox edge → NW outside
+    const data = {
+      elements: [{
+        type: 'way',
+        tags: { natural: 'coastline' },
+        geometry: [
+          { lat: 12,    lon: 16    },  // far NE, outside bbox
+          { lat: 6.505, lon: 14    },  // east bbox edge crossing
+          { lat: 6.505, lon: 10    },  // west bbox edge crossing
+          { lat: 12,    lon:  8    },  // far NW, outside bbox
+        ],
+      }],
+    };
+    const result = processShoreData(lat, lon, data, bbox);
+    expect(result.originIsLand).toBe(false);   // south of coast = sea
+    expect(result.mask[0]).toBe(0);            // 0° north → all 5 samples are land
   });
 });
