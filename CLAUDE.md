@@ -22,7 +22,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Maps:** Leaflet (CDN) for RainViewer radar overlay
 - **Testing:** Vitest 2.0 (VM-based, simulates browser globals without JSDOM)
 - **Deployment:** GitHub Pages via GitHub Actions CI/CD
-- **Data APIs:** Open-Meteo (forecast + ensemble), Nominatim (geocoding), Overpass (land/sea), RainViewer (radar)
+- **Data APIs:** Open-Meteo (forecast + ensemble), Nominatim (geocoding), Terrascope WMS (ESA WorldCover land/sea), RainViewer (radar)
 
 ### File Map
 
@@ -35,7 +35,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `api.js` | Weather/ensemble/geocoding API calls + ensemble percentile math |
 | `config.js` | Constants, kite settings, URL↔localStorage sync |
 | `charts.js` | Canvas drawing: temp, precip, wind, cloud, kite highlights |
-| `shore.js` | Land/sea geospatial analysis for kitesurfing (Overpass API) |
+| `shore.js` | Land/sea pixel analysis for kitesurfing (Terrascope WMS / ESA WorldCover) |
 | `radar.js` | RainViewer radar map (Leaflet, frame animation, tile rate limiting) |
 | `weather-icons.js` | WMO code → canvas icon renderer |
 | `sw.js` | Service Worker (app shell cache, offline support) |
@@ -50,7 +50,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 3. Time series extracted (3h step for most charts, 1h for precip)
 4. Ensemble p10/p50/p90 merged into deterministic data
 5. `renderDisplay()` → all canvas charts redrawn
-6. `analyseShore()` runs in parallel → updates kite direction suitability
+6. `analyseShore()` runs in parallel → fetches ESA WorldCover WMS tile → pixel-classifies 180 bearing sample points
 
 ### Key Architectural Decisions
 
@@ -58,7 +58,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Canvas charts** — all rendered to `<canvas>`, crosshair overlay for tooltips (zero layout reflow)
 - **Ensemble bands** — temperature/wind show p10–p90 shaded confidence regions
 - **Kite config** — URL params + localStorage bidirectional sync (shareable links + iOS Home Screen survival)
-- **Land/sea analysis** — 36-bearing ray casting + winding-number polygon test via Overpass API (no static GIS)
+- **Land/sea analysis** — single Terrascope WMS `GetMap` request (512×512 PNG) for a ~12 km bbox; pixel RGB matched against ESA WorldCover official class colours (class 80 water = rgb(0,100,200), class 90 wetland = rgb(0,150,160)); no new library required
 - **iOS inverted colors** — canvas pixels pre-inverted in JS to survive OS double-inversion
 - **Service Worker strategy** — network-only for all API calls, network-first for app files, cache-first for static assets
 
@@ -81,4 +81,4 @@ Tests use a VM-based loader (`tests/helpers/loader.js`) that concatenates source
 | `tests/app.test.js` | Load pipeline, render, kite settings |
 | `tests/api.test.js` | Ensemble percentile calculations |
 | `tests/config.test.js` | Kite config parsing, URL sync |
-| `tests/shore.test.js` | Coastline analysis, point-in-polygon |
+| `tests/shore.test.js` | WMS URL builder, pixel classifier, coordinate mapping, mask computation |
