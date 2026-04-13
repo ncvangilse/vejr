@@ -421,9 +421,10 @@
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(WIND_DIRECT),
     'https://corsproxy.io/?url='          + encodeURIComponent(WIND_DIRECT),
   ];
-  let windLayer   = null;
-  let windVisible = true;
-  let dmiMarker   = null;   // DMI nearest-station arrow marker (lives inside windLayer)
+  let windLayer       = null;
+  let windVisible     = true;
+  let dmiMarker       = null;   // DMI nearest-station arrow marker (lives inside windLayer)
+  let dmiAllMarkers   = [];     // All other DMI station dot-markers (lives inside windLayer)
 
   async function fetchWindJson() {
     // 1. Same-origin (GitHub Pages) – skip on localhost to avoid a noisy 404
@@ -542,8 +543,13 @@
     _refreshDmiMarker();
   }
 
-  // ── DMI station marker: shows nearest station with current wind as an
-  //    arrow badge identical to the wind-speeds.json station markers.
+  // ── DMI station markers ───────────────────────────────────────────────────
+  //
+  //  • All active DMI stations in the bbox  → small teal circle dots
+  //    (data from window.DMI_STATIONS, populated after the station-list fetch)
+  //  • Nearest station (for which obs were fetched) → arrow badge identical to
+  //    the wind-speeds.json markers, showing the latest measured wind speed.
+  //
   function _refreshDmiMarker() {
     console.log('[DMI marker] _refreshDmiMarker called — radarMap:', !!radarMap,
       '| windLayer:', !!windLayer,
@@ -552,26 +558,60 @@
       '| DMI_OBS:', window.DMI_OBS ? `${window.DMI_OBS.stationName} (${window.DMI_OBS.obs?.length} obs)` : 'null',
       '| DMI_OBS_STATUS:', window.DMI_OBS_STATUS?.state);
 
-    // Remove stale marker (it was in the previous windLayer if any)
+    // ── Remove all stale DMI markers ──────────────────────────────────────
     if (dmiMarker) {
-      console.log('[DMI marker] removing stale dmiMarker');
       try { if (windLayer) windLayer.removeLayer(dmiMarker); } catch (_) {}
       dmiMarker = null;
     }
+    for (const m of dmiAllMarkers) {
+      try { if (windLayer) windLayer.removeLayer(m); } catch (_) {}
+    }
+    dmiAllMarkers = [];
+
     if (!radarMap) {
       console.log('[DMI marker] skip — radarMap not ready');
       return;
     }
 
     // windLayer may not exist yet if refreshWindStations() is still in-flight.
-    // In that case retry after a short delay; refreshWindStations() will also
-    // call _refreshDmiMarker() itself when it finishes.
     if (!windLayer) {
       console.log('[DMI marker] windLayer not ready — will retry in 500 ms');
       setTimeout(_refreshDmiMarker, 500);
       return;
     }
 
+    // ── All active DMI stations: small teal circle dots ───────────────────
+    const allStations = window.DMI_STATIONS;
+    const nearestId   = window.DMI_OBS ? window.DMI_OBS.stationId : null;
+    if (allStations && allStations.length) {
+      for (const s of allStations) {
+        if (nearestId && s.id === nearestId) continue; // nearest gets arrow treatment below
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="width:10px;height:10px;border-radius:50%;` +
+                      `background:rgba(80,190,215,0.80);` +
+                      `border:1.5px solid rgba(255,255,255,0.80);` +
+                      `box-shadow:0 1px 3px rgba(0,0,0,0.45);` +
+                      `cursor:pointer;"></div>`,
+          iconSize:    [10, 10],
+          iconAnchor:  [5, 5],
+          popupAnchor: [0, -8],
+        });
+        const m = L.marker([s.lat, s.lon], { icon, interactive: true, zIndexOffset: 300 })
+          .bindPopup(
+            `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
+            `<b style="font-size:13px">${s.name}</b><br>` +
+            `<span style="color:#888">DMI station · ${Math.round(s.dist)} km</span>` +
+            `</div>`,
+            { maxWidth: 200 }
+          )
+          .addTo(windLayer);
+        dmiAllMarkers.push(m);
+      }
+      console.log(`[DMI marker] added ${dmiAllMarkers.length} station dot(s)`);
+    }
+
+    // ── Nearest station arrow (requires obs data) ──────────────────────────
     const obs = window.DMI_OBS;
     if (!obs) {
       // DMI is still in-flight — retry in 500 ms.  loadDmiObservations() also
@@ -580,12 +620,12 @@
         console.log('[DMI marker] DMI_OBS still loading — retry in 500 ms');
         setTimeout(_refreshDmiMarker, 500);
       } else {
-        console.log('[DMI marker] DMI_OBS null, state:', window.DMI_OBS_STATUS?.state, '— no marker needed');
+        console.log('[DMI marker] DMI_OBS null, state:', window.DMI_OBS_STATUS?.state, '— no arrow needed');
       }
       return;
     }
     if (!obs.obs || !obs.obs.length) {
-      console.log('[DMI marker] skip — obs array empty');
+      console.log('[DMI marker] skip arrow — obs array empty');
       return;
     }
 
@@ -594,7 +634,7 @@
       o => o.wind != null && isFinite(o.wind)
     );
     if (!latestWind) {
-      console.log('[DMI marker] skip — no valid wind reading in', obs.obs.length, 'entries. Sample:', JSON.stringify(obs.obs.slice(-3)));
+      console.log('[DMI marker] skip arrow — no valid wind reading in', obs.obs.length, 'entries. Sample:', JSON.stringify(obs.obs.slice(-3)));
       return;
     }
 
@@ -650,13 +690,13 @@
         `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:140px">` +
         `<b style="font-size:14px">${spd.toFixed(1)} m/s</b><br>` +
         dirLine +
-        `<span style="color:#888">${obs.stationName} (${obs.distKm} km) · DMI</span>` +
+        `<span style="color:#888">${obs.stationName} (${obs.distKm} km) · DMI obs</span>` +
         `</div>`,
         { maxWidth: 200 }
       );
 
     console.log(
-      `[DMI marker] placing at (${obs.lat}, ${obs.lon}) — ${obs.stationName},`,
+      `[DMI marker] placing arrow at (${obs.lat}, ${obs.lon}) — ${obs.stationName},`,
       `speed: ${spd.toFixed(1)} m/s, dir: ${dir != null ? Math.round(dir) + '°' : 'n/a'},`,
       `windLayer on map: ${radarMap.hasLayer(windLayer)},`,
       `windVisible: ${windVisible}`

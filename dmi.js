@@ -13,6 +13,9 @@ const DMI_COUNTRIES = ['DK', 'GL', 'FO'];
    async fetch completes. */
 window.DMI_OBS        = null;
 window.DMI_OBS_STATUS = { state: 'idle', msg: '' };
+/** All active DMI stations in the bbox – populated by loadDmiObservations
+ *  so radar.js can show every station on the map, not only the nearest. */
+window.DMI_STATIONS   = null;
 
 /* ── Haversine distance in km ── */
 function _dmiHaversine(lat1, lon1, lat2, lon2) {
@@ -25,8 +28,9 @@ function _dmiHaversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/* ── Find nearest active station within ~0.5° (≈ 50 km) ──
-   Returns { id, name, lat, lon, dist } or null.
+/* ── Find active stations within ~0.5° (≈ 50 km) ──
+   Returns { nearest, all } where nearest is the closest active station
+   (or null when none found) and all is every active station in the bbox.
    Throws 'dmi-http-NNN' on HTTP errors. */
 async function _dmiFindStation(lat, lon) {
   const d    = 0.5;
@@ -36,23 +40,23 @@ async function _dmiFindStation(lat, lon) {
   if (!r.ok) throw new Error(`dmi-http-${r.status}`);
   const data = await r.json();
   let best = null, bestDist = Infinity;
+  const all = [];
   for (const f of (data.features || [])) {
     // Skip inactive stations when the status field is present
     if (f.properties && f.properties.status && f.properties.status !== 'Active') continue;
     const [sLon, sLat] = f.geometry.coordinates;
     const dist = _dmiHaversine(lat, lon, sLat, sLon);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = {
-        id:   f.properties.stationId,
-        name: f.properties.name || f.properties.stationId,
-        lat:  sLat,
-        lon:  sLon,
-        dist,
-      };
-    }
+    const station = {
+      id:   f.properties.stationId,
+      name: f.properties.name || f.properties.stationId,
+      lat:  sLat,
+      lon:  sLon,
+      dist,
+    };
+    all.push(station);
+    if (dist < bestDist) { bestDist = dist; best = station; }
   }
-  return best;
+  return { nearest: best, all };
 }
 
 /* ── Fetch observations for one parameter in a time range ──
@@ -98,6 +102,7 @@ async function loadDmiObservations(lat, lon, countryCode) {
   console.log('[DMI] loadDmiObservations called — lat:', lat, 'lon:', lon, 'countryCode:', countryCode);
   window.DMI_OBS        = null;
   window.DMI_OBS_STATUS = { state: 'idle', msg: '' };
+  window.DMI_STATIONS   = null;
   if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 
   if (!DMI_COUNTRIES.includes(countryCode)) {
@@ -111,7 +116,15 @@ async function loadDmiObservations(lat, lon, countryCode) {
     window.DMI_OBS_STATUS = { state: 'loading', msg: 'Finding station…' };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 
-    const station = await _dmiFindStation(lat, lon);
+    const result = await _dmiFindStation(lat, lon);
+    const station     = result.nearest;
+    const allStations = result.all;
+
+    // Store ALL active stations so the radar map can show them immediately,
+    // even before observation data has been fetched.
+    window.DMI_STATIONS = allStations;
+    if (window.refreshDmiMarker) window.refreshDmiMarker();
+
     if (!station) {
       console.log('[DMI] no active station found within 0.5° of', lat, lon);
       window.DMI_OBS_STATUS = { state: 'no-station', msg: 'No station nearby' };
@@ -119,6 +132,7 @@ async function loadDmiObservations(lat, lon, countryCode) {
       return;
     }
     console.log('[DMI] nearest station:', station.name, '— id:', station.id, '— dist:', station.dist.toFixed(1), 'km');
+    console.log('[DMI] all stations in bbox:', allStations.map(s => s.name).join(', '));
 
     window.DMI_OBS_STATUS = { state: 'loading', msg: `Loading ${station.name}…` };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
@@ -154,7 +168,8 @@ async function loadDmiObservations(lat, lon, countryCode) {
     };
     window.DMI_OBS_STATUS = {
       state: 'ok',
-      msg:   `${station.name} (${Math.round(station.dist)} km, ${obs.length} obs)`,
+      // Concise: station name + distance — this is shown verbatim in the header
+      msg:   `${station.name} · ${Math.round(station.dist)} km`,
     };
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 

@@ -55,21 +55,34 @@ describe('_dmiHaversine', () => {
 // ── _dmiFindStation ───────────────────────────────────────────────────────────
 
 describe('_dmiFindStation', () => {
-  it('returns null when no features are returned', async () => {
+  it('returns { nearest: null, all: [] } when no features are returned', async () => {
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ features: [] }) });
     const result = await _dmiFindStation(55.0, 12.0);
-    expect(result).toBeNull();
+    expect(result.nearest).toBeNull();
+    expect(result.all).toHaveLength(0);
   });
 
-  it('picks the closest station', async () => {
+  it('picks the closest station as nearest', async () => {
     const fc = makeStationFC([
       { id: '1', name: 'Near',  lat: 55.01, lon: 12.01 },
       { id: '2', name: 'Far',   lat: 55.40, lon: 12.50 },
     ]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(fc) });
     const result = await _dmiFindStation(55.0, 12.0);
-    expect(result.id).toBe('1');
-    expect(result.name).toBe('Near');
+    expect(result.nearest.id).toBe('1');
+    expect(result.nearest.name).toBe('Near');
+  });
+
+  it('includes ALL active stations in result.all', async () => {
+    const fc = makeStationFC([
+      { id: '1', name: 'Near',  lat: 55.01, lon: 12.01 },
+      { id: '2', name: 'Far',   lat: 55.40, lon: 12.50 },
+    ]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(fc) });
+    const result = await _dmiFindStation(55.0, 12.0);
+    expect(result.all).toHaveLength(2);
+    expect(result.all.map(s => s.id)).toContain('1');
+    expect(result.all.map(s => s.id)).toContain('2');
   });
 
   it('skips inactive stations', async () => {
@@ -79,7 +92,9 @@ describe('_dmiFindStation', () => {
     ]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(fc) });
     const result = await _dmiFindStation(55.0, 12.0);
-    expect(result.id).toBe('2');
+    expect(result.nearest.id).toBe('2');
+    expect(result.all).toHaveLength(1);
+    expect(result.all[0].id).toBe('2');
   });
 
   it('throws dmi-http-NNN on HTTP errors', async () => {
@@ -96,7 +111,7 @@ describe('_dmiFindStation', () => {
     const fc = makeStationFC([{ id: '1', name: 'S', lat: 55.0, lon: 12.0 }]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(fc) });
     const result = await _dmiFindStation(55.0, 12.0);
-    expect(result.dist).toBeCloseTo(0, 1);
+    expect(result.nearest.dist).toBeCloseTo(0, 1);
   });
 });
 
@@ -261,6 +276,49 @@ describe('loadDmiObservations', () => {
     expect(first.dir).toBe(270);
   });
 
+  it('sets window.DMI_STATIONS to all active stations after successful load', async () => {
+    const stationFC = makeStationFC([
+      { id: '06180', name: 'Kastrup',    lat: 55.63, lon: 12.65 },
+      { id: '06096', name: 'Roskilde',   lat: 55.58, lon: 12.13 },
+    ]);
+    const windFC = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
+    let fetchCount = 0;
+    ctx.fetch = () => {
+      fetchCount++;
+      if (fetchCount === 1) return Promise.resolve({ ok: true, json: () => Promise.resolve(stationFC) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(fetchCount === 2 ? windFC : { features: [] }) });
+    };
+
+    await loadDmiObservations(55.67, 12.57, 'DK');
+
+    expect(ctx.window.DMI_STATIONS).toHaveLength(2);
+    expect(ctx.window.DMI_STATIONS.map(s => s.id)).toContain('06180');
+    expect(ctx.window.DMI_STATIONS.map(s => s.id)).toContain('06096');
+  });
+
+  it('sets window.DMI_STATIONS to empty array when no stations found', async () => {
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ features: [] }) });
+    await loadDmiObservations(55.67, 12.57, 'DK');
+    expect(ctx.window.DMI_STATIONS).toHaveLength(0);
+  });
+
+  it('status msg uses "name · dist km" format without obs count', async () => {
+    const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
+    const windFC    = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
+    let fetchCount = 0;
+    ctx.fetch = () => {
+      fetchCount++;
+      const payloads = [stationFC, windFC, { features: [] }, { features: [] }];
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(payloads[fetchCount - 1] || { features: [] }) });
+    };
+    await loadDmiObservations(55.67, 12.57, 'DK');
+    const msg = ctx.window.DMI_OBS_STATUS.msg;
+    expect(msg).toMatch(/Kastrup/);
+    expect(msg).toMatch(/km/);
+    // Should NOT contain obs count in parens
+    expect(msg).not.toMatch(/obs/);
+  });
+
   it('calls window.refreshDmiMarker after a successful load', async () => {
     const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
     const windFC    = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
@@ -288,14 +346,16 @@ describe('loadDmiObservations', () => {
     expect(markerRefreshCalled).toBe(false);
   });
 
-  it('does NOT call window.refreshDmiMarker when no station is found', async () => {
+  it('calls window.refreshDmiMarker even when no station is found (to clear stale markers)', async () => {
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ features: [] }) });
     let markerRefreshCalled = false;
     ctx.window.refreshDmiMarker = () => { markerRefreshCalled = true; };
 
     await loadDmiObservations(55.67, 12.57, 'DK');
 
-    expect(markerRefreshCalled).toBe(false);
+    // refreshDmiMarker is called after setting DMI_STATIONS (even when empty) so the
+    // radar map can remove any stale station markers from a previous location.
+    expect(markerRefreshCalled).toBe(true);
   });
 
   it('builds URLs without api-key parameter', async () => {

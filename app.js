@@ -354,9 +354,13 @@ function showTooltip(idx1h, idx3h) {
     );
     if (Math.abs(nearest.t - hoverT) < 30 * 60 * 1000) {
       const wStr = nearest.wind != null ? `${nearest.wind.toFixed(1)} m/s` : '—';
-      const gStr = nearest.gust != null ? ` / gust ${nearest.gust.toFixed(1)} m/s` : '';
-      obsRow = `<div class="tt-row"><span class="tt-label" title="DMI ${window.DMI_OBS.stationName}">Observed</span>`
-             + `<span class="tt-val" style="color:#ffe040;font-size:10px">${wStr}${gStr}</span></div>`;
+      const gStr = nearest.gust != null
+        ? `<span style="color:rgba(255,150,50,1)"> / gust ${nearest.gust.toFixed(1)} m/s</span>`
+        : '';
+      obsRow = `<div class="tt-row">`
+             + `<span class="tt-label" title="DMI ${window.DMI_OBS.stationName} · ${window.DMI_OBS.distKm} km">Obs (DMI)</span>`
+             + `<span class="tt-val" style="color:#ffe040;font-size:10px">${wStr}${gStr}</span>`
+             + `</div>`;
     }
   }
   tip.innerHTML = `
@@ -504,7 +508,8 @@ function updateDmiObsStatusUI() {
     text  = `📡 DMI: ${s.msg || 'loading…'}`;
     color = '#778';
   } else if (s.state === 'ok') {
-    text  = `📡 ${s.msg}`;
+    // msg = "StationName · N km" — prefix makes it clear this is the basis for the wind obs dots
+    text  = `📡 Obs: ${s.msg}`;
     color = '#5a9';
   } else if (s.state === 'no-station') {
     text  = '📡 DMI: no station nearby';
