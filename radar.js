@@ -594,7 +594,7 @@
           : '');
     }
     const el = document.createElement('div');
-    el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:260px');
+    el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:280px');
     el.innerHTML =
       `<div style="font-size:13px;font-weight:700">${s.name}</div>` +
       `<div style="color:#999;font-size:11px;margin-bottom:4px">` +
@@ -607,42 +607,188 @@
     return el;
   }
 
-  /** Render observation history rows into the popup's .dmi-hist-container. */
+  /** Render a canvas mini-chart into the popup's .dmi-hist-container.
+   *  Shows the last 24 h of wind speed (filled area, colour-coded line),
+   *  gust (dashed orange line) and wind direction (arrow strip below). */
   function _renderDmiHistory(histEl, obs) {
-    if (!obs || !obs.length) {
+    histEl.innerHTML = '';
+
+    const cutoff  = Date.now() - 24 * 3600 * 1000;
+    const src     = (obs || []).filter(o => o.t >= cutoff);
+    const entries = src.filter(o => o.wind != null && isFinite(o.wind));
+
+    if (!entries.length) {
       histEl.innerHTML = '<span style="color:#aaa;font-size:11px">No observations available</span>';
       return;
     }
-    const rows = obs.map(o => {
-      const d    = new Date(o.t);
-      const time = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-      const wind = o.wind != null ? o.wind.toFixed(1) : '–';
-      const gust = o.gust != null ? o.gust.toFixed(1) : '–';
-      const dir  = o.dir  != null ? _degToCompass(o.dir) : '–';
-      const col  = o.wind != null ? windColor(o.wind) : '#888';
-      return `<tr>` +
-        `<td style="padding:1px 4px;color:#999;white-space:nowrap">${time}</td>` +
-        `<td style="padding:1px 4px;text-align:right;font-weight:600;color:${col}">${wind}</td>` +
-        `<td style="padding:1px 4px;text-align:right;color:#bbb;font-size:10px">${gust}</td>` +
-        `<td style="padding:1px 4px;text-align:right;color:#888">${dir}</td>` +
-        `</tr>`;
-    }).join('');
-    histEl.innerHTML =
-      `<div style="font-size:11px;font-weight:600;color:#888;margin-bottom:3px">Last 24h</div>` +
-      `<div class="dmi-hist-scroll" style="max-height:180px;overflow-y:auto">` +
-        `<table style="width:100%;border-collapse:collapse;font-size:11px">` +
-          `<thead><tr style="color:#aaa">` +
-            `<th style="text-align:left;font-weight:600;padding:1px 4px;border-bottom:1px solid #eee">Time</th>` +
-            `<th style="text-align:right;font-weight:600;padding:1px 4px;border-bottom:1px solid #eee">Wind</th>` +
-            `<th style="text-align:right;font-weight:600;padding:1px 4px;border-bottom:1px solid #eee">Gust</th>` +
-            `<th style="text-align:right;font-weight:600;padding:1px 4px;border-bottom:1px solid #eee">Dir</th>` +
-          `</tr></thead>` +
-          `<tbody>${rows}</tbody>` +
-        `</table>` +
-      `</div>`;
-    // Scroll to the most recent entry (bottom)
-    const scrollEl = histEl.querySelector('.dmi-hist-scroll');
-    if (scrollEl) setTimeout(() => { scrollEl.scrollTop = scrollEl.scrollHeight; }, 50);
+
+    // ── Layout ────────────────────────────────────────────────────────
+    const CSS_W = 234;
+    const PAD_L = 22;   // left margin — y-axis labels
+    const PAD_R = 4;
+    const PAD_T = 4;
+    const W_H   = 72;   // wind-speed chart height
+    const D_H   = 22;   // direction arrows strip
+    const PAD_B = 14;   // time-label row
+    const CSS_H = PAD_T + W_H + D_H + PAD_B;
+    const CW    = CSS_W - PAD_L - PAD_R;
+
+    const canvas = document.createElement('canvas');
+    const dpr    = window.devicePixelRatio || 1;
+    canvas.width        = CSS_W * dpr;
+    canvas.height       = CSS_H * dpr;
+    canvas.style.cssText = `width:${CSS_W}px;height:${CSS_H}px;display:block;margin-top:4px;border-radius:3px;`;
+    histEl.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    // ── Data extents ────────────────────────────────────────────────────
+    const tMin  = entries[0].t;
+    const tMax  = entries[entries.length - 1].t;
+    const tSpan = Math.max(tMax - tMin, 1);
+
+    const gustPts = entries.filter(o => o.gust != null && isFinite(o.gust));
+    const wMax    = Math.max(
+      ...entries.map(o => o.wind),
+      ...gustPts.map(o => o.gust),
+      5
+    );
+    const wNice = Math.ceil(wMax / 5) * 5;
+
+    const tx = t => PAD_L + ((t - tMin) / tSpan) * CW;
+    const ty = w => PAD_T + W_H - (w / wNice) * W_H;
+
+    // ── Backgrounds ──────────────────────────────────────────────────────
+    ctx.fillStyle = '#f4f6f9';
+    ctx.fillRect(0, 0, CSS_W, PAD_T + W_H);
+    ctx.fillStyle = '#eceff5';
+    ctx.fillRect(0, PAD_T + W_H, CSS_W, D_H + PAD_B);
+
+    // ── Horizontal grid + Y labels ───────────────────────────────────────
+    ctx.font         = `9px 'IBM Plex Mono', monospace`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+    for (let w = 0; w <= wNice; w += 5) {
+      const y = ty(w);
+      if (y < PAD_T - 1) continue;
+      ctx.strokeStyle = '#dde2ea';
+      ctx.lineWidth   = 0.5;
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + CW, y); ctx.stroke();
+      if (w > 0) {
+        ctx.fillStyle = '#bbb';
+        ctx.fillText(String(w), PAD_L - 2, y);
+      }
+    }
+
+    // ── Vertical time grid + labels ──────────────────────────────────────
+    ctx.font         = `9px 'IBM Plex Mono', monospace`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    {
+      const tick = new Date(tMin);
+      tick.setMinutes(0, 0, 0);
+      tick.setHours(Math.ceil(tick.getHours() / 6) * 6);
+      while (tick.getTime() <= tMax) {
+        const x = tx(tick.getTime());
+        if (x >= PAD_L + 3 && x <= PAD_L + CW - 3) {
+          ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+          ctx.lineWidth   = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, PAD_T);
+          ctx.lineTo(x, PAD_T + W_H + D_H);
+          ctx.stroke();
+          ctx.fillStyle = '#aaa';
+          ctx.fillText(String(tick.getHours()).padStart(2, '0'), x, PAD_T + W_H + D_H + 2);
+        }
+        tick.setHours(tick.getHours() + 6);
+      }
+    }
+
+    // ── Gust dashed line ─────────────────────────────────────────────────
+    if (gustPts.length > 1) {
+      ctx.save();
+      ctx.setLineDash([2, 3]);
+      ctx.strokeStyle = 'rgba(190,110,40,0.55)';
+      ctx.lineWidth   = 1.2;
+      ctx.beginPath();
+      gustPts.forEach((o, i) => {
+        i === 0 ? ctx.moveTo(tx(o.t), ty(o.gust)) : ctx.lineTo(tx(o.t), ty(o.gust));
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // ── Wind speed: filled area + colour-coded line ───────────────────────
+    ctx.beginPath();
+    ctx.moveTo(tx(entries[0].t), ty(0));
+    for (const o of entries) ctx.lineTo(tx(o.t), ty(o.wind));
+    ctx.lineTo(tx(entries[entries.length - 1].t), ty(0));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(100,160,220,0.15)';
+    ctx.fill();
+
+    ctx.lineWidth  = 2;
+    ctx.lineCap    = 'round';
+    ctx.lineJoin   = 'round';
+    for (let i = 1; i < entries.length; i++) {
+      const a = entries[i - 1], b = entries[i];
+      ctx.strokeStyle = windColor((a.wind + b.wind) / 2);
+      ctx.beginPath();
+      ctx.moveTo(tx(a.t), ty(a.wind));
+      ctx.lineTo(tx(b.t), ty(b.wind));
+      ctx.stroke();
+    }
+
+    // ── Direction arrows strip ────────────────────────────────────────────
+    const DY     = PAD_T + W_H + D_H / 2;
+    const dirPts = entries.filter(o => o.dir != null && isFinite(o.dir));
+    let lastArrowX = -Infinity;
+    for (const o of dirPts) {
+      const x = tx(o.t);
+      if (x - lastArrowX < 10) continue;   // subsample — min 10 px spacing
+      lastArrowX = x;
+      const col = windColor(o.wind);
+      const rot = ((o.dir - 180 + 360) % 360) * Math.PI / 180;
+      ctx.save();
+      ctx.translate(x, DY);
+      ctx.rotate(rot);
+      // halo + shaft
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth   = 3.5;
+      ctx.lineCap     = 'round';
+      ctx.beginPath(); ctx.moveTo(0, 5); ctx.lineTo(0, -2); ctx.stroke();
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 2;
+      ctx.beginPath(); ctx.moveTo(0, 5); ctx.lineTo(0, -2); ctx.stroke();
+      // halo + arrowhead
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(-4, -2); ctx.lineTo(4, -2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(-3.5, -2); ctx.lineTo(3.5, -2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+
+    // ── Axes / dividers ───────────────────────────────────────────────────
+    ctx.strokeStyle = '#d0d5de';
+    ctx.lineWidth   = 0.5;
+    // wind / direction separator
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, PAD_T + W_H);
+    ctx.lineTo(PAD_L + CW, PAD_T + W_H);
+    ctx.stroke();
+    // y-axis border
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, PAD_T);
+    ctx.lineTo(PAD_L, PAD_T + W_H);
+    ctx.stroke();
+
+    // ── Legend (bottom-right, inside chart) ──────────────────────────────
+    ctx.font         = `8px 'IBM Plex Sans', sans-serif`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle    = '#bbb';
+    ctx.fillText('— wind  ╌ gust  ↑ dir', PAD_L + CW, PAD_T + W_H - 2);
   }
 
   function _refreshDmiMarker() {
@@ -726,7 +872,7 @@
       const popupEl = _buildDmiPopupEl(s, isNearest);
       const marker  = L.marker([s.lat, s.lon], {
         icon, interactive: true, zIndexOffset: isNearest ? 500 : 300,
-      }).bindPopup(popupEl, { maxWidth: 280 });
+      }).bindPopup(popupEl, { maxWidth: 300, minWidth: 250 });
 
       marker.on('popupopen', () => {
         const histEl = popupEl.querySelector('.dmi-hist-container');
