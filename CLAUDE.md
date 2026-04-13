@@ -58,6 +58,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Canvas charts** — all rendered to `<canvas>`, crosshair overlay for tooltips (zero layout reflow)
 - **Ensemble bands** — temperature/wind show p10–p90 shaded confidence regions
 - **Kite config** — URL params + localStorage bidirectional sync (shareable links + iOS Home Screen survival)
+- **Land/sea threshold** — `SHORE_SEA_THRESH` (default 0.75) is a `let` in shore.js, initialised from `KITE_CFG.seaThresh` (config.js loads first). Persisted as `kite_sea_thresh` URL param. Exposed via `window.setShoreSeaThresh` / `window.getShoreSeaThresh`. The kite dialog has a range slider (10–100 %, step 5) that previews the threshold live on the compass and commits it on Apply.
 - **Land/sea analysis** — single Terrascope WMS `GetMap` request (512×512 PNG) for a ~12 km bbox; pixel RGB matched against ESA WorldCover official class colours (class 80 water = rgb(0,100,200), class 90 wetland = rgb(0,150,160)); no new library required
 - **iOS inverted colors** — canvas pixels pre-inverted in JS to survive OS double-inversion
 - **Service Worker strategy** — network-only for all API calls, network-first for app files, cache-first for static assets

@@ -171,6 +171,15 @@
         </div>
       </div>
       <div id="shore-modal-status"></div>
+
+      <div class="kite-field kite-field--thresh">
+        <label>SEA THRESHOLD — % of samples over water to count as a sea bearing</label>
+        <div class="kite-field-row">
+          <input type="range" id="kite-sea-thresh-input" min="10" max="100" step="5" value="75">
+          <span id="kite-sea-thresh-label" class="kite-field-unit kite-sea-thresh-label">75%</span>
+        </div>
+      </div>
+
       <button id="kite-shore-fetch-btn">🌊 Fetch sea bearings</button>
 
       <!-- Shore debug panel -->

@@ -455,11 +455,10 @@ function updateShoreStatusUI() {
     text = '🌊 Calculating sea bearings…';
   } else if (s.state === 'ok') {
     const seaCount = window.SHORE_MASK
-      ? Array.from(window.SHORE_MASK).filter(v => v >= 0.5).length : 0;
+      ? Array.from(window.SHORE_MASK).filter(v => v >= SHORE_SEA_THRESH).length : 0;
     text  = `🌊 ${seaCount} sea bearings`;
     color = seaCount > 0 ? '#00c890' : '#aa8844';
-  } else if (s.state === 'inland') {
-    text  = '🏔 Inland (no coast)';
+  } else if (s.state === 'inland') {    text  = '🏔 Inland (no coast)';
     color = '#aa8844';
   } else if (s.state === 'error') {
     text  = '🌊 Shore: unavailable';
@@ -561,7 +560,7 @@ function drawShoreDebugMap(d) {
     const [lx, ly] = last.px != null
       ? imgToCanvas(last.px, last.py)
       : latLonToCanvas(last.lat, last.lon);
-    ctx.strokeStyle = row.seaFrac >= 0.5
+    ctx.strokeStyle = row.seaFrac >= SHORE_SEA_THRESH
       ? 'rgba(0,200,160,0.22)'
       : 'rgba(220,140,50,0.18)';
     ctx.beginPath();
@@ -662,7 +661,7 @@ function renderShoreDebug() {
 
   drawShoreDebugMap(d);
 
-  const seaCount = Array.from(window.SHORE_MASK || []).filter(v => v >= 0.5).length;
+  const seaCount = Array.from(window.SHORE_MASK || []).filter(v => v >= SHORE_SEA_THRESH).length;
   metaEl.innerHTML = `
     <span class="sdd-key">Location:</span>
     <span class="sdd-val">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</span>
@@ -723,7 +722,7 @@ function renderShoreDebug() {
   };
   bearTb.innerHTML = d.bearings.map(row => {
     const pct   = Math.round(row.seaFrac * 100);
-    const isSea = row.seaFrac >= 0.5;
+    const isSea = row.seaFrac >= SHORE_SEA_THRESH;
     const cells = row.samples.map(s => {
       const abbr = REASON_ABBR[s.reason] ?? s.reason;
 
@@ -742,15 +741,17 @@ function renderShoreDebug() {
    KITE CONFIG DIALOG
 ══════════════════════════════════════════════════ */
 (function () {
-  const overlay       = document.getElementById('kite-modal-overlay');
-  const minInput      = document.getElementById('kite-min-input');
-  const maxInput      = document.getElementById('kite-max-input');
-  const daylightInput = document.getElementById('kite-at-night-input');
-  const applyBtn      = document.getElementById('kite-modal-apply');
-  const cancelBtn     = document.getElementById('kite-modal-cancel');
-  const resetBtn      = document.getElementById('kite-modal-reset');
-  const cfgBtn        = document.getElementById('kite-cfg-btn');
-  const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
+  const overlay          = document.getElementById('kite-modal-overlay');
+  const minInput         = document.getElementById('kite-min-input');
+  const maxInput         = document.getElementById('kite-max-input');
+  const daylightInput    = document.getElementById('kite-at-night-input');
+  const seaThreshSlider  = document.getElementById('kite-sea-thresh-input');
+  const seaThreshLabel   = document.getElementById('kite-sea-thresh-label');
+  const applyBtn         = document.getElementById('kite-modal-apply');
+  const cancelBtn        = document.getElementById('kite-modal-cancel');
+  const resetBtn         = document.getElementById('kite-modal-reset');
+  const cfgBtn           = document.getElementById('kite-cfg-btn');
+  const shoreFetchBtn    = document.getElementById('kite-shore-fetch-btn');
 
   // ── Active bearings state ─────────────────────────────────────────────
   let activeBearings = [];   // array of snapped 10° bearings (numbers)
@@ -779,7 +780,8 @@ function renderShoreDebug() {
     }
 
     window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
-      window.SHORE_MASK, windDeg, windGood, activeBearings);
+      window.SHORE_MASK, windDeg, windGood, activeBearings,
+      seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : null);
   }
 
   // ── Drag-to-select on the compass canvas ─────────────────────────────
@@ -849,19 +851,31 @@ function renderShoreDebug() {
     window.addEventListener('touchend',   onPointerUp);
   }
 
+  // ── Sea-threshold slider: live label + compass preview ───────────────────
+  if (seaThreshSlider) {
+    seaThreshSlider.addEventListener('input', () => {
+      if (seaThreshLabel) seaThreshLabel.textContent = seaThreshSlider.value + '%';
+      drawModalCompass();
+    });
+  }
+
   // ── Sync dialog ↔ config ─────────────────────────────────────────────
   function syncDialogToConfig(cfg) {
     minInput.value        = cfg.min;
     maxInput.value        = cfg.max;
     daylightInput.checked = !cfg.daylight;
     activeBearings        = cfg.dirs.slice();
+    const pct = Math.round((cfg.seaThresh ?? KITE_DEFAULTS.seaThresh) * 100);
+    if (seaThreshSlider) seaThreshSlider.value = pct;
+    if (seaThreshLabel)  seaThreshLabel.textContent = pct + '%';
   }
   function readDialogConfig() {
     return {
-      min:      parseFloat(minInput.value) || KITE_DEFAULTS.min,
-      max:      parseFloat(maxInput.value) || KITE_DEFAULTS.max,
-      dirs:     activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
-      daylight: !daylightInput.checked,
+      min:       parseFloat(minInput.value) || KITE_DEFAULTS.min,
+      max:       parseFloat(maxInput.value) || KITE_DEFAULTS.max,
+      dirs:      activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
+      daylight:  !daylightInput.checked,
+      seaThresh: seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : KITE_DEFAULTS.seaThresh,
     };
   }
 
@@ -880,6 +894,7 @@ function renderShoreDebug() {
   resetBtn.addEventListener('click', () => { syncDialogToConfig(KITE_DEFAULTS); drawModalCompass(); });
   applyBtn.addEventListener('click', () => {
     const cfg = readDialogConfig();
+    window.setShoreSeaThresh(cfg.seaThresh);   // commit threshold before re-render
     setKiteParams(cfg);
     overlay.classList.remove('open');
     if (lastData) renderDisplay(lastData);
@@ -902,9 +917,10 @@ function renderShoreDebug() {
     window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon, () => {
       // Auto-select all sea bearings, deselect all land bearings
       if (window.SHORE_MASK) {
+        const fetchThresh = seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : SHORE_SEA_THRESH;
         activeBearings = [];
         for (let b = 0; b < SHORE_BEARINGS; b++) {
-          if (window.SHORE_MASK[b] >= SHORE_SEA_THRESH) {
+          if (window.SHORE_MASK[b] >= fetchThresh) {
             activeBearings.push(b * 10);
           }
         }
