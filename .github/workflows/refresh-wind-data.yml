@@ -12,13 +12,22 @@ concurrency:
   group: pages-main       # same group as deploy-prod – prevents gh-pages race
   cancel-in-progress: false
 
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch wind station data
+        run: |
+          mkdir deploy
           curl -fsSL -o deploy/wind-speeds.json \
             "https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json"
 
       - name: Publish to GitHub Pages
-      - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: peaceiris/actions-gh-pages@v4
+        with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: deploy
           keep_files: true   # preserve the rest of the site
