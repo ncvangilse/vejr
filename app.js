@@ -46,7 +46,7 @@ async function load(cityName, model) {
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
     // 1-hour resolution arrays for smooth curves (temp, wind speed/gust, precip) and icons
-    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[];
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[],dirs1h=[];
     const totalH=FORECAST_DAYS*24;
     for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP){
       times.push(H.time[i]);
@@ -76,6 +76,7 @@ async function load(cityName, model) {
       const iconCode1h = iconCodes ? (iconCodes[i] ?? dmiCode1h) : dmiCode1h;
       codes1h.push((iconCodes && dmiCode1h >= 80 && dmiCode1h <= 82 && iconCode1h >= 95)
         ? iconCode1h : dmiCode1h);
+      dirs1h.push(H.winddirection_10m[i]);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',
@@ -149,7 +150,7 @@ async function load(cityName, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
-      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h,
+      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     // Double rAF ensures layout is complete before measuring canvas width
@@ -179,6 +180,89 @@ const PORTRAIT_COL_W = 36; // px per 1-hour slot in portrait scroll mode (= ICON
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
   return { p10: obj.p10.slice(start, start + n), p50: obj.p50.slice(start, start + n), p90: obj.p90.slice(start, start + n) };
+}
+
+/**
+ * Build a variable-resolution display series for portrait mode.
+ * Resolution decreases with distance in time from now:
+ *   0–24 h  → 1-hour slots   (finest, today)
+ *   24–48 h → 3-hour slots   (tomorrow)
+ *   48 h+   → 6-hour slots   (days 3-7)
+ *
+ * For coarse slots the icon/direction is picked from whichever hour in the
+ * window is most "daytime" (prefers midday, avoids night). The axis label
+ * uses the scheduled step-aligned start time so day dividers land correctly.
+ *
+ * The returned object exposes both naming conventions (times/times1h, dirs/dirs1h,
+ * codes/codes1h, winds/winds1h, precips/precips1h) so renderAll() works without
+ * any changes.
+ */
+function buildPortraitSeries(s) {
+  const t0 = new Date(s.times1h[0]).getTime();
+  const times = [], codes = [], dirs = [];
+  const temps = [], precips = [], gusts = [], winds = [];
+  const hasEns = s.ensTemp1h != null;
+  const ensTemp = { p10: [], p50: [], p90: [] };
+  const ensWind = { p10: [], p50: [], p90: [] };
+  const ensGust = { p10: [], p50: [], p90: [] };
+  const ensPrecip = { p10: [], p50: [], p90: [] };
+
+  let i = 0;
+  while (i < s.times1h.length) {
+    const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
+    const step = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
+
+    // For coarse steps pick the slot in [i, i+step) that is most daytime.
+    let best = i;
+    if (step > 1) {
+      let bestScore = -Infinity;
+      const end = Math.min(i + step, s.times1h.length);
+      for (let j = i; j < end; j++) {
+        const h = new Date(s.times1h[j]).getHours();
+        const night = typeof isNight === 'function' ? isNight(s.times1h[j]) : (h < 6 || h >= 20);
+        const score = (night ? 0 : 100) - Math.abs(h - 12);
+        if (score > bestScore) { bestScore = score; best = j; }
+      }
+    }
+
+    // Time label: step-aligned start (so day boundaries land on exact midnight).
+    times.push(s.times1h[i]);
+    // Icon/direction: from the most-daytime slot.
+    codes.push(s.codes1h ? s.codes1h[best] : null);
+    dirs.push(s.dirs1h ? s.dirs1h[best]
+                       : s.dirs[Math.min(Math.round(best / 3), s.dirs.length - 1)]);
+    temps.push(s.temps1h[best]);
+    precips.push(s.precips1h[best]);
+    gusts.push(s.gusts1h[best]);
+    winds.push(s.winds1h[best]);
+    // Down-sample ensemble percentile bands by picking the best-slot value.
+    if (hasEns) {
+      ['p10', 'p50', 'p90'].forEach(k => {
+        ensTemp[k].push(s.ensTemp1h[k][best]);
+        ensWind[k].push(s.ensWind1h[k][best]);
+        ensGust[k].push(s.ensGust1h[k][best]);
+        ensPrecip[k].push(s.ensPrecip1h[k][best]);
+      });
+    }
+
+    i += step;
+  }
+
+  // Both naming conventions point to the same arrays so renderAll needs no changes.
+  return {
+    times, times1h: times,
+    codes, codes1h: codes,
+    dirs,  dirs1h:  dirs,
+    temps1h: temps,
+    precips, precips1h: precips,
+    gusts1h: gusts,
+    winds, winds1h: winds,
+    // Ensemble percentile bands down-sampled to match the display series resolution.
+    ensTemp:   hasEns ? ensTemp   : null, ensTemp1h:   hasEns ? ensTemp   : null,
+    ensWind:   hasEns ? ensWind   : null, ensWind1h:   hasEns ? ensWind   : null,
+    ensGust:   hasEns ? ensGust   : null, ensGust1h:   hasEns ? ensGust   : null,
+    ensPrecip: hasEns ? ensPrecip : null, ensPrecip1h: hasEns ? ensPrecip : null,
+  };
 }
 
 function renderDisplay(d) {
@@ -211,12 +295,14 @@ function renderDisplay(d) {
     codes1h:  d.codes1h ? d.codes1h.slice(s1, s1 + n1h) : null,
     precips1h: d.precips1h.slice(s1, s1 + n1h), gusts1h: d.gusts1h.slice(s1, s1 + n1h),
     winds1h:  d.winds1h.slice(s1, s1 + n1h),
+    dirs1h:   d.dirs1h ? d.dirs1h.slice(s1, s1 + n1h) : null,
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
   const colW = portrait ? PORTRAIT_COL_W : null;
-  renderAll(s, invertedColors, colW);
-  lastRenderedData = s;
+  const displayData = portrait ? buildPortraitSeries(s) : s;
+  renderAll(displayData, invertedColors, colW);
+  lastRenderedData = displayData;
   if (invertedColors) {
     ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
       const canvas = document.getElementById(id);
@@ -1061,7 +1147,7 @@ async function loadAtCoords(lat, lon, model) {
       });
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
-    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[];
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[],dirs1h=[];
     const totalH = FORECAST_DAYS * 24;
     for (let i = 0; i < Math.min(totalH, H.time.length); i += STEP) {
       times.push(H.time[i]);
@@ -1089,6 +1175,7 @@ async function loadAtCoords(lat, lon, model) {
       const iconCode1h = iconCodes ? (iconCodes[i] ?? dmiCode1h) : dmiCode1h;
       codes1h.push((iconCodes && dmiCode1h >= 80 && dmiCode1h <= 82 && iconCode1h >= 95)
         ? iconCode1h : dmiCode1h);
+      dirs1h.push(H.winddirection_10m[i]);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',      'dmi_seamless':        'DMI HARMONIE',
@@ -1142,7 +1229,7 @@ async function loadAtCoords(lat, lon, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
-      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h,
+      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
