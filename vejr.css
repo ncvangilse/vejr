@@ -571,6 +571,61 @@ canvas.main-canvas {
 .sdd-sea-cell  { color: #40c8a8; }
 .sdd-land-cell { color: #c88040; }
 
+/* ── Wind station toggle button ── */
+#radar-wind-toggle {
+  padding: 2px 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 10px;
+  cursor: pointer;
+  border: 1px solid #bbb;
+  background: rgba(0,0,0,0.07);
+  color: #556;
+  border-radius: 3px;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  font-weight: 400;
+}
+#radar-wind-toggle:hover { background: rgba(0,0,0,0.13); }
+#radar-wind-toggle.active {
+  background: rgba(0,100,50,0.12);
+  border-color: #5a8a6a;
+  color: #1a6a3a;
+  font-weight: 600;
+}
+
+/* ── Wind station markers ── */
+.ws-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  pointer-events: none;
+}
+.ws-arrow {
+  font-size: 11px;
+  line-height: 1;
+  display: inline-block;
+  transform-origin: center center;
+  color: #222;
+  text-shadow: 0 0 3px rgba(255,255,255,0.9);
+}
+.ws-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  border: 1.5px solid rgba(255,255,255,0.85);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
+
 /* ── Portrait: hide right-side rain axis to save lateral space ── */
 @media (orientation: portrait) {
   .y-axis-right { display: none; }
