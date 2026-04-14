@@ -45,7 +45,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
   const cssW   = totalCssW != null ? totalCssW : wrap.clientWidth;
   const colW   = cssW / n;
 
-  const ICON_H   = 30;
+  const ICON_H   = 36;
   const TIME_H   = 18;
   const cssH     = TIME_H + ICON_H;
 
