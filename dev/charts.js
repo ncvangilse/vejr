@@ -868,10 +868,10 @@ function renderAll(d, invertedColors, portraitColW = null) {
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   if (portrait) {
-    // Portrait: all charts share the display series — one column per slot.
-    // Other model lines are drawn at 1h resolution using xMap1h for correct x positions.
-    drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null,
-             null, null, null, invertedColors, totalCssW, null);
+    // Portrait: temp/wind curves use 1h data + xMap1h for smooth rendering across
+    // the variable-resolution display grid. Precip bars use the display series.
+    drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
+             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null);
     drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null,
              null, null, invertedColors, totalCssW, null,
              d.otherModelsWind1h || null, d.xMap1h || null);
