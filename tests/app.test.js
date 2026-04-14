@@ -117,6 +117,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     geocode:            () => new Promise(() => {}),
     fetchWeather:       () => new Promise(() => {}),
     fetchEnsemble:      () => new Promise(() => {}),
+    fetchOtherModelsWind: () => Promise.resolve([]),
     ensemblePercentiles: () => null,
     renderAll:          renderAllSpy || (() => {}),
     isKiteOptimal:      () => false,
@@ -453,10 +454,17 @@ describe('buildPortraitSeries', () => {
 
   it('coarsens nighttime slots in the first 24 hours to 3h', () => {
     const ds = ctx.buildPortraitSeries(makeFixedSlice());
-    // idx 10 = 20:00 (night), idx 11 = 23:00 → 3h gap
-    expect(new Date(ds.times[10]).getUTCHours()).toBe(20);
-    const dt = new Date(ds.times[11]).getTime() - new Date(ds.times[10]).getTime();
-    expect(dt).toBe(3 * HR);
+    // Find the first pair of adjacent display slots within the first 24h of input
+    // that are separated by exactly 3h — that gap indicates night coarsening.
+    // The exact index depends on the local timezone, so we search rather than hardcode.
+    const t0ms = new Date(ds.times[0]).getTime();
+    let found = false;
+    for (let i = 1; i < ds.times.length; i++) {
+      const dt = new Date(ds.times[i]).getTime() - new Date(ds.times[i - 1]).getTime();
+      const hoursAhead = (new Date(ds.times[i - 1]).getTime() - t0ms) / 3600000;
+      if (hoursAhead < 24 && dt === 3 * HR) { found = true; break; }
+    }
+    expect(found).toBe(true);
   });
 
   it('produces 3-hour spacing for daytime slots in 24–48h', () => {
@@ -555,6 +563,24 @@ describe('buildPortraitSeries', () => {
     for (let i = 1; i < ds.slotIdx1h.length; i++) {
       expect(ds.slotIdx1h[i]).toBeGreaterThanOrEqual(ds.slotIdx1h[i - 1]);
     }
+  });
+
+  it('passes otherModelsWind1h through to display data unchanged', () => {
+    const s = makeFixedSlice();
+    const otherModels = [
+      { model: 'icon_seamless', winds1h: Array(TOTAL_1H).fill(7) },
+      { model: 'ecmwf_ifs025',  winds1h: Array(TOTAL_1H).fill(8) },
+    ];
+    s.otherModelsWind1h = otherModels;
+    const ds = ctx.buildPortraitSeries(s);
+    expect(ds.otherModelsWind1h).toBe(otherModels);
+  });
+
+  it('sets otherModelsWind1h to null when source is null', () => {
+    const s = makeFixedSlice();
+    s.otherModelsWind1h = null;
+    const ds = ctx.buildPortraitSeries(s);
+    expect(ds.otherModelsWind1h).toBeNull();
   });
 });
 
