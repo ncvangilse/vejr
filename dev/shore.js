@@ -659,7 +659,7 @@ function drawVectorOverlay(ctx, cx, cy, radius) {
  * @param {number[]} [selectedBearings]  bearings currently selected in the dialog (snapped to 10°)
  * @param {number}  [seaThresh]         override threshold for preview; defaults to SHORE_SEA_THRESH
  */
-function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBearings, seaThresh) {
+function drawShoreCompass(ctx, cx, cy, radius, mask, _windDeg, _isGood, selectedBearings, seaThresh) {
   const SEA_THRESH = (seaThresh != null) ? seaThresh : SHORE_SEA_THRESH;
   const TWO_PI  = Math.PI * 2;
   const DEG2RAD = Math.PI / 180;
@@ -713,9 +713,6 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBe
     ctx.stroke();
   }
 
-  // ── Vector overlay (Overpass coastlines + water polygons) ──
-  drawVectorOverlay(ctx, cx, cy, fillR);
-
   // ── Inner hub ──
   ctx.beginPath();
   ctx.arc(cx, cy, innerR, 0, TWO_PI);
@@ -740,64 +737,15 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBe
                         cy + Math.sin(angle) * radius * 0.80);
   });
 
-  // ── Wind direction arrow ──
-  if (windDeg != null) {
-    const arrowAngle = (windDeg - 90) * DEG2RAD;
-    const arrowLen   = radius * 0.62;
-    const tailX = cx + Math.cos(arrowAngle) * arrowLen;
-    const tailY = cy + Math.sin(arrowAngle) * arrowLen;
-    const tipX  = cx - Math.cos(arrowAngle) * (innerR + 2);
-    const tipY  = cy - Math.sin(arrowAngle) * (innerR + 2);
-
-    const arrowColor = isGood ? '#00e8b0' : 'rgba(255,255,255,0.75)';
-    ctx.strokeStyle = arrowColor;
-    ctx.fillStyle   = arrowColor;
-    ctx.lineWidth   = isGood ? 2.5 : 1.8;
-
-    ctx.beginPath();
-    ctx.moveTo(tailX, tailY);
-    ctx.lineTo(tipX, tipY);
-    ctx.stroke();
-
-    const headLen   = radius * 0.12;
-    const headAngle = Math.atan2(tipY - tailY, tipX - tailX);
-    ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(tipX - headLen * Math.cos(headAngle - Math.PI / 6),
-               tipY - headLen * Math.sin(headAngle - Math.PI / 6));
-    ctx.lineTo(tipX - headLen * Math.cos(headAngle + Math.PI / 6),
-               tipY - headLen * Math.sin(headAngle + Math.PI / 6));
-    ctx.closePath();
-    ctx.fill();
-
-    if (isGood) {
-      ctx.shadowColor = '#00e8b0';
-      ctx.shadowBlur  = 8;
-      ctx.stroke();
-      ctx.shadowBlur  = 0;
-    }
-  }
-
-  // ── Status overlay when no mask ──
-  if (!mask) {
-    ctx.fillStyle    = 'rgba(180,190,200,0.7)';
-    ctx.font         = `${Math.max(8, radius * 0.12)}px 'IBM Plex Sans', sans-serif`;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    const state = window.SHORE_STATUS?.state;
-    const msg = state === 'loading'     ? 'Fetching…'
-              : state === 'calculating' ? 'Calculating…'
-              : state === 'error'       ? 'Unavailable'
-              : '';
-    if (msg) ctx.fillText(msg, cx, cy);
-  }
-
   // ── Outer border ──
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, TWO_PI);
   ctx.strokeStyle = 'rgba(120,160,200,0.35)';
   ctx.lineWidth = 1;
   ctx.stroke();
+
+  // ── Vector overlay on top (Overpass coastlines + water polygons) ──
+  drawVectorOverlay(ctx, cx, cy, fillR);
 
   ctx.restore();
 }

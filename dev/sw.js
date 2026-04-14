@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.14-37-claude-vector-data-overlay-lwOAG-5';
+const CACHE_NAME = 'vejr-2026.04.14-38-claude-vector-data-overlay-lwOAG-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
