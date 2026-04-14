@@ -62,11 +62,12 @@ jobs:
 
       - name: Fetch NinJo station data
         run: |
-          curl -fsSL \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-            'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9' \
-            -o ninjo-stations.json \
-            || echo '{}' > ninjo-stations.json
+          NINJO_DIRECT='https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9'
+          NINJO_ENC='https%3A%2F%2Fwww.dmi.dk%2FNinJo2DmiDk%2Fninjo2dmidk%3Fcmd%3Dobj%26south%3D54.1%26north%3D57.9%26west%3D5.5%26east%3D17.9'
+          curl -fsSL "$NINJO_DIRECT" -o ninjo-stations.json \
+          || curl -fsSL "https://api.allorigins.win/raw?url=$NINJO_ENC" -o ninjo-stations.json \
+          || curl -fsSL "https://corsproxy.io/?url=$NINJO_ENC"          -o ninjo-stations.json \
+          || echo '{}' > ninjo-stations.json
 
       - name: Deploy to GitHub Pages (test)
         uses: peaceiris/actions-gh-pages@v4
