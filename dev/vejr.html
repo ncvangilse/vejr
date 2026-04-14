@@ -73,8 +73,7 @@
         <div id="updated-text">—</div>
         <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
         <div id="shore-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
-        <div id="dmi-obs-status" style="font-size:10px;margin-top:3px;color:#778;"></div>
-        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.13-31-nchvg-improved-dmi-popups</div>
+        <div id="build-number" style="font-size:9px;color:#aaa;letter-spacing:0.5px;margin-top:3px;">build 2026.04.14-32-claude-portrait-time-zoom-GARRM</div>
       </div>
     </div>
 
@@ -172,15 +171,6 @@
         </div>
       </div>
       <div id="shore-modal-status"></div>
-
-      <div class="kite-field kite-field--thresh">
-        <label>SEA THRESHOLD — % of samples over water to count as a sea bearing</label>
-        <div class="kite-field-row">
-          <input type="range" id="kite-sea-thresh-input" min="10" max="100" step="5" value="75">
-          <span id="kite-sea-thresh-label" class="kite-field-unit kite-sea-thresh-label">75%</span>
-        </div>
-      </div>
-
       <button id="kite-shore-fetch-btn">🌊 Fetch sea bearings</button>
 
       <!-- Shore debug panel -->
@@ -234,9 +224,8 @@
   </div>
 </div>
 
-<!-- ── Scripts (order matters: config → dmi → api → icons → charts → radar → shore → app) ── -->
+<!-- ── Scripts (order matters: config → api → icons → charts → radar → app) ── -->
 <script src="config.js?v=22"></script>
-<script src="dmi.js?v=22"></script>
 <script src="api.js?v=22"></script>
 <script src="weather-icons.js?v=22"></script>
 <script src="charts.js?v=22"></script>

@@ -45,8 +45,8 @@ async function load(cityName, model) {
       });
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
-    // 1-hour resolution arrays for smooth curves (temp, wind speed/gust, precip)
-    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[];
+    // 1-hour resolution arrays for smooth curves (temp, wind speed/gust, precip) and icons
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[],dirs1h=[];
     const totalH=FORECAST_DAYS*24;
     for(let i=0;i<Math.min(totalH,H.time.length);i+=STEP){
       times.push(H.time[i]);
@@ -71,6 +71,12 @@ async function load(cityName, model) {
       winds1h.push(H.windspeed_10m[i]);
       const rawGust1h = H.windgusts_10m[i];
       gusts1h.push(rawGust1h != null ? rawGust1h : H.windspeed_10m[i]);
+      // Weather codes at 1h resolution (portrait mode shows finest available icons)
+      const dmiCode1h  = H.weathercode[i];
+      const iconCode1h = iconCodes ? (iconCodes[i] ?? dmiCode1h) : dmiCode1h;
+      codes1h.push((iconCodes && dmiCode1h >= 80 && dmiCode1h <= 82 && iconCode1h >= 95)
+        ? iconCode1h : dmiCode1h);
+      dirs1h.push(H.winddirection_10m[i]);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',
@@ -144,7 +150,7 @@ async function load(cityName, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
-      times1h, temps1h, precips1h, gusts1h, winds1h,
+      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     // Double rAF ensures layout is complete before measuring canvas width
@@ -154,8 +160,6 @@ async function load(cityName, model) {
     // Store coords for on-demand shore analysis (triggered from the kite modal)
     lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     updateShoreStatusUI();
-    // DMI observations (fire-and-forget; re-renders when done)
-    loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -165,14 +169,147 @@ async function load(cityName, model) {
 /* ══════════════════════════════════════════════════
    PORTRAIT-AWARE RENDERING
    In portrait mode the full remaining forecast is shown in a scrollable
-   canvas — each 3-hour slot is PORTRAIT_COL_W px wide so one icon fits
-   per slot, and the user can swipe to travel through time.
+   canvas — each 1-hour slot is PORTRAIT_COL_W px wide (one icon per slot)
+   so the current day is shown at the finest available time resolution,
+   and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 24; // px per 3-hour slot in portrait scroll mode
+const PORTRAIT_COL_W = 36; // px per 1-hour slot in portrait scroll mode (= ICON_H, icons fit exactly)
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
   return { p10: obj.p10.slice(start, start + n), p50: obj.p50.slice(start, start + n), p90: obj.p90.slice(start, start + n) };
+}
+
+/**
+ * Compute CSS x-center positions for each 1h data point on the variable-resolution
+ * display grid.  Each display slot has width portraitColW px; a 1h point that falls
+ * at offset t within a slot of duration D gets centered at:
+ *   x = (slotIndex + (t + 0.5h) / D) * portraitColW
+ * Returns { xMap1h, xFrac1h, slotIdx1h } — parallel arrays of length times1h.length.
+ */
+function computeXMap1h(times1h, displayTimes, portraitColW) {
+  const n1h  = times1h.length;
+  const nDsp = displayTimes.length;
+  const totalCssW = nDsp * portraitColW;
+  const dspMs = displayTimes.map(t => new Date(t).getTime());
+  const HALF_H = 1800000; // 0.5 h in ms
+  const xMap = [], xFrac = [], slotIdx = [];
+  let j = 0;
+  for (let k = 0; k < n1h; k++) {
+    const tk = new Date(times1h[k]).getTime();
+    while (j < nDsp - 1 && dspMs[j + 1] <= tk) j++;
+    const slotDur = j < nDsp - 1
+      ? dspMs[j + 1] - dspMs[j]
+      : (j > 0 ? dspMs[j] - dspMs[j - 1] : 3600000);
+    const x = (j + (tk - dspMs[j] + HALF_H) / slotDur) * portraitColW;
+    xMap.push(x);
+    xFrac.push(x / totalCssW);
+    slotIdx.push(j);
+  }
+  return { xMap1h: xMap, xFrac1h: xFrac, slotIdx1h: slotIdx };
+}
+
+/**
+ * Build a variable-resolution display series for portrait mode.
+ * Base resolution decreases with distance from now; nighttime slots are
+ * additionally coarsened by 3× (capped at 6h) so nights compress naturally:
+ *   0–24 h  daytime  → 1h  |  nighttime → 3h
+ *   24–48 h daytime  → 3h  |  nighttime → 6h
+ *   48 h+            → 6h  (always, day or night)
+ *
+ * For coarse slots the icon/direction is picked from whichever hour in the
+ * window is most "daytime" (prefers midday, avoids night).
+ *
+ * The returned object keeps the display series (times/codes/dirs/precips/winds,
+ * length = N_display) separate from the full 1h arrays (times1h/temps1h/etc.,
+ * length = N_1h).  xMap1h / xFrac1h map each 1h point to its CSS x-center on
+ * the display grid so curves can be drawn at full resolution.
+ */
+function buildPortraitSeries(s) {
+  const t0 = new Date(s.times1h[0]).getTime();
+  const times = [], codes = [], dirs = [];
+  const precips = [], winds = [], temps = [], gusts = [];
+  const hasEns = s.ensTemp1h != null;
+  const ensTemp = { p10: [], p50: [], p90: [] };
+  const ensWind = { p10: [], p50: [], p90: [] };
+  const ensGust = { p10: [], p50: [], p90: [] };
+  const ensPrecip = { p10: [], p50: [], p90: [] };
+
+  let i = 0;
+  while (i < s.times1h.length) {
+    const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
+    const h = new Date(s.times1h[i]).getHours();
+    const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
+    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
+    const step = Math.min(6, night ? baseStep * 3 : baseStep);
+
+    // For coarse steps pick the slot in [i, i+step) that is most daytime.
+    let best = i;
+    if (step > 1) {
+      let bestScore = -Infinity;
+      const end = Math.min(i + step, s.times1h.length);
+      for (let j = i; j < end; j++) {
+        const hj = new Date(s.times1h[j]).getHours();
+        const nj = typeof isNight === 'function' ? isNight(s.times1h[j]) : (hj < 6 || hj >= 20);
+        const score = (nj ? 0 : 100) - Math.abs(hj - 12);
+        if (score > bestScore) { bestScore = score; best = j; }
+      }
+    }
+
+    // Time label: step-aligned start (so day boundaries land on exact midnight).
+    times.push(s.times1h[i]);
+    // Icon/direction: from the most-daytime slot.
+    codes.push(s.codes1h ? s.codes1h[best] : null);
+    dirs.push(s.dirs1h ? s.dirs1h[best]
+                       : s.dirs[Math.min(Math.round(best / 3), s.dirs.length - 1)]);
+    precips.push(s.precips1h[best]);
+    winds.push(s.winds1h[best]);
+    temps.push(s.temps1h[best]);
+    gusts.push(s.gusts1h[best]);
+    // Down-sample ensemble percentile bands by picking the best-slot value.
+    if (hasEns) {
+      ['p10', 'p50', 'p90'].forEach(k => {
+        ensTemp[k].push(s.ensTemp1h[k][best]);
+        ensWind[k].push(s.ensWind1h[k][best]);
+        ensGust[k].push(s.ensGust1h[k][best]);
+        ensPrecip[k].push(s.ensPrecip1h[k][best]);
+      });
+    }
+
+    i += step;
+  }
+
+  // Compute x-positions mapping each 1h point onto the variable-resolution grid.
+  const { xMap1h, xFrac1h, slotIdx1h } = computeXMap1h(s.times1h, times, PORTRAIT_COL_W);
+
+  return {
+    // Display series (N_display): icons, arrows, axis ticks, kite highlights, curves.
+    times, codes, dirs,
+    temps,    // representative temperature per display slot (for temp curve in portrait)
+    precips,  // representative precip per display slot (for bars in drawTemp)
+    gusts,    // representative gust per display slot (for wind curve in portrait)
+    winds,    // representative wind per display slot (for kite highlights in drawWind)
+    ensTemp:   hasEns ? ensTemp   : null,
+    ensWind:   hasEns ? ensWind   : null,
+    ensGust:   hasEns ? ensGust   : null,
+    ensPrecip: hasEns ? ensPrecip : null,
+
+    // Full 1h arrays (N_1h): smooth curves and precise tooltip values.
+    times1h:     s.times1h,
+    temps1h:     s.temps1h,
+    precips1h:   s.precips1h,
+    gusts1h:     s.gusts1h,
+    winds1h:     s.winds1h,
+    codes1h:     s.codes1h,
+    dirs1h:      s.dirs1h,
+    ensTemp1h:   s.ensTemp1h,
+    ensWind1h:   s.ensWind1h,
+    ensGust1h:   s.ensGust1h,
+    ensPrecip1h: s.ensPrecip1h,
+
+    // x-position mapping: each 1h point → CSS x-center on the display grid.
+    xMap1h, xFrac1h, slotIdx1h,
+  };
 }
 
 function renderDisplay(d) {
@@ -202,14 +339,17 @@ function renderDisplay(d) {
     ensTemp:  slicePercentilesFrom(d.ensTemp,  s3, n3h), ensWind:  slicePercentilesFrom(d.ensWind,  s3, n3h),
     ensGust:  slicePercentilesFrom(d.ensGust,  s3, n3h), ensPrecip: slicePercentilesFrom(d.ensPrecip, s3, n3h),
     times1h:  d.times1h.slice(s1, s1 + n1h),  temps1h:  d.temps1h.slice(s1, s1 + n1h),
+    codes1h:  d.codes1h ? d.codes1h.slice(s1, s1 + n1h) : null,
     precips1h: d.precips1h.slice(s1, s1 + n1h), gusts1h: d.gusts1h.slice(s1, s1 + n1h),
     winds1h:  d.winds1h.slice(s1, s1 + n1h),
+    dirs1h:   d.dirs1h ? d.dirs1h.slice(s1, s1 + n1h) : null,
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
   };
   const colW = portrait ? PORTRAIT_COL_W : null;
-  renderAll(s, invertedColors, colW);
-  lastRenderedData = s;
+  const displayData = portrait ? buildPortraitSeries(s) : s;
+  renderAll(displayData, invertedColors, colW);
+  lastRenderedData = displayData;
   if (invertedColors) {
     ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
       const canvas = document.getElementById(id);
@@ -242,25 +382,36 @@ function clearCrosshairs() {
 function drawCrosshairs(fracX, idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
-  // Re-derive the same y-mappings used by the draw functions
+  const portrait = !!d.xFrac1h;
+  // Re-derive the same y-mappings used by the draw functions.
+  // In portrait all charts use the display series; in landscape curves use 1h data.
+  const temps_arr = portrait ? d.temps   : d.temps1h;
+  const winds_arr = portrait ? d.winds   : d.winds1h;
+  const gusts_arr = portrait ? d.gusts   : d.gusts1h;
+  const ens_gust  = portrait ? d.ensGust : d.ensGust1h;
+  const idx       = portrait ? idx3h     : idx1h;
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
-  let tmin = Math.floor(Math.min(...d.temps1h) / 5) * 5;
-  let tmax = Math.ceil( Math.max(...d.temps1h) / 5) * 5;
+  let tmin = Math.floor(Math.min(...temps_arr) / 5) * 5;
+  let tmax = Math.ceil( Math.max(...temps_arr) / 5) * 5;
   if (tmax - tmin < 15) { const mid = (tmin + tmax) / 2; tmin = Math.floor((mid - 7.5) / 5) * 5; tmax = tmin + 15; }
   const tRange   = tmax - tmin;
-  const tempDotY = TEMP_padT + (1 - (d.temps1h[idx1h] - tmin) / tRange) * TEMP_ch;
+  const tempDotY = TEMP_padT + (1 - (temps_arr[idx] - tmin) / tRange) * TEMP_ch;
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
-  const WIND_chartH   = WIND_H - WIND_padT;
-  const safeGusts     = d.gusts1h.map((g, i) => Math.max(g, d.winds1h[i]));
-  const ensGustMax    = d.ensGust1h ? Math.max(...d.ensGust1h.p90.filter(v => v != null)) : 0;
-  const maxW          = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
-  const windDotY      = WIND_padT + (1 - d.winds1h[idx1h] / maxW) * WIND_chartH;
-  // xh-top and xh-dir snap to 3hr columns; xh-temp and xh-wind snap to 1hr columns
+  const WIND_chartH = WIND_H - WIND_padT;
+  const safeGusts   = gusts_arr.map((g, i) => Math.max(g, winds_arr[i]));
+  const ensGustMax  = ens_gust ? Math.max(...ens_gust.p90.filter(v => v != null)) : 0;
+  const maxW        = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
+  const windDotY    = WIND_padT + (1 - winds_arr[idx] / maxW) * WIND_chartH;
   const fracX3h = (idx3h + 0.5) / d.times.length;
   const fracX1h = (idx1h + 0.5) / d.times1h.length;
   const DOT_Y   = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC    = { 'xh-top': fracX3h, 'xh-temp': fracX1h, 'xh-dir': fracX3h, 'xh-wind': fracX1h };
+  const FRAC    = {
+    'xh-top':  portrait ? fracX3h : (d.codes1h ? fracX1h : fracX3h),
+    'xh-temp': portrait ? fracX3h : fracX1h,
+    'xh-dir':  fracX3h,
+    'xh-wind': portrait ? fracX3h : fracX1h,
+  };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -285,7 +436,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.setLineDash([]);
     const dotY = DOT_Y[id];
     if (dotY !== null) {
-      const dotCol = (id === 'xh-temp') ? (d.temps1h[idx1h] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
+      const dotCol = (id === 'xh-temp') ? (temps_arr[idx] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
       ctx.fillStyle   = dotCol;
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth   = 1;
@@ -311,28 +462,46 @@ function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
   const tip = document.getElementById('hover-tooltip');
-  // Time label from 1hr array for precision
-  const t    = new Date(d.times1h[idx1h]);
-  const day  = DA_DAYS[t.getDay()];
-  const h    = t.getHours().toString().padStart(2,'0');
-  // Curve values from 1hr arrays
-  const temp = d.temps1h[idx1h];
-  const prec = d.precips1h[idx1h];
-  const wind = d.winds1h[idx1h];
-  const gust = Math.max(d.gusts1h[idx1h], wind);
-  // Icon/direction from 3hr arrays
-  const dir  = d.dirs[idx3h];
-  const code = d.codes[idx3h];
-  const windCol = windColorStr(wind);
-  const gustCol = windColorStr(gust);
-  const tp10 = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
-  const tp90 = d.ensTemp1h   ? d.ensTemp1h.p90[idx1h]   : null;
-  const wp10 = d.ensWind1h   ? d.ensWind1h.p10[idx1h]   : null;
-  const wp90 = d.ensWind1h   ? d.ensWind1h.p90[idx1h]   : null;
-  const gp10 = d.ensGust1h   ? (d.ensGust1h.p10[idx1h]   ?? null) : null;
-  const gp90 = d.ensGust1h   ? (d.ensGust1h.p90[idx1h]   ?? null) : null;
-  const pp10 = d.ensPrecip1h ? d.ensPrecip1h.p10[idx1h] : null;
-  const pp90 = d.ensPrecip1h ? d.ensPrecip1h.p90[idx1h] : null;
+  const portrait = !!d.xFrac1h;
+  let timeStr, temp, prec, wind, gust, dir, code, tp10, tp90, wp10, wp90, gp10, gp90, pp10, pp90;
+  if (portrait) {
+    // Portrait: all values from display series (same zoom as icon row).
+    timeStr = d.times[idx3h];
+    temp    = d.temps[idx3h];
+    prec    = d.precips[idx3h];
+    wind    = d.winds[idx3h];
+    gust    = Math.max(d.gusts[idx3h], wind);
+    dir     = d.dirs[idx3h];
+    code    = d.codes[idx3h];
+    tp10    = d.ensTemp   ? d.ensTemp.p10[idx3h]   : null;
+    tp90    = d.ensTemp   ? d.ensTemp.p90[idx3h]   : null;
+    wp10    = d.ensWind   ? d.ensWind.p10[idx3h]   : null;
+    wp90    = d.ensWind   ? d.ensWind.p90[idx3h]   : null;
+    gp10    = d.ensGust   ? (d.ensGust.p10[idx3h]  ?? null) : null;
+    gp90    = d.ensGust   ? (d.ensGust.p90[idx3h]  ?? null) : null;
+    pp10    = d.ensPrecip ? d.ensPrecip.p10[idx3h] : null;
+    pp90    = d.ensPrecip ? d.ensPrecip.p90[idx3h] : null;
+  } else {
+    // Landscape: full 1h resolution.
+    timeStr = d.times1h[idx1h];
+    temp    = d.temps1h[idx1h];
+    prec    = d.precips1h[idx1h];
+    wind    = d.winds1h[idx1h];
+    gust    = Math.max(d.gusts1h[idx1h], wind);
+    dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
+    code    = d.codes1h ? d.codes1h[idx1h] : d.codes[idx3h];
+    tp10    = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
+    tp90    = d.ensTemp1h   ? d.ensTemp1h.p90[idx1h]   : null;
+    wp10    = d.ensWind1h   ? d.ensWind1h.p10[idx1h]   : null;
+    wp90    = d.ensWind1h   ? d.ensWind1h.p90[idx1h]   : null;
+    gp10    = d.ensGust1h   ? (d.ensGust1h.p10[idx1h]  ?? null) : null;
+    gp90    = d.ensGust1h   ? (d.ensGust1h.p90[idx1h]  ?? null) : null;
+    pp10    = d.ensPrecip1h ? d.ensPrecip1h.p10[idx1h] : null;
+    pp90    = d.ensPrecip1h ? d.ensPrecip1h.p90[idx1h] : null;
+  }
+  const t   = new Date(timeStr);
+  const day = DA_DAYS[t.getDay()];
+  const h   = t.getHours().toString().padStart(2,'0');
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
   const tempUncRow   = (tp10 != null && tp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';
@@ -343,33 +512,15 @@ function showTooltip(idx1h, idx3h) {
   const precipUncRow = (pp10 != null && pp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#6aaee8;font-size:10px">${pp10.toFixed(1)} → ${pp90.toFixed(1)} mm</span></div>` : '';
   const desc    = WMO_DESC[code] || 'Unknown';
-  const kiteRow = isKiteOptimal(wind, dir, d.times1h[idx1h])
+  const kiteRow = isKiteOptimal(wind, dir, timeStr)
     ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>` : '';
-  // DMI observed wind nearest to this time slot (within 30 min)
-  let obsRow = '';
-  if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
-    const hoverT = new Date(d.times1h[idx1h]).getTime();
-    const nearest = window.DMI_OBS.obs.reduce((a, b) =>
-      Math.abs(a.t - hoverT) < Math.abs(b.t - hoverT) ? a : b
-    );
-    if (Math.abs(nearest.t - hoverT) < 30 * 60 * 1000) {
-      const wStr = nearest.wind != null ? `${nearest.wind.toFixed(1)} m/s` : '—';
-      const gStr = nearest.gust != null
-        ? `<span style="color:rgba(255,150,50,1)"> / gust ${nearest.gust.toFixed(1)} m/s</span>`
-        : '';
-      obsRow = `<div class="tt-row">`
-             + `<span class="tt-label" title="DMI ${window.DMI_OBS.stationName} · ${window.DMI_OBS.distKm} km">Obs (DMI)</span>`
-             + `<span class="tt-val" style="color:#ffe040;font-size:10px">${wStr}${gStr}</span>`
-             + `</div>`;
-    }
-  }
   tip.innerHTML = `
     <div class="tt-time">${day} at ${h}:00</div>
     ${kiteRow}
     <div class="tt-row" style="margin-bottom:4px;align-items:center;">
       <div style="position:relative;flex:0 0 32px;width:32px;height:32px;">
         <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;"></canvas>
-        ${isKiteOptimal(wind, dir, d.times1h[idx1h]) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
+        ${isKiteOptimal(wind, dir, timeStr) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
       </div>
       <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
     </div>
@@ -393,7 +544,6 @@ function showTooltip(idx1h, idx3h) {
       <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
     </div>
     ${gustUncRow}
-    ${obsRow}
     <div class="tt-row">
       <span class="tt-label">Direction</span>
       <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
@@ -409,7 +559,7 @@ function showTooltip(idx1h, idx3h) {
     iconCanvas.style.height = sz + 'px';
     const ictx = iconCanvas.getContext('2d');
     ictx.scale(dpr, dpr);
-    dmiIcon(ictx, wmoType(code, d.times1h[idx1h]), sz / 2, sz / 2, sz, prec, code);
+    dmiIcon(ictx, wmoType(code, timeStr), sz / 2, sz / 2, sz, prec, code);
   }
 }
 function hideTooltip() {
@@ -431,8 +581,14 @@ function attachHoverListeners() {
     const fracX    = Math.max(0, Math.min(1, relX / span));
     const n1h      = lastRenderedData.times1h.length;
     const n3h      = lastRenderedData.times.length;
-    const idx1h    = Math.min(n1h - 1, Math.floor(fracX * n1h));
-    const idx3h    = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    let idx1h, idx3h;
+    idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    if (lastRenderedData.xFrac1h) {
+      // Portrait: display series drives all charts; idx1h is unused.
+      idx1h = idx3h;
+    } else {
+      idx1h = Math.min(n1h - 1, Math.floor(fracX * n1h));
+    }
     drawCrosshairs(fracX, idx1h, idx3h);
     showTooltip(idx1h, idx3h);
   });
@@ -447,7 +603,19 @@ attachHoverListeners();
 ══════════════════════════════════════════════════ */
 function initPortraitScrollSync() {
   const wraps = document.querySelectorAll ? [...document.querySelectorAll('.chart-canvas-wrap')] : [];
+  if (!wraps.length) return;
+
   let syncing = false;
+
+  function syncAll(left) {
+    syncing = true;
+    const max = wraps[0].scrollWidth - wraps[0].clientWidth;
+    const clamped = Math.max(0, Math.min(max, left));
+    wraps.forEach(w => { w.scrollLeft = clamped; });
+    syncing = false;
+  }
+
+  // Keep all wraps in step on native scroll (mouse wheel, keyboard, trackpad).
   wraps.forEach(wrap => {
     wrap.addEventListener('scroll', () => {
       if (syncing) return;
@@ -455,6 +623,54 @@ function initPortraitScrollSync() {
       const left = wrap.scrollLeft;
       wraps.forEach(w => { if (w !== wrap) w.scrollLeft = left; });
       syncing = false;
+    }, { passive: true });
+  });
+
+  // Touch momentum: intercept horizontal swipes, apply velocity after lift.
+  let rafId = null;
+  let velX = 0, lastX = 0, lastT = 0, startY = 0;
+  let horizontal = null;
+  const DECEL = 0.92;
+
+  wraps.forEach(wrap => {
+    wrap.addEventListener('touchstart', e => {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      velX = 0; horizontal = null;
+      lastX = e.touches[0].clientX;
+      lastT = performance.now();
+      startY = e.touches[0].clientY;
+    }, { passive: true });
+
+    wrap.addEventListener('touchmove', e => {
+      const cx = e.touches[0].clientX;
+      const cy = e.touches[0].clientY;
+      const dx = cx - lastX;
+      const dy = cy - startY;
+      if (horizontal === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5))
+        horizontal = Math.abs(dx) >= Math.abs(dy);
+      if (!horizontal) return;
+      e.preventDefault();
+      const now = performance.now();
+      const dt  = Math.max(1, now - lastT);
+      // velX is pixels-per-16ms-frame; positive = scrolling right (scrollLeft increases).
+      velX = -(dx / dt) * 16;
+      syncAll(wrap.scrollLeft - dx);
+      lastX = cx; lastT = now;
+    }, { passive: false });
+
+    wrap.addEventListener('touchend', () => {
+      if (!horizontal) return;
+      (function step() {
+        velX *= DECEL;
+        if (Math.abs(velX) < 0.5) { rafId = null; return; }
+        syncAll(wraps[0].scrollLeft + velX);
+        rafId = requestAnimationFrame(step);
+      })();
+    }, { passive: true });
+
+    wrap.addEventListener('touchcancel', () => {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      velX = 0; horizontal = null;
     }, { passive: true });
   });
 }
@@ -476,10 +692,11 @@ function updateShoreStatusUI() {
     text = '🌊 Calculating sea bearings…';
   } else if (s.state === 'ok') {
     const seaCount = window.SHORE_MASK
-      ? Array.from(window.SHORE_MASK).filter(v => v >= SHORE_SEA_THRESH).length : 0;
+      ? Array.from(window.SHORE_MASK).filter(v => v >= 0.5).length : 0;
     text  = `🌊 ${seaCount} sea bearings`;
     color = seaCount > 0 ? '#00c890' : '#aa8844';
-  } else if (s.state === 'inland') {    text  = '🏔 Inland (no coast)';
+  } else if (s.state === 'inland') {
+    text  = '🏔 Inland (no coast)';
     color = '#aa8844';
   } else if (s.state === 'error') {
     text  = '🌊 Shore: unavailable';
@@ -495,34 +712,6 @@ function updateShoreStatusUI() {
   }
   renderShoreDebug();
 }
-
-/* ══════════════════════════════════════════════════
-   DMI OBSERVATION STATUS UI
-══════════════════════════════════════════════════ */
-function updateDmiObsStatusUI() {
-  const el = document.getElementById('dmi-obs-status');
-  if (!el) return;
-  const s = window.DMI_OBS_STATUS || { state: 'idle', msg: '' };
-  let text = '', color = '#778';
-  if (s.state === 'loading') {
-    text  = `📡 DMI: ${s.msg || 'loading…'}`;
-    color = '#778';
-  } else if (s.state === 'ok') {
-    // msg = "StationName · N km" — prefix makes it clear this is the basis for the wind obs dots
-    text  = `📡 Obs: ${s.msg}`;
-    color = '#5a9';
-  } else if (s.state === 'no-station') {
-    text  = '📡 DMI: no station nearby';
-    color = '#aa8844';
-  } else if (s.state === 'error') {
-    text  = `📡 DMI: ${s.msg}`;
-    color = '#a77';
-  }
-  // 'idle' and 'not-dk' show nothing
-  el.textContent = text;
-  el.style.color  = color;
-}
-window.updateDmiObsStatusUI = updateDmiObsStatusUI;
 
 /* ══════════════════════════════════════════════════
    SHORE DEBUG PANEL
@@ -609,7 +798,7 @@ function drawShoreDebugMap(d) {
     const [lx, ly] = last.px != null
       ? imgToCanvas(last.px, last.py)
       : latLonToCanvas(last.lat, last.lon);
-    ctx.strokeStyle = row.seaFrac >= SHORE_SEA_THRESH
+    ctx.strokeStyle = row.seaFrac >= 0.5
       ? 'rgba(0,200,160,0.22)'
       : 'rgba(220,140,50,0.18)';
     ctx.beginPath();
@@ -710,7 +899,7 @@ function renderShoreDebug() {
 
   drawShoreDebugMap(d);
 
-  const seaCount = Array.from(window.SHORE_MASK || []).filter(v => v >= SHORE_SEA_THRESH).length;
+  const seaCount = Array.from(window.SHORE_MASK || []).filter(v => v >= 0.5).length;
   metaEl.innerHTML = `
     <span class="sdd-key">Location:</span>
     <span class="sdd-val">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</span>
@@ -771,7 +960,7 @@ function renderShoreDebug() {
   };
   bearTb.innerHTML = d.bearings.map(row => {
     const pct   = Math.round(row.seaFrac * 100);
-    const isSea = row.seaFrac >= SHORE_SEA_THRESH;
+    const isSea = row.seaFrac >= 0.5;
     const cells = row.samples.map(s => {
       const abbr = REASON_ABBR[s.reason] ?? s.reason;
 
@@ -790,17 +979,15 @@ function renderShoreDebug() {
    KITE CONFIG DIALOG
 ══════════════════════════════════════════════════ */
 (function () {
-  const overlay          = document.getElementById('kite-modal-overlay');
-  const minInput         = document.getElementById('kite-min-input');
-  const maxInput         = document.getElementById('kite-max-input');
-  const daylightInput    = document.getElementById('kite-at-night-input');
-  const seaThreshSlider  = document.getElementById('kite-sea-thresh-input');
-  const seaThreshLabel   = document.getElementById('kite-sea-thresh-label');
-  const applyBtn         = document.getElementById('kite-modal-apply');
-  const cancelBtn        = document.getElementById('kite-modal-cancel');
-  const resetBtn         = document.getElementById('kite-modal-reset');
-  const cfgBtn           = document.getElementById('kite-cfg-btn');
-  const shoreFetchBtn    = document.getElementById('kite-shore-fetch-btn');
+  const overlay       = document.getElementById('kite-modal-overlay');
+  const minInput      = document.getElementById('kite-min-input');
+  const maxInput      = document.getElementById('kite-max-input');
+  const daylightInput = document.getElementById('kite-at-night-input');
+  const applyBtn      = document.getElementById('kite-modal-apply');
+  const cancelBtn     = document.getElementById('kite-modal-cancel');
+  const resetBtn      = document.getElementById('kite-modal-reset');
+  const cfgBtn        = document.getElementById('kite-cfg-btn');
+  const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
 
   // ── Active bearings state ─────────────────────────────────────────────
   let activeBearings = [];   // array of snapped 10° bearings (numbers)
@@ -829,8 +1016,7 @@ function renderShoreDebug() {
     }
 
     window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
-      window.SHORE_MASK, windDeg, windGood, activeBearings,
-      seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : null);
+      window.SHORE_MASK, windDeg, windGood, activeBearings);
   }
 
   // ── Drag-to-select on the compass canvas ─────────────────────────────
@@ -900,31 +1086,19 @@ function renderShoreDebug() {
     window.addEventListener('touchend',   onPointerUp);
   }
 
-  // ── Sea-threshold slider: live label + compass preview ───────────────────
-  if (seaThreshSlider) {
-    seaThreshSlider.addEventListener('input', () => {
-      if (seaThreshLabel) seaThreshLabel.textContent = seaThreshSlider.value + '%';
-      drawModalCompass();
-    });
-  }
-
   // ── Sync dialog ↔ config ─────────────────────────────────────────────
   function syncDialogToConfig(cfg) {
     minInput.value        = cfg.min;
     maxInput.value        = cfg.max;
     daylightInput.checked = !cfg.daylight;
     activeBearings        = cfg.dirs.slice();
-    const pct = Math.round((cfg.seaThresh ?? KITE_DEFAULTS.seaThresh) * 100);
-    if (seaThreshSlider) seaThreshSlider.value = pct;
-    if (seaThreshLabel)  seaThreshLabel.textContent = pct + '%';
   }
   function readDialogConfig() {
     return {
-      min:       parseFloat(minInput.value) || KITE_DEFAULTS.min,
-      max:       parseFloat(maxInput.value) || KITE_DEFAULTS.max,
-      dirs:      activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
-      daylight:  !daylightInput.checked,
-      seaThresh: seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : KITE_DEFAULTS.seaThresh,
+      min:      parseFloat(minInput.value) || KITE_DEFAULTS.min,
+      max:      parseFloat(maxInput.value) || KITE_DEFAULTS.max,
+      dirs:     activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
+      daylight: !daylightInput.checked,
     };
   }
 
@@ -943,7 +1117,6 @@ function renderShoreDebug() {
   resetBtn.addEventListener('click', () => { syncDialogToConfig(KITE_DEFAULTS); drawModalCompass(); });
   applyBtn.addEventListener('click', () => {
     const cfg = readDialogConfig();
-    window.setShoreSeaThresh(cfg.seaThresh);   // commit threshold before re-render
     setKiteParams(cfg);
     overlay.classList.remove('open');
     if (lastData) renderDisplay(lastData);
@@ -966,10 +1139,9 @@ function renderShoreDebug() {
     window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon, () => {
       // Auto-select all sea bearings, deselect all land bearings
       if (window.SHORE_MASK) {
-        const fetchThresh = seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : SHORE_SEA_THRESH;
         activeBearings = [];
         for (let b = 0; b < SHORE_BEARINGS; b++) {
-          if (window.SHORE_MASK[b] >= fetchThresh) {
+          if (window.SHORE_MASK[b] >= SHORE_SEA_THRESH) {
             activeBearings.push(b * 10);
           }
         }
@@ -1013,7 +1185,6 @@ async function loadAtCoords(lat, lon, model) {
 
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-    let reverseCountryCode = null;
     try {
       const r = await fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
@@ -1023,7 +1194,6 @@ async function loadAtCoords(lat, lon, model) {
         const d = await r.json();
         displayName = d.address?.city || d.address?.town || d.address?.village
                       || d.display_name.split(',')[0];
-        reverseCountryCode = (d.address?.country_code || '').toUpperCase() || null;
       }
     } catch(_) { /* keep coord string */ }
 
@@ -1053,7 +1223,7 @@ async function loadAtCoords(lat, lon, model) {
       });
     }
     const times=[],temps=[],precips=[],gusts=[],winds=[],dirs=[],codes=[];
-    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[];
+    const times1h=[],temps1h=[],precips1h=[],gusts1h=[],winds1h=[],codes1h=[],dirs1h=[];
     const totalH = FORECAST_DAYS * 24;
     for (let i = 0; i < Math.min(totalH, H.time.length); i += STEP) {
       times.push(H.time[i]);
@@ -1076,6 +1246,12 @@ async function loadAtCoords(lat, lon, model) {
       winds1h.push(H.windspeed_10m[i]);
       const rawGust1h = H.windgusts_10m[i];
       gusts1h.push(rawGust1h != null ? rawGust1h : H.windspeed_10m[i]);
+      // Weather codes at 1h resolution (portrait mode shows finest available icons)
+      const dmiCode1h  = H.weathercode[i];
+      const iconCode1h = iconCodes ? (iconCodes[i] ?? dmiCode1h) : dmiCode1h;
+      codes1h.push((iconCodes && dmiCode1h >= 80 && dmiCode1h <= 82 && iconCode1h >= 95)
+        ? iconCode1h : dmiCode1h);
+      dirs1h.push(H.winddirection_10m[i]);
     }
     const MODEL_LABEL = {
       'best_match':          'Auto',      'dmi_seamless':        'DMI HARMONIE',
@@ -1129,25 +1305,13 @@ async function loadAtCoords(lat, lon, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
-      times1h, temps1h, precips1h, gusts1h, winds1h,
+      times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
-    // Call loadRadar only when the section is not yet visible (i.e. on a fresh
-    // page load restored from a dragged-pin URL).  When called from a live drag
-    // the radar is already initialised and correctly positioned, so skip it.
-    if (window.loadRadar) {
-      const radarSection = document.getElementById('radar-section');
-      if (!radarSection || radarSection.style.display !== 'flex') {
-        window.loadRadar(lat, lon);
-      }
-    }
+    // ── Do NOT call loadRadar here – radar map position is already correct ──
     lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
-    // DMI observations (fire-and-forget; re-renders when done)
-    if (reverseCountryCode) {
-      loadDmiObservations(lat, lon, reverseCountryCode).catch(() => null);
-    }
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display          = 'none';
