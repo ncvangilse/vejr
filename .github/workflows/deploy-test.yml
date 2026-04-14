@@ -53,6 +53,13 @@ jobs:
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
           sed -i 's|/vejr/|/vejr/dev/|g' manifest.json
 
+      - name: Fetch wind station data
+        run: |
+          curl -fsSL \
+            "https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json" \
+            -o wind-speeds.json \
+            || echo '{"type":"FeatureCollection","features":[]}' > wind-speeds.json
+
       - name: Fetch NinJo station data
         run: |
           curl -fsSL \
