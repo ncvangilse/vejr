@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.14-45-nchvg-cache_wind_speed_data-5';
+const CACHE_NAME = 'vejr-2026.04.14-46-nchvg-cache_wind_speed_data-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
