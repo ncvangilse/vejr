@@ -320,6 +320,9 @@ function buildPortraitSeries(s) {
     ensWind1h:   s.ensWind1h,
     ensGust1h:   s.ensGust1h,
     ensPrecip1h: s.ensPrecip1h,
+    // Other model wind lines: passed through at 1h resolution for rendering
+    // with xMap1h providing correct x-positions on the variable-res display grid.
+    otherModelsWind1h: s.otherModelsWind1h || null,
 
     // x-position mapping: each 1h point → CSS x-center on the display grid.
     xMap1h, xFrac1h, slotIdx1h,
@@ -519,6 +522,8 @@ function showTooltip(idx1h, idx3h) {
   const t   = new Date(timeStr);
   const day = DA_DAYS[t.getDay()];
   const h   = t.getHours().toString().padStart(2,'0');
+  const windCol = windColorStr(wind);
+  const gustCol = windColorStr(gust);
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
   const tempUncRow   = (tp10 != null && tp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';
