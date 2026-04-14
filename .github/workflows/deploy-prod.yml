@@ -50,6 +50,13 @@ jobs:
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
 
+      - name: Fetch NinJo station data
+        run: |
+          curl -fsSL \
+            'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9' \
+            -o ninjo-stations.json \
+            || echo '{}' > ninjo-stations.json
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
