@@ -22,7 +22,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch NinJo station data
+      - name: Fetch wind station data from Trafikkort
+        run: |
+          mkdir deploy
+          curl -fsSL -o deploy/wind-speeds.json \
+            "https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json"
+
+      - name: Fetch NinJo station data from DMI
         run: |
           mkdir deploy
           curl -fsSL \
