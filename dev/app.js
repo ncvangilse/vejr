@@ -190,7 +190,7 @@ async function load(cityName, model) {
    so the current day is shown at the finest available time resolution,
    and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 30; // px per 1-hour slot in portrait scroll mode (= ICON_H, icons fit exactly)
+const PORTRAIT_COL_W = 36; // px per slot in portrait scroll mode (= ICON_H, icons fit exactly)
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
@@ -228,10 +228,9 @@ function computeXMap1h(times1h, displayTimes, portraitColW) {
 
 /**
  * Build a variable-resolution display series for portrait mode.
- * Base resolution decreases with distance from now; nighttime slots are
- * additionally coarsened by 3× (capped at 6h) so nights compress naturally:
- *   0–24 h  daytime  → 1h  |  nighttime → 3h
- *   24–48 h daytime  → 3h  |  nighttime → 6h
+ * Base resolution is uniform 3h for the first 48h; nighttime slots are
+ * additionally coarsened by 2× (capped at 6h) so nights compress naturally:
+ *   0–48 h  daytime  → 3h  |  nighttime → 6h
  *   48 h+            → 6h  (always, day or night)
  *
  * For coarse slots the icon/direction is picked from whichever hour in the
@@ -257,8 +256,8 @@ function buildPortraitSeries(s) {
     const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
     const h = new Date(s.times1h[i]).getHours();
     const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
-    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
-    const step = Math.min(6, night ? baseStep * 3 : baseStep);
+    const baseStep = hoursAhead < 48 ? 3 : 6;
+    const step = Math.min(6, night ? baseStep * 2 : baseStep);
 
     // For coarse steps pick the slot in [i, i+step) that is most daytime.
     let best = i;
