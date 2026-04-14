@@ -673,6 +673,15 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 // otherModelsWind  – [{model, winds1h}] array drawn as faint comparison lines.
 // otherModelsXMap  – parallel x-position array for otherModelsWind (portrait 1h→display grid);
 //                   when null, lines are drawn at their array index using cx2().
+
+/**
+ * Stroke colour used for non-selected model comparison lines.
+ * Dark on light background (normal mode) / light on dark background (inverted mode)
+ * so lines remain visible in both colour schemes without dominating the chart.
+ */
+function _otherModelLineColor(invertedColors) {
+  return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
+}
 function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
@@ -749,23 +758,16 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   }
 
   // --- other model wind lines (drawn on top of the fill, below the main line) ---
-  // Each model gets a distinct muted colour; lines are thin and semi-transparent
-  // so they read as "context" rather than competing with the selected model.
+  // All non-selected models share a single dark (light mode) or light (dark mode)
+  // semi-transparent stroke so they read as background context without competing
+  // with the selected model's prominent coloured line.
   // otherModelsXMap provides per-point x-positions (portrait 1h→display grid);
   // when absent the standard cx2() mapping is used.
   if (otherModelsWind && otherModelsWind.length) {
-    const MODEL_RGB = {
-      'icon_seamless':        [100, 200, 255],  // sky blue
-      'ecmwf_ifs025':         [200, 120, 255],  // violet
-      'meteofrance_seamless': [255, 170,  50],  // amber
-      'gfs_seamless':         [ 80, 220, 130],  // mint
-      'dmi_seamless':         [255, 110, 110],  // salmon
-    };
     ctx.save();
-    otherModelsWind.forEach(({ model, winds1h: omWinds }) => {
+    otherModelsWind.forEach(({ winds1h: omWinds }) => {
       if (!omWinds || omWinds.length < 2) return;
-      const [r, g, b] = MODEL_RGB[model] || [200, 200, 200];
-      ctx.strokeStyle = `rgba(${r},${g},${b},0.55)`;
+      ctx.strokeStyle = _otherModelLineColor(invertedColors);
       ctx.lineWidth   = 1.5;
       ctx.setLineDash([]);
       ctx.beginPath();

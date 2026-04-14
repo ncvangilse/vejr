@@ -113,6 +113,29 @@ describe('isKiteDirOnly', () => {
   });
 });
 
+// ── _otherModelLineColor ─────────────────────────────────────────────────────
+
+describe('_otherModelLineColor', () => {
+  let ctx;
+  beforeEach(() => { ctx = loadChartLogic(); });
+
+  it('returns a dark semi-transparent colour in normal (non-inverted) mode', () => {
+    const colour = ctx._otherModelLineColor(false);
+    // Should contain 0,0,0 (black base) and a low alpha
+    expect(colour).toMatch(/rgba?\(0\s*,\s*0\s*,\s*0/);
+  });
+
+  it('returns a light semi-transparent colour in inverted (dark-bg) mode', () => {
+    const colour = ctx._otherModelLineColor(true);
+    // Should contain 255,255,255 (white base)
+    expect(colour).toMatch(/rgba?\(255\s*,\s*255\s*,\s*255/);
+  });
+
+  it('returns different colours for normal vs inverted mode', () => {
+    expect(ctx._otherModelLineColor(false)).not.toBe(ctx._otherModelLineColor(true));
+  });
+});
+
 // ── isKiteDirOnly vs isKiteOptimal relationship ──────────────────────────────
 
 describe('isKiteDirOnly is a superset of isKiteOptimal', () => {
