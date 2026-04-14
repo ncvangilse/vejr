@@ -1202,6 +1202,12 @@ function renderShoreDebug() {
   cfgBtn.addEventListener('click', () => {
     syncDialogToConfig(KITE_CFG);
     overlay.classList.add('open');
+    // Ensure vector data is fetched (or retried if a previous attempt failed).
+    // fetchShoreVector deduplicates in-flight requests and dispatches
+    // 'shore-vector-ready' immediately if data is already cached.
+    if (lastShoreCoords && window.fetchShoreVector) {
+      window.fetchShoreVector(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
+    }
     requestAnimationFrame(() => { drawModalCompass(); updateShoreStatusUI(); renderShoreDebug(); });
   });
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
@@ -1215,10 +1221,12 @@ function renderShoreDebug() {
     if (lastData) renderDisplay(lastData);
   });
 
-  // Re-render debug panel and compass when the Overpass vector fetch completes
+  // Re-render debug panel and compass when the Overpass vector fetch completes.
+  // Use requestAnimationFrame so the canvas draw happens after any pending layout
+  // (e.g. the modal becoming display:flex) has been committed by the browser.
   window.addEventListener('shore-vector-ready', () => {
     renderShoreDebug();
-    drawModalCompass();
+    requestAnimationFrame(() => drawModalCompass());
   });
 
   shoreFetchBtn.addEventListener('click', () => {    if (!lastShoreCoords) {
