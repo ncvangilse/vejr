@@ -668,9 +668,21 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 /* ══════════════════════════════════════════════════
    DRAW WIND  (Windy-style)
 ══════════════════════════════════════════════════ */
-// times/gusts/winds are 1hr resolution; dirs is 3hr (same as drawWindDir);
-// times3h/winds3h are the 3hr arrays used only for kite highlights & pills.
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null) {
+// times/gusts/winds are the display series (variable-res in portrait, 1h in landscape);
+// dirs / times3h / winds3h are used for kite highlights & pills.
+// otherModelsWind  – [{model, winds1h}] array drawn as faint comparison lines.
+// otherModelsXMap  – parallel x-position array for otherModelsWind (portrait 1h→display grid);
+//                   when null, lines are drawn at their array index using cx2().
+
+/**
+ * Stroke colour used for non-selected model comparison lines.
+ * Dark on light background (normal mode) / light on dark background (inverted mode)
+ * so lines remain visible in both colour schemes without dominating the chart.
+ */
+function _otherModelLineColor(invertedColors) {
+  return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
+}
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const n      = times.length;
@@ -743,6 +755,34 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     ctx.lineTo(cx2(0), base);
     ctx.closePath();
     ctx.fill();
+  }
+
+  // --- other model wind lines (drawn on top of the fill, below the main line) ---
+  // All non-selected models share a single dark (light mode) or light (dark mode)
+  // semi-transparent stroke so they read as background context without competing
+  // with the selected model's prominent coloured line.
+  // otherModelsXMap provides per-point x-positions (portrait 1h→display grid);
+  // when absent the standard cx2() mapping is used.
+  if (otherModelsWind && otherModelsWind.length) {
+    ctx.save();
+    otherModelsWind.forEach(({ winds1h: omWinds }) => {
+      if (!omWinds || omWinds.length < 2) return;
+      ctx.strokeStyle = _otherModelLineColor(invertedColors);
+      ctx.lineWidth   = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < omWinds.length; i++) {
+        const v = omWinds[i];
+        if (v == null) { started = false; continue; }
+        const x = otherModelsXMap ? otherModelsXMap[i] : cx2(i);
+        const y = wy(v);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
   }
 
   // --- wind line ---
@@ -829,16 +869,19 @@ function renderAll(d, invertedColors, portraitColW = null) {
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   if (portrait) {
     // Portrait: all charts share the display series — one column per slot.
+    // Other model lines are drawn at 1h resolution using xMap1h for correct x positions.
     drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null,
              null, null, null, invertedColors, totalCssW, null);
     drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null,
-             null, null, invertedColors, totalCssW, null);
+             null, null, invertedColors, totalCssW, null,
+             d.otherModelsWind1h || null, d.xMap1h || null);
   } else {
     // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
              d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, null);
     drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-             d.times, d.winds, invertedColors, totalCssW, null);
+             d.times, d.winds, invertedColors, totalCssW, null,
+             d.otherModelsWind1h || null, null);
   }
 }
 

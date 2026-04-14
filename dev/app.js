@@ -152,9 +152,21 @@ async function load(cityName, model) {
       ensTemp, ensWind, ensGust, ensPrecip,
       times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
+      otherModelsWind1h: null,
     };
     // Double rAF ensures layout is complete before measuring canvas width
-    requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      renderDisplay(lastData);
+      // Fetch other-model wind lines in the background; re-render on arrival.
+      const capturedData = lastData;
+      fetchOtherModelsWind(loc.latitude, loc.longitude, model)
+        .then(otherModels => {
+          if (lastData !== capturedData || !otherModels.length) return;
+          lastData.otherModelsWind1h = otherModels;
+          renderDisplay(lastData);
+        })
+        .catch(() => null);
+    }));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
     // Store coords for on-demand shore analysis (triggered from the kite modal)
@@ -308,6 +320,9 @@ function buildPortraitSeries(s) {
     ensWind1h:   s.ensWind1h,
     ensGust1h:   s.ensGust1h,
     ensPrecip1h: s.ensPrecip1h,
+    // Other model wind lines: passed through at 1h resolution for rendering
+    // with xMap1h providing correct x-positions on the variable-res display grid.
+    otherModelsWind1h: s.otherModelsWind1h || null,
 
     // x-position mapping: each 1h point → CSS x-center on the display grid.
     xMap1h, xFrac1h, slotIdx1h,
@@ -347,6 +362,9 @@ function renderDisplay(d) {
     dirs1h:   d.dirs1h ? d.dirs1h.slice(s1, s1 + n1h) : null,
     ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
     ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
+    otherModelsWind1h: d.otherModelsWind1h
+      ? d.otherModelsWind1h.map(m => ({ model: m.model, winds1h: m.winds1h.slice(s1, s1 + n1h) }))
+      : null,
   };
   const colW = portrait ? PORTRAIT_COL_W : null;
   const displayData = portrait ? buildPortraitSeries(s) : s;
@@ -504,6 +522,8 @@ function showTooltip(idx1h, idx3h) {
   const t   = new Date(timeStr);
   const day = DA_DAYS[t.getDay()];
   const h   = t.getHours().toString().padStart(2,'0');
+  const windCol = windColorStr(wind);
+  const gustCol = windColorStr(gust);
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
   const tempUncRow   = (tp10 != null && tp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';
@@ -1374,8 +1394,20 @@ async function loadAtCoords(lat, lon, model) {
       ensTemp, ensWind, ensGust, ensPrecip,
       times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
+      otherModelsWind1h: null,
     };
-    requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      renderDisplay(lastData);
+      // Background fetch of other-model wind lines; re-render on arrival.
+      const capturedData = lastData;
+      fetchOtherModelsWind(lat, lon, model)
+        .then(otherModels => {
+          if (lastData !== capturedData || !otherModels.length) return;
+          lastData.otherModelsWind1h = otherModels;
+          renderDisplay(lastData);
+        })
+        .catch(() => null);
+    }));
     // Call loadRadar only when the section is not yet visible (i.e. on a fresh
     // page load restored from a dragged-pin URL).  When called from a live drag
     // the radar is already initialised and correctly positioned, so skip it.
