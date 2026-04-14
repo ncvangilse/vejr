@@ -417,9 +417,9 @@
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
   // ── Wind station overlay ──────────────────────────────────────────────
-  // Observation data comes from the DMI NinJo API (live snapshots, ~10 min resolution).
-  // The fixed bbox covers all of Denmark; only stations with WindSpeed10m are shown.
-  // NinJo does not send CORS headers, so a proxy is needed for cross-origin requests.
+  // Primary source: same-origin ninjo-stations.json, fetched server-side by CI every 15 min.
+  // Fallback: direct NinJo API (works on dmi.dk), then CORS proxies for other origins.
+  const NINJO_SAME_ORIGIN = './ninjo-stations.json';
   const NINJO_URL     = 'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9';
   const NINJO_PROXIES = [
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(NINJO_URL),
@@ -429,13 +429,18 @@
   let windVisible = true;
 
   async function fetchNinjoStations() {
-    // 1. Direct fetch — succeeds when the page is served from dmi.dk or a
-    //    permissive environment (e.g. a future CORS-enabled deploy).
+    // 1. Same-origin cached file — written by CI at deploy time and refreshed every 15 min.
+    //    Fast, reliable, no CORS. Falls through only if the file doesn't exist (404).
+    try {
+      const r = await fetch(NINJO_SAME_ORIGIN, { cache: 'no-store' });
+      if (r.ok) return r.json();
+    } catch (_) {}
+    // 2. Direct fetch — succeeds on dmi.dk-hosted deploys.
     try {
       const r = await fetch(NINJO_URL, { cache: 'no-store' });
       if (r.ok) return r.json();
     } catch (_) {}
-    // 2. CORS proxies — fallback for localhost and GitHub Pages.
+    // 3. CORS proxies — last-resort fallback for cross-origin environments.
     for (const url of NINJO_PROXIES) {
       try {
         const r = await fetch(url, { cache: 'no-store' });

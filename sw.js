@@ -53,6 +53,19 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // Network-first + cache: ninjo-stations.json is refreshed by CI every 15 min.
+  // Always fetch fresh; fall back to cached copy when offline.
+  if (url.pathname.endsWith('ninjo-stations.json')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' }).then(response => {
+        if (response.ok)
+          caches.open(CACHE_NAME).then(c => c.put(event.request, response.clone()));
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
   // Network-first: HTML pages and JS/CSS (so updates are always live)
   if (
     event.request.destination === 'document' ||

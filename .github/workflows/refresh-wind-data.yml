@@ -1,4 +1,4 @@
-name: Refresh wind station data
+name: Refresh NinJo station data
 
 on:
   workflow_dispatch:           # triggered by cron-job.org every 15 min via GitHub API
@@ -22,11 +22,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch wind station data
+      - name: Fetch NinJo station data
         run: |
           mkdir deploy
-          curl -fsSL -o deploy/wind-speeds.json \
-            "https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json"
+          curl -fsSL \
+            'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9' \
+            -o deploy/ninjo-stations.json
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
