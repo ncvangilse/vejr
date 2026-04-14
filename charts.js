@@ -820,19 +820,25 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
 ══════════════════════════════════════════════════ */
 function renderAll(d, invertedColors, portraitColW = null) {
   // In portrait mode anchor the canvas width to the DISPLAY series slot count
-  // (N_display × portraitColW).  Curves use xMap1h to align their 1h data points
-  // onto this same grid.  In landscape mode each canvas measures its own wrap.
+  // (N_display × portraitColW) and draw curves at that same resolution so the
+  // graph time zoom matches the icon row.  In landscape use full 1h curves.
   const portrait = portraitColW != null;
   const totalCssW = portrait ? d.times.length * portraitColW : null;
 
-  // Top row always uses the display series (variable-resolution in portrait,
-  // 3h in landscape) so each column is exactly one slot wide.
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
-  drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-           d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW,
-           d.xMap1h || null);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
-  drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
-           d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null);
+  if (portrait) {
+    // Portrait: all charts share the display series — one column per slot.
+    drawTemp(d.times, d.temps, d.precips, d.ensTemp || null, d.ensPrecip || null,
+             null, null, null, invertedColors, totalCssW, null);
+    drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null,
+             null, null, invertedColors, totalCssW, null);
+  } else {
+    // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
+    drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
+             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, null);
+    drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
+             d.times, d.winds, invertedColors, totalCssW, null);
+  }
 }
 

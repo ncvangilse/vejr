@@ -512,6 +512,15 @@ describe('buildPortraitSeries', () => {
     expect(() => ctx.buildPortraitSeries(s)).not.toThrow();
   });
 
+  it('provides temps and gusts arrays at display-series resolution', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    expect(Array.isArray(ds.temps)).toBe(true);
+    expect(ds.temps).toHaveLength(ds.times.length);
+    expect(Array.isArray(ds.gusts)).toBe(true);
+    expect(ds.gusts).toHaveLength(ds.times.length);
+  });
+
   it('provides xMap1h and xFrac1h with length matching times1h', () => {
     const s = makeFixedSlice();
     const ds = ctx.buildPortraitSeries(s);

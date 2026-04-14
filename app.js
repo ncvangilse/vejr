@@ -230,7 +230,7 @@ function computeXMap1h(times1h, displayTimes, portraitColW) {
 function buildPortraitSeries(s) {
   const t0 = new Date(s.times1h[0]).getTime();
   const times = [], codes = [], dirs = [];
-  const precips = [], winds = [];
+  const precips = [], winds = [], temps = [], gusts = [];
   const hasEns = s.ensTemp1h != null;
   const ensTemp = { p10: [], p50: [], p90: [] };
   const ensWind = { p10: [], p50: [], p90: [] };
@@ -266,6 +266,8 @@ function buildPortraitSeries(s) {
                        : s.dirs[Math.min(Math.round(best / 3), s.dirs.length - 1)]);
     precips.push(s.precips1h[best]);
     winds.push(s.winds1h[best]);
+    temps.push(s.temps1h[best]);
+    gusts.push(s.gusts1h[best]);
     // Down-sample ensemble percentile bands by picking the best-slot value.
     if (hasEns) {
       ['p10', 'p50', 'p90'].forEach(k => {
@@ -283,9 +285,11 @@ function buildPortraitSeries(s) {
   const { xMap1h, xFrac1h, slotIdx1h } = computeXMap1h(s.times1h, times, PORTRAIT_COL_W);
 
   return {
-    // Display series (N_display): icons, arrows, axis ticks, kite highlights.
+    // Display series (N_display): icons, arrows, axis ticks, kite highlights, curves.
     times, codes, dirs,
+    temps,    // representative temperature per display slot (for temp curve in portrait)
     precips,  // representative precip per display slot (for bars in drawTemp)
+    gusts,    // representative gust per display slot (for wind curve in portrait)
     winds,    // representative wind per display slot (for kite highlights in drawWind)
     ensTemp:   hasEns ? ensTemp   : null,
     ensWind:   hasEns ? ensWind   : null,
@@ -380,31 +384,35 @@ function clearCrosshairs() {
 function drawCrosshairs(fracX, idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
-  // Re-derive the same y-mappings used by the draw functions
+  const portrait = !!d.xFrac1h;
+  // Re-derive the same y-mappings used by the draw functions.
+  // In portrait all charts use the display series; in landscape curves use 1h data.
+  const temps_arr = portrait ? d.temps   : d.temps1h;
+  const winds_arr = portrait ? d.winds   : d.winds1h;
+  const gusts_arr = portrait ? d.gusts   : d.gusts1h;
+  const ens_gust  = portrait ? d.ensGust : d.ensGust1h;
+  const idx       = portrait ? idx3h     : idx1h;
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
-  let tmin = Math.floor(Math.min(...d.temps1h) / 5) * 5;
-  let tmax = Math.ceil( Math.max(...d.temps1h) / 5) * 5;
+  let tmin = Math.floor(Math.min(...temps_arr) / 5) * 5;
+  let tmax = Math.ceil( Math.max(...temps_arr) / 5) * 5;
   if (tmax - tmin < 15) { const mid = (tmin + tmax) / 2; tmin = Math.floor((mid - 7.5) / 5) * 5; tmax = tmin + 15; }
   const tRange   = tmax - tmin;
-  const tempDotY = TEMP_padT + (1 - (d.temps1h[idx1h] - tmin) / tRange) * TEMP_ch;
+  const tempDotY = TEMP_padT + (1 - (temps_arr[idx] - tmin) / tRange) * TEMP_ch;
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
-  const WIND_chartH   = WIND_H - WIND_padT;
-  const safeGusts     = d.gusts1h.map((g, i) => Math.max(g, d.winds1h[i]));
-  const ensGustMax    = d.ensGust1h ? Math.max(...d.ensGust1h.p90.filter(v => v != null)) : 0;
-  const maxW          = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
-  const windDotY      = WIND_padT + (1 - d.winds1h[idx1h] / maxW) * WIND_chartH;
-  // When xFrac1h is present (portrait+xMap mode), curve canvases use the precise
-  // per-point fraction; icon/arrow rows snap to the display-slot centre (fracX3h).
+  const WIND_chartH = WIND_H - WIND_padT;
+  const safeGusts   = gusts_arr.map((g, i) => Math.max(g, winds_arr[i]));
+  const ensGustMax  = ens_gust ? Math.max(...ens_gust.p90.filter(v => v != null)) : 0;
+  const maxW        = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
+  const windDotY    = WIND_padT + (1 - winds_arr[idx] / maxW) * WIND_chartH;
   const fracX3h = (idx3h + 0.5) / d.times.length;
   const fracX1h = (idx1h + 0.5) / d.times1h.length;
-  const fracX1h_curve = d.xFrac1h ? d.xFrac1h[idx1h] : fracX1h;
   const DOT_Y   = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
   const FRAC    = {
-    'xh-top':  d.xFrac1h ? fracX3h : (d.codes1h ? fracX1h : fracX3h),
-    'xh-temp': fracX1h_curve,
+    'xh-top':  portrait ? fracX3h : (d.codes1h ? fracX1h : fracX3h),
+    'xh-temp': portrait ? fracX3h : fracX1h,
     'xh-dir':  fracX3h,
-    'xh-wind': fracX1h_curve,
+    'xh-wind': portrait ? fracX3h : fracX1h,
   };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
@@ -430,7 +438,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.setLineDash([]);
     const dotY = DOT_Y[id];
     if (dotY !== null) {
-      const dotCol = (id === 'xh-temp') ? (d.temps1h[idx1h] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
+      const dotCol = (id === 'xh-temp') ? (temps_arr[idx] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
       ctx.fillStyle   = dotCol;
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth   = 1;
@@ -456,28 +464,46 @@ function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
   const tip = document.getElementById('hover-tooltip');
-  // Time label from 1hr array for precision
-  const t    = new Date(d.times1h[idx1h]);
-  const day  = DA_DAYS[t.getDay()];
-  const h    = t.getHours().toString().padStart(2,'0');
-  // Curve values from 1hr arrays
-  const temp = d.temps1h[idx1h];
-  const prec = d.precips1h[idx1h];
-  const wind = d.winds1h[idx1h];
-  const gust = Math.max(d.gusts1h[idx1h], wind);
-  // Icon/direction: use 1h arrays (precise) when available, else display-series.
-  const dir  = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
-  const code = d.codes1h ? d.codes1h[idx1h] : d.codes[idx3h];
-  const windCol = windColorStr(wind);
-  const gustCol = windColorStr(gust);
-  const tp10 = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
-  const tp90 = d.ensTemp1h   ? d.ensTemp1h.p90[idx1h]   : null;
-  const wp10 = d.ensWind1h   ? d.ensWind1h.p10[idx1h]   : null;
-  const wp90 = d.ensWind1h   ? d.ensWind1h.p90[idx1h]   : null;
-  const gp10 = d.ensGust1h   ? (d.ensGust1h.p10[idx1h]   ?? null) : null;
-  const gp90 = d.ensGust1h   ? (d.ensGust1h.p90[idx1h]   ?? null) : null;
-  const pp10 = d.ensPrecip1h ? d.ensPrecip1h.p10[idx1h] : null;
-  const pp90 = d.ensPrecip1h ? d.ensPrecip1h.p90[idx1h] : null;
+  const portrait = !!d.xFrac1h;
+  let timeStr, temp, prec, wind, gust, dir, code, tp10, tp90, wp10, wp90, gp10, gp90, pp10, pp90;
+  if (portrait) {
+    // Portrait: all values from display series (same zoom as icon row).
+    timeStr = d.times[idx3h];
+    temp    = d.temps[idx3h];
+    prec    = d.precips[idx3h];
+    wind    = d.winds[idx3h];
+    gust    = Math.max(d.gusts[idx3h], wind);
+    dir     = d.dirs[idx3h];
+    code    = d.codes[idx3h];
+    tp10    = d.ensTemp   ? d.ensTemp.p10[idx3h]   : null;
+    tp90    = d.ensTemp   ? d.ensTemp.p90[idx3h]   : null;
+    wp10    = d.ensWind   ? d.ensWind.p10[idx3h]   : null;
+    wp90    = d.ensWind   ? d.ensWind.p90[idx3h]   : null;
+    gp10    = d.ensGust   ? (d.ensGust.p10[idx3h]  ?? null) : null;
+    gp90    = d.ensGust   ? (d.ensGust.p90[idx3h]  ?? null) : null;
+    pp10    = d.ensPrecip ? d.ensPrecip.p10[idx3h] : null;
+    pp90    = d.ensPrecip ? d.ensPrecip.p90[idx3h] : null;
+  } else {
+    // Landscape: full 1h resolution.
+    timeStr = d.times1h[idx1h];
+    temp    = d.temps1h[idx1h];
+    prec    = d.precips1h[idx1h];
+    wind    = d.winds1h[idx1h];
+    gust    = Math.max(d.gusts1h[idx1h], wind);
+    dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
+    code    = d.codes1h ? d.codes1h[idx1h] : d.codes[idx3h];
+    tp10    = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
+    tp90    = d.ensTemp1h   ? d.ensTemp1h.p90[idx1h]   : null;
+    wp10    = d.ensWind1h   ? d.ensWind1h.p10[idx1h]   : null;
+    wp90    = d.ensWind1h   ? d.ensWind1h.p90[idx1h]   : null;
+    gp10    = d.ensGust1h   ? (d.ensGust1h.p10[idx1h]  ?? null) : null;
+    gp90    = d.ensGust1h   ? (d.ensGust1h.p90[idx1h]  ?? null) : null;
+    pp10    = d.ensPrecip1h ? d.ensPrecip1h.p10[idx1h] : null;
+    pp90    = d.ensPrecip1h ? d.ensPrecip1h.p90[idx1h] : null;
+  }
+  const t   = new Date(timeStr);
+  const day = DA_DAYS[t.getDay()];
+  const h   = t.getHours().toString().padStart(2,'0');
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
   const tempUncRow   = (tp10 != null && tp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';
@@ -488,7 +514,7 @@ function showTooltip(idx1h, idx3h) {
   const precipUncRow = (pp10 != null && pp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#6aaee8;font-size:10px">${pp10.toFixed(1)} → ${pp90.toFixed(1)} mm</span></div>` : '';
   const desc    = WMO_DESC[code] || 'Unknown';
-  const kiteRow = isKiteOptimal(wind, dir, d.times1h[idx1h])
+  const kiteRow = isKiteOptimal(wind, dir, timeStr)
     ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>` : '';
   // DMI observed wind nearest to this time slot (within 30 min)
   let obsRow = '';
@@ -514,7 +540,7 @@ function showTooltip(idx1h, idx3h) {
     <div class="tt-row" style="margin-bottom:4px;align-items:center;">
       <div style="position:relative;flex:0 0 32px;width:32px;height:32px;">
         <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;"></canvas>
-        ${isKiteOptimal(wind, dir, d.times1h[idx1h]) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
+        ${isKiteOptimal(wind, dir, timeStr) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
       </div>
       <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
     </div>
@@ -554,7 +580,7 @@ function showTooltip(idx1h, idx3h) {
     iconCanvas.style.height = sz + 'px';
     const ictx = iconCanvas.getContext('2d');
     ictx.scale(dpr, dpr);
-    dmiIcon(ictx, wmoType(code, d.times1h[idx1h]), sz / 2, sz / 2, sz, prec, code);
+    dmiIcon(ictx, wmoType(code, timeStr), sz / 2, sz / 2, sz, prec, code);
   }
 }
 function hideTooltip() {
@@ -577,23 +603,12 @@ function attachHoverListeners() {
     const n1h      = lastRenderedData.times1h.length;
     const n3h      = lastRenderedData.times.length;
     let idx1h, idx3h;
+    idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
     if (lastRenderedData.xFrac1h) {
-      // Variable-resolution portrait: binary-search for nearest 1h point.
-      const xf = lastRenderedData.xFrac1h;
-      let lo = 0, hi = n1h - 1;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (xf[mid] <= fracX) lo = mid; else hi = mid - 1;
-      }
-      if (lo < n1h - 1 && Math.abs(xf[lo + 1] - fracX) < Math.abs(xf[lo] - fracX)) lo++;
-      idx1h = lo;
-      // slotIdx1h maps each 1h point to its display slot → valid idx3h.
-      idx3h = lastRenderedData.slotIdx1h
-        ? Math.min(lastRenderedData.slotIdx1h[lo], n3h - 1)
-        : Math.min(lo, n3h - 1);
+      // Portrait: display series drives all charts; idx1h is unused.
+      idx1h = idx3h;
     } else {
       idx1h = Math.min(n1h - 1, Math.floor(fracX * n1h));
-      idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
     }
     drawCrosshairs(fracX, idx1h, idx3h);
     showTooltip(idx1h, idx3h);
@@ -609,7 +624,19 @@ attachHoverListeners();
 ══════════════════════════════════════════════════ */
 function initPortraitScrollSync() {
   const wraps = document.querySelectorAll ? [...document.querySelectorAll('.chart-canvas-wrap')] : [];
+  if (!wraps.length) return;
+
   let syncing = false;
+
+  function syncAll(left) {
+    syncing = true;
+    const max = wraps[0].scrollWidth - wraps[0].clientWidth;
+    const clamped = Math.max(0, Math.min(max, left));
+    wraps.forEach(w => { w.scrollLeft = clamped; });
+    syncing = false;
+  }
+
+  // Keep all wraps in step on native scroll (mouse wheel, keyboard, trackpad).
   wraps.forEach(wrap => {
     wrap.addEventListener('scroll', () => {
       if (syncing) return;
@@ -617,6 +644,54 @@ function initPortraitScrollSync() {
       const left = wrap.scrollLeft;
       wraps.forEach(w => { if (w !== wrap) w.scrollLeft = left; });
       syncing = false;
+    }, { passive: true });
+  });
+
+  // Touch momentum: intercept horizontal swipes, apply velocity after lift.
+  let rafId = null;
+  let velX = 0, lastX = 0, lastT = 0, startY = 0;
+  let horizontal = null;
+  const DECEL = 0.92;
+
+  wraps.forEach(wrap => {
+    wrap.addEventListener('touchstart', e => {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      velX = 0; horizontal = null;
+      lastX = e.touches[0].clientX;
+      lastT = performance.now();
+      startY = e.touches[0].clientY;
+    }, { passive: true });
+
+    wrap.addEventListener('touchmove', e => {
+      const cx = e.touches[0].clientX;
+      const cy = e.touches[0].clientY;
+      const dx = cx - lastX;
+      const dy = cy - startY;
+      if (horizontal === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5))
+        horizontal = Math.abs(dx) >= Math.abs(dy);
+      if (!horizontal) return;
+      e.preventDefault();
+      const now = performance.now();
+      const dt  = Math.max(1, now - lastT);
+      // velX is pixels-per-16ms-frame; positive = scrolling right (scrollLeft increases).
+      velX = -(dx / dt) * 16;
+      syncAll(wrap.scrollLeft - dx);
+      lastX = cx; lastT = now;
+    }, { passive: false });
+
+    wrap.addEventListener('touchend', () => {
+      if (!horizontal) return;
+      (function step() {
+        velX *= DECEL;
+        if (Math.abs(velX) < 0.5) { rafId = null; return; }
+        syncAll(wraps[0].scrollLeft + velX);
+        rafId = requestAnimationFrame(step);
+      })();
+    }, { passive: true });
+
+    wrap.addEventListener('touchcancel', () => {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      velX = 0; horizontal = null;
     }, { passive: true });
   });
 }
