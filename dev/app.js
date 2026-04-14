@@ -190,7 +190,7 @@ async function load(cityName, model) {
    so the current day is shown at the finest available time resolution,
    and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 36; // px per 1-hour slot in portrait scroll mode (= ICON_H, icons fit exactly)
+const PORTRAIT_COL_W = 30; // px per 1-hour slot in portrait scroll mode (= ICON_H, icons fit exactly)
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
