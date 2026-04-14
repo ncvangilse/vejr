@@ -166,7 +166,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null, xMap = null) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null, xMap = null, divXs = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -195,7 +195,6 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
   const colW3h = cssW / n3h;
   const cx2_3h = i => (i + 0.5) * colW3h;
 
-  const divs=dayDivs(times);
   const levels=[]; for(let t=tmin;t<=tmax;t+=5) levels.push(t);
 
   // grid
@@ -208,9 +207,12 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
   });
   ctx.setLineDash([]);
 
-  // day dividers
-  divs.forEach(i=>{
-    const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
+  // day dividers — use pre-computed display-series positions when provided (portrait)
+  // so all chart rows share the same divider x regardless of curve time resolution.
+  const divPositions = divXs != null
+    ? divXs
+    : dayDivs(times).map(i => xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW);
+  divPositions.forEach(x => {
     ctx.strokeStyle='#667788'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cssH); ctx.stroke();
   });
@@ -864,14 +866,18 @@ function renderAll(d, invertedColors, portraitColW = null) {
   // graph time zoom matches the icon row.  In landscape use full 1h curves.
   const portrait = portraitColW != null;
   const totalCssW = portrait ? d.times.length * portraitColW : null;
+  // Pre-compute day-divider pixel positions from the display series so every
+  // chart row (icon row, temp, wind) places its divider at exactly the same x.
+  const divXs = portrait ? dayDivs(d.times).map(i => i * portraitColW) : null;
 
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
   if (portrait) {
-    // Portrait: temp/wind curves use 1h data + xMap1h for smooth rendering across
+    // Portrait: temp curve uses 1h data + xMap1h for smooth rendering across
     // the variable-resolution display grid. Precip bars use the display series.
+    // divXs ensures day dividers align with the icon row regardless of curve resolution.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null);
+             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs);
     drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null,
              null, null, invertedColors, totalCssW, null,
              d.otherModelsWind1h || null, d.xMap1h || null);
