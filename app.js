@@ -1163,14 +1163,16 @@ function renderShoreDebug() {
   if (seaThreshSlider) {
     seaThreshSlider.addEventListener('input', () => {
       if (seaThreshLabel) seaThreshLabel.textContent = seaThreshSlider.value + '%';
+      const thresh = parseInt(seaThreshSlider.value) / 100;
+      if (window.setShoreSeaThresh) window.setShoreSeaThresh(thresh);
       if (window.SHORE_MASK) {
-        const thresh = parseInt(seaThreshSlider.value) / 100;
         activeBearings = [];
         for (let b = 0; b < SHORE_BEARINGS; b++) {
           if (window.SHORE_MASK[b] >= thresh) activeBearings.push(b * 10);
         }
       }
       drawModalCompass();
+      updateShoreStatusUI();
     });
   }
 
