@@ -278,7 +278,7 @@ function makeData(n3h, n1h, base = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000
     gusts: num3(), winds: num3(), dirs: num3(), codes: num3(),
     ensTemp: pct3(), ensWind: pct3(), ensGust: pct3(), ensPrecip: pct3(),
     times1h: arr1(), temps1h: num1(), precips1h: num1(),
-    gusts1h: num1(), winds1h: num1(),
+    gusts1h: num1(), winds1h: num1(), codes1h: num1(), dirs1h: num1(),
     ensTemp1h: pct1(), ensWind1h: pct1(), ensGust1h: pct1(), ensPrecip1h: pct1(),
   };
 }
@@ -293,9 +293,11 @@ describe('renderDisplay slicing', () => {
     const d = makeData(TOTAL_3H, TOTAL_1H);
     ctx.renderDisplay(d);
     expect(calls).toHaveLength(1);
-    // Should extend to the very end of the input dataset (not capped at 36 h)
-    expect(calls[0].times.at(-1)).toBe(d.times.at(-1));
-    expect(calls[0].times1h.at(-1)).toBe(d.times1h.at(-1));
+    // Variable-resolution display series covers to near the end of the dataset
+    // (within one 6-hour step of the last 1h data point).
+    const lastDisplayMs = new Date(calls[0].times.at(-1)).getTime();
+    const lastDataMs    = new Date(d.times1h.at(-1)).getTime();
+    expect(lastDisplayMs).toBeGreaterThan(lastDataMs - 6 * 60 * 60 * 1000);
     // And should show more slots than the old 36-hour window (12 × 3h)
     expect(calls[0].times.length).toBeGreaterThan(12);
   });
@@ -316,6 +318,22 @@ describe('renderDisplay slicing', () => {
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
     expect(calls[0].ensTemp.p10).toHaveLength(calls[0].times.length);
     expect(calls[0].ensTemp1h.p50).toHaveLength(calls[0].times1h.length);
+  });
+
+  it('slices codes1h to match the 1h time window in portrait mode', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0].codes1h).not.toBeNull();
+    expect(calls[0].codes1h).toHaveLength(calls[0].times1h.length);
+  });
+
+  it('passes codes1h in landscape mode too (sliced to full 7-day window)', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: false, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0].codes1h).not.toBeNull();
+    expect(calls[0].codes1h).toHaveLength(calls[0].times1h.length);
   });
 
   it('keeps full 7-day data in landscape mode (56×3h entries, 168×1h entries)', () => {
@@ -366,6 +384,177 @@ describe('renderDisplay slicing', () => {
     const { ctx } = loadApp({ portrait: false, renderAllSpy: (d, ic, colW) => colWs.push(colW) });
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
     expect(colWs[0]).toBeNull();
+  });
+
+  it('includes dirs1h in sliced data passed to buildPortraitSeries', () => {
+    // In portrait the display series should use dirs1h-sourced directions.
+    // Verify by checking that renderAll receives a dirs array (not null/undefined).
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
+    expect(calls[0].dirs).toBeDefined();
+    expect(Array.isArray(calls[0].dirs)).toBe(true);
+    expect(calls[0].dirs.length).toBeGreaterThan(0);
+  });
+});
+
+// ── buildPortraitSeries ───────────────────────────────────────────────────────
+
+describe('buildPortraitSeries', () => {
+  const TOTAL_1H = 7 * 24;  // 168
+  const HR = 60 * 60 * 1000;
+
+  // Fixed daytime UTC start so step computation is fully deterministic.
+  // 2025-06-16T10:00Z → h=10 (daytime), first slot is 1h.
+  // Night threshold: h < 6 || h >= 20 (fallback in VM context, no isNight function).
+  function makeFixedSlice() {
+    const base = new Date('2025-06-16T10:00:00.000Z');
+    const iso1 = (i) => new Date(base.getTime() + i * HR).toISOString();
+    const num1 = () => Array(TOTAL_1H).fill(0);
+    const pct1 = () => ({ p10: num1(), p50: num1(), p90: num1() });
+    // dirs1h has distinct values to verify daytime-preference slot selection.
+    const dirs = Array.from({ length: TOTAL_1H }, (_, i) => i % 360);
+    return {
+      times1h:     Array.from({ length: TOTAL_1H }, (_, i) => iso1(i)),
+      codes1h:     num1(),
+      dirs1h:      dirs,
+      dirs:        num1(),
+      temps1h:     num1(),
+      precips1h:   num1(),
+      gusts1h:     num1(),
+      winds1h:     num1(),
+      ensTemp1h:   pct1(),
+      ensWind1h:   pct1(),
+      ensGust1h:   pct1(),
+      ensPrecip1h: pct1(),
+    };
+  }
+
+  const { ctx } = loadApp({ portrait: true });
+
+  // With base 2025-06-16T10:00Z the display series is:
+  //   idx 0..9  = 10:00..19:00 (1h steps, daytime in 0–24h zone)
+  //   idx 10    = 20:00 (night in 0–24h zone → step=3)
+  //   idx 11    = 23:00
+  //   idx 12    = 02:00 (day+1)
+  //   idx 13    = 05:00
+  //   idx 14    = 08:00 (back to daytime, hoursAhead=22, step=1)
+  //   idx 15    = 09:00
+  //   idx 16    = 10:00 (day+1, hoursAhead=24 → baseStep=3, step=3)
+  //   idx 17    = 13:00
+  //   idx 22    = 10:00 (day+2, hoursAhead=48 → baseStep=6, step=6)
+  //   idx 23    = 16:00
+
+  it('produces 1-hour spacing for daytime slots in the first 24 hours', () => {
+    const ds = ctx.buildPortraitSeries(makeFixedSlice());
+    const dt = new Date(ds.times[1]).getTime() - new Date(ds.times[0]).getTime();
+    expect(dt).toBe(HR);
+  });
+
+  it('coarsens nighttime slots in the first 24 hours to 3h', () => {
+    const ds = ctx.buildPortraitSeries(makeFixedSlice());
+    // idx 10 = 20:00 (night), idx 11 = 23:00 → 3h gap
+    expect(new Date(ds.times[10]).getUTCHours()).toBe(20);
+    const dt = new Date(ds.times[11]).getTime() - new Date(ds.times[10]).getTime();
+    expect(dt).toBe(3 * HR);
+  });
+
+  it('produces 3-hour spacing for daytime slots in 24–48h', () => {
+    const ds = ctx.buildPortraitSeries(makeFixedSlice());
+    // idx 16 = day+1 10:00 (hoursAhead=24, daytime), idx 17 = 13:00 → 3h gap
+    const dt = new Date(ds.times[17]).getTime() - new Date(ds.times[16]).getTime();
+    expect(dt).toBe(3 * HR);
+  });
+
+  it('produces 6-hour spacing from 48h onwards', () => {
+    const ds = ctx.buildPortraitSeries(makeFixedSlice());
+    // idx 22 = day+2 10:00 (hoursAhead=48), idx 23 = 16:00 → 6h gap
+    const dt = new Date(ds.times[23]).getTime() - new Date(ds.times[22]).getTime();
+    expect(dt).toBe(6 * HR);
+  });
+
+  it('times is the variable-resolution display series; times1h is the full 1h passthrough', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    expect(ds.times).not.toBe(ds.times1h);        // separate arrays
+    expect(ds.times1h).toBe(s.times1h);            // 1h passthrough
+    expect(ds.times.length).toBeLessThan(ds.times1h.length);
+    // Curve arrays are also passed through unmodified.
+    expect(ds.temps1h).toBe(s.temps1h);
+    expect(ds.winds1h).toBe(s.winds1h);
+  });
+
+  it('uses dirs1h for the display-series wind direction data', () => {
+    const ds = ctx.buildPortraitSeries(makeFixedSlice());
+    // dirs1h values are i%360 (not all zero) so display dirs should be non-zero
+    expect(ds.dirs.some(v => v !== 0)).toBe(true);
+  });
+
+  it('down-samples ensemble bands to match display series; passes through 1h ensemble', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    expect(ds.ensTemp).not.toBeNull();
+    expect(ds.ensTemp.p10).toHaveLength(ds.times.length);  // down-sampled
+    expect(ds.ensTemp1h).toBe(s.ensTemp1h);                // 1h passthrough
+  });
+
+  it('sets ensemble to null when input ensemble is null', () => {
+    const s = makeFixedSlice();
+    s.ensTemp1h = null; s.ensWind1h = null; s.ensGust1h = null; s.ensPrecip1h = null;
+    const ds = ctx.buildPortraitSeries(s);
+    expect(ds.ensTemp).toBeNull();
+    expect(ds.ensTemp1h).toBeNull();
+  });
+
+  it('handles missing dirs1h by falling back to dirs', () => {
+    const s = makeFixedSlice();
+    s.dirs1h = null;
+    expect(() => ctx.buildPortraitSeries(s)).not.toThrow();
+  });
+
+  it('provides temps and gusts arrays at display-series resolution', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    expect(Array.isArray(ds.temps)).toBe(true);
+    expect(ds.temps).toHaveLength(ds.times.length);
+    expect(Array.isArray(ds.gusts)).toBe(true);
+    expect(ds.gusts).toHaveLength(ds.times.length);
+  });
+
+  it('provides xMap1h and xFrac1h with length matching times1h', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    expect(Array.isArray(ds.xMap1h)).toBe(true);
+    expect(ds.xMap1h.length).toBe(s.times1h.length);
+    expect(Array.isArray(ds.xFrac1h)).toBe(true);
+    expect(ds.xFrac1h.length).toBe(s.times1h.length);
+  });
+
+  it('xFrac1h values are strictly monotonically increasing and in (0, 1)', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    const xf = ds.xFrac1h;
+    for (let i = 1; i < xf.length; i++) {
+      expect(xf[i]).toBeGreaterThan(xf[i - 1]);
+    }
+    expect(xf[0]).toBeGreaterThan(0);
+    expect(xf[xf.length - 1]).toBeLessThan(1);
+  });
+
+  it('slotIdx1h maps each 1h point to a valid display slot index', () => {
+    const s = makeFixedSlice();
+    const ds = ctx.buildPortraitSeries(s);
+    expect(Array.isArray(ds.slotIdx1h)).toBe(true);
+    expect(ds.slotIdx1h.length).toBe(s.times1h.length);
+    const nDsp = ds.times.length;
+    for (const idx of ds.slotIdx1h) {
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeLessThan(nDsp);
+    }
+    // Slot indices are non-decreasing
+    for (let i = 1; i < ds.slotIdx1h.length; i++) {
+      expect(ds.slotIdx1h[i]).toBeGreaterThanOrEqual(ds.slotIdx1h[i - 1]);
+    }
   });
 });
 
