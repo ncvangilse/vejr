@@ -446,3 +446,149 @@ describe('fetchShoreVector', () => {
   });
 });
 
+// ── analyseShore ──────────────────────────────────────────────────────────────
+
+/**
+ * Like makeFetchShoreCtx but also provides OffscreenCanvas + createImageBitmap
+ * so that fetchWmsImageData can decode the mock image blob.
+ * All fetch calls to WMS URLs return a synthetic land-only image (no water pixels).
+ * Overpass fetches return an empty elements array.
+ */
+function makeAnalyseShoreCtx() {
+  const events = [];
+  const mockWindow = {
+    location:     { search: '', href: 'http://localhost/' },
+    history:      { replaceState: () => {} },
+    SHORE_MASK:   null,
+    SHORE_STATUS: { state: 'idle', msg: '' },
+    SHORE_DEBUG:  null,
+    SHORE_VECTOR: null,
+    dispatchEvent: (e) => events.push(e.type),
+  };
+
+  // Synthetic 4×4 land-only image (rgb 100,100,100 — does not match any water class).
+  const W = 4, H = 4;
+  const landPixels = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < landPixels.length; i += 4) {
+    landPixels[i] = 100; landPixels[i + 1] = 100; landPixels[i + 2] = 100; landPixels[i + 3] = 255;
+  }
+
+  class MockOffscreenCanvas {
+    constructor() {}
+    getContext() {
+      return {
+        drawImage: () => {},
+        getImageData: () => ({ data: landPixels, width: W, height: H }),
+      };
+    }
+  }
+
+  const fctx = vm.createContext({
+    window:             mockWindow,
+    localStorage:       { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    console,
+    Math, Date,
+    Array, Float32Array, Set, Map,
+    Number, String, Boolean, Object,
+    parseInt, parseFloat, isNaN, isFinite,
+    encodeURIComponent, decodeURIComponent,
+    URL, URLSearchParams,
+    Promise, Error,
+    CustomEvent, AbortController,
+    setTimeout, clearTimeout,
+    OffscreenCanvas:     MockOffscreenCanvas,
+    createImageBitmap:   () => Promise.resolve({}),
+    fetch: (url) => {
+      if (String(url).includes('overpass')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ elements: [] }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        headers: { get: () => 'image/png' },
+        blob:    () => Promise.resolve({}),
+      });
+    },
+  });
+
+  const src = ['config.js', 'shore.js'].map(p => readFileSync(resolve(ROOT, p), 'utf8')).join('\n');
+  vm.runInContext(src, fctx);
+
+  return { fctx, events, window: mockWindow };
+}
+
+describe('analyseShore', () => {
+  it('sets SHORE_MASK and dispatches shore-mask-ready on a successful WMS fetch', async () => {
+    const { fctx, events, window } = makeAnalyseShoreCtx();
+
+    await fctx.analyseShore(55.0, 12.0);
+
+    // SHORE_MASK must be a Float32Array with one entry per bearing bucket
+    expect(window.SHORE_MASK).toBeInstanceOf(Float32Array);
+    expect(window.SHORE_MASK.length).toBe(36);
+    expect(events).toContain('shore-mask-ready');
+    expect(['ok', 'inland'].includes(window.SHORE_STATUS.state)).toBe(true);
+  });
+
+  it('calls onDone, leaves SHORE_MASK null, and sets state to error when fetch fails', async () => {
+    const { fctx, window } = makeAnalyseShoreCtx();
+    fctx.fetch = () => Promise.reject(new Error('network error'));
+
+    let doneCalled = false;
+    await fctx.analyseShore(55.0, 12.0, () => { doneCalled = true; });
+
+    expect(doneCalled).toBe(true);
+    expect(window.SHORE_MASK).toBeNull();
+    expect(window.SHORE_STATUS.state).toBe('error');
+  });
+
+  it('deduplicates: only one WMS fetch when called twice concurrently for the same coords', async () => {
+    const { fctx, window } = makeAnalyseShoreCtx();
+    let fetchCallCount = 0;
+    const origFetch = fctx.fetch;
+    fctx.fetch = (url) => { fetchCallCount++; return origFetch(url); };
+
+    await Promise.all([
+      fctx.analyseShore(55.0, 12.0),
+      fctx.analyseShore(55.0, 12.0),
+    ]);
+
+    expect(window.SHORE_MASK).not.toBeNull();
+    // At most 2 requests: 1 WMS + 1 Overpass. Second analyseShore call must chain, not re-fetch.
+    expect(fetchCallCount).toBeLessThanOrEqual(2);
+  });
+
+  it('fast path: returns immediately without a WMS fetch when SHORE_MASK already set', async () => {
+    const { fctx, window } = makeAnalyseShoreCtx();
+
+    // Prime the module-level dedup state via a real first fetch.
+    await fctx.analyseShore(55.0, 12.0);
+    expect(window.SHORE_MASK).not.toBeNull();
+
+    let fetchCallCount = 0;
+    fctx.fetch = () => { fetchCallCount++; return Promise.resolve({ ok: true }); };
+    let doneCalled = false;
+
+    await fctx.analyseShore(55.0, 12.0, () => { doneCalled = true; });
+
+    expect(fetchCallCount).toBe(0);   // no WMS round-trip
+    expect(doneCalled).toBe(true);    // onDone still called
+  });
+
+  it('forces a new WMS fetch when SHORE_MASK is nulled before calling (button re-fetch pattern)', async () => {
+    const { fctx, window } = makeAnalyseShoreCtx();
+
+    await fctx.analyseShore(55.0, 12.0);
+
+    let fetchCallCount = 0;
+    const origFetch = fctx.fetch;
+    fctx.fetch = (url) => { fetchCallCount++; return origFetch(url); };
+
+    // Simulate the "Fetch sea bearings" button: null the mask before re-calling.
+    window.SHORE_MASK = null;
+    await fctx.analyseShore(55.0, 12.0);
+
+    expect(fetchCallCount).toBeGreaterThanOrEqual(1);  // at least 1 WMS request issued
+    expect(window.SHORE_MASK).not.toBeNull();
+  });
+});
+

@@ -25,6 +25,7 @@ async function load(cityName, model) {
     // coords are now known so there's no reason to wait.
     lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     if (window.fetchShoreVector) window.fetchShoreVector(loc.latitude, loc.longitude).catch(() => null);
+    if (window.analyseShore)     window.analyseShore(loc.latitude, loc.longitude).catch(() => null);
     // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
@@ -1204,11 +1205,11 @@ function renderShoreDebug() {
   cfgBtn.addEventListener('click', () => {
     syncDialogToConfig(KITE_CFG);
     overlay.classList.add('open');
-    // Ensure vector data is fetched (or retried if a previous attempt failed).
-    // fetchShoreVector deduplicates in-flight requests and dispatches
-    // 'shore-vector-ready' immediately if data is already cached.
-    if (lastShoreCoords && window.fetchShoreVector) {
-      window.fetchShoreVector(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
+    // Ensure raster + vector data is fetched (or retried if a previous attempt failed).
+    // Both functions deduplicate in-flight requests, so duplicate calls are free.
+    if (lastShoreCoords) {
+      if (window.fetchShoreVector) window.fetchShoreVector(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
+      if (window.analyseShore)     window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
     }
     requestAnimationFrame(() => { drawModalCompass(); updateShoreStatusUI(); renderShoreDebug(); });
   });
@@ -1228,6 +1229,19 @@ function renderShoreDebug() {
   // (e.g. the modal becoming display:flex) has been committed by the browser.
   window.addEventListener('shore-vector-ready', () => {
     renderShoreDebug();
+    requestAnimationFrame(() => drawModalCompass());
+  });
+
+  // Update status and compass when the raster analysis (SHORE_MASK) completes.
+  // Also auto-populate activeBearings if they haven't been set yet for this load.
+  window.addEventListener('shore-mask-ready', () => {
+    if (window.SHORE_MASK && activeBearings.length === 0) {
+      const thresh = seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : SHORE_SEA_THRESH;
+      for (let b = 0; b < SHORE_BEARINGS; b++) {
+        if (window.SHORE_MASK[b] >= thresh) activeBearings.push(b * 10);
+      }
+    }
+    updateShoreStatusUI();
     requestAnimationFrame(() => drawModalCompass());
   });
 
@@ -1293,6 +1307,7 @@ async function loadAtCoords(lat, lon, model) {
     // runs in parallel with the reverse-geocode and weather requests.
     lastShoreCoords = { lat, lon };
     if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
+    if (window.analyseShore)     window.analyseShore(lat, lon).catch(() => null);
 
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;

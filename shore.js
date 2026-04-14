@@ -413,7 +413,11 @@ function parseOverpassViz(data) {
   return { coastWays, waterPolys };
 }
 
-/* ── deduplication state for fetchShoreVector ───────────────────────────── */
+/* ── deduplication state for analyseShore (raster) ─────────────────────── */
+let _rasterFetchPromise = null;
+let _rasterFetchCoords  = null;
+
+/* ── deduplication state for fetchShoreVector (vector) ─────────────────── */
 let _vectorFetchPromise = null;
 let _vectorFetchCoords  = null;
 
@@ -479,90 +483,119 @@ async function fetchShoreVector(lat, lon) {
  * Analyse the land/sea environment around (lat, lon) within SHORE_MAX_KM.
  * Populates window.SHORE_MASK and window.SHORE_STATUS, then calls onDone().
  *
+ * Deduplicates: if a fetch is already in flight for the same coordinates the
+ * call chains onto it instead of issuing a second WMS request.  If data is
+ * already available for the same coordinates the call returns immediately.
+ * Dispatches a 'shore-mask-ready' CustomEvent on window when a new fetch
+ * completes and SHORE_MASK is populated.
+ *
+ * To force a re-fetch (e.g. the "Fetch sea bearings" button) set
+ * window.SHORE_MASK = null before calling — that bypasses the fast path.
+ *
  * @param {number}   lat
  * @param {number}   lon
- * @param {function} onDone  – called when the mask is ready (or on error)
+ * @param {function} [onDone]  – called when the mask is ready (or on error)
  */
 async function analyseShore(lat, lon, onDone) {
+  const near = (a) => a && Math.abs(a.lat - lat) < 0.001 && Math.abs(a.lon - lon) < 0.001;
+
+  // Fast path: data already available for this location — no WMS round-trip needed.
+  if (near(_rasterFetchCoords) && window.SHORE_MASK) {
+    if (onDone) onDone();
+    return;
+  }
+
+  // Dedup: same location is already being fetched — chain onto the in-flight promise.
+  if (near(_rasterFetchCoords) && _rasterFetchPromise) {
+    return _rasterFetchPromise.then(() => { if (onDone) onDone(); });
+  }
+
+  // New fetch.
+  _rasterFetchCoords = { lat, lon };
   window.SHORE_STATUS = { state: 'loading', msg: 'Fetching land cover data…' };
   window.SHORE_MASK   = null;
   if (onDone) onDone();
 
-  try {
-    const bbox      = expandBbox(lat, lon, SHORE_MAX_KM + 1);
-    const imageData = await fetchWmsImageData(bbox, WMS_WIDTH, WMS_HEIGHT);
-    const { width, height } = imageData;
+  _rasterFetchPromise = (async () => {
+    try {
+      const bbox      = expandBbox(lat, lon, SHORE_MAX_KM + 1);
+      const imageData = await fetchWmsImageData(bbox, WMS_WIDTH, WMS_HEIGHT);
+      const { width, height } = imageData;
 
-    window.SHORE_STATUS = { state: 'calculating', msg: 'Calculating sea bearings…' };
-    if (onDone) onDone();
+      window.SHORE_STATUS = { state: 'calculating', msg: 'Calculating sea bearings…' };
+      if (onDone) onDone();
 
-    const pixelReader = (px, py) => {
-      const i = (py * width + px) * 4;
-      return {
-        r: imageData.data[i],
-        g: imageData.data[i + 1],
-        b: imageData.data[i + 2],
+      const pixelReader = (px, py) => {
+        const i = (py * width + px) * 4;
+        return {
+          r: imageData.data[i],
+          g: imageData.data[i + 1],
+          b: imageData.data[i + 2],
+        };
       };
-    };
 
-    const { mask, bearings } = processWmsPixels(lat, lon, bbox, width, height, pixelReader);
+      const { mask, bearings } = processWmsPixels(lat, lon, bbox, width, height, pixelReader);
 
-    // Classify origin pixel for debug display
-    const originPx = latLonToPixel(lat, lon, bbox, width, height);
-    let originIsWater = false;
-    if (originPx.px >= 0 && originPx.px < width &&
-        originPx.py >= 0 && originPx.py < height) {
-      const oi = (originPx.py * width + originPx.px) * 4;
-      originIsWater = classifyWmsPixel(
-        imageData.data[oi], imageData.data[oi + 1], imageData.data[oi + 2]);
+      // Classify origin pixel for debug display.
+      const originPx = latLonToPixel(lat, lon, bbox, width, height);
+      let originIsWater = false;
+      if (originPx.px >= 0 && originPx.px < width &&
+          originPx.py >= 0 && originPx.py < height) {
+        const oi = (originPx.py * width + originPx.px) * 4;
+        originIsWater = classifyWmsPixel(
+          imageData.data[oi], imageData.data[oi + 1], imageData.data[oi + 2]);
+      }
+
+      const mb = bboxToMercator(bbox);
+      window.SHORE_MASK = mask;
+      window.dispatchEvent(new CustomEvent('shore-mask-ready'));
+
+      // Seed SHORE_DEBUG with any vector data already available from a prior
+      // fetchShoreVector() call (likely already done on position change).
+      const vec = window.SHORE_VECTOR;
+      const vecReady = vec && Math.abs(vec.lat - lat) < 0.001 && Math.abs(vec.lon - lon) < 0.001;
+      window.SHORE_DEBUG = {
+        lat, lon, bbox,
+        mercatorBbox:   mb,
+        metersPerPixel: (mb.east - mb.west) / width,
+        wmsUrl:         buildWmsUrl(bbox, WMS_WIDTH, WMS_HEIGHT),
+        originPx,
+        originIsWater,
+        width, height,
+        imageData,
+        bearings,
+        vectorState: vecReady ? vec.state : 'loading',
+        coastWays:   vecReady ? vec.coastWays  : [],
+        waterPolys:  vecReady ? vec.waterPolys : [],
+      };
+
+      // Fetch (or reuse) Overpass vector data — deduplicates if already in flight.
+      fetchShoreVector(lat, lon);
+
+      const hasAnyWater   = Array.from(mask).some(v => v > 0);
+      const anySeaBearing = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
+
+      window.SHORE_STATUS = !hasAnyWater
+        ? { state: 'inland', msg: 'No water within 5 km – location appears inland' }
+        : !anySeaBearing
+          ? { state: 'ok', msg: 'Coast nearby but no open-sea bearing found' }
+          : { state: 'ok', msg: '' };
+
+    } catch (e) {
+      console.warn('[shore] WMS analysis failed:', e);
+      window.SHORE_MASK = null;
+      const isTimeout = e && (e.name === 'AbortError' || e.name === 'TimeoutError'
+                              || /timeout/i.test(e.message));
+      window.SHORE_STATUS = {
+        state: 'error',
+        msg:   isTimeout ? 'Land cover fetch timed out' : 'Land cover fetch failed',
+      };
     }
 
-    const mb = bboxToMercator(bbox);
-    window.SHORE_MASK  = mask;
-
-    // Seed SHORE_DEBUG with any vector data already available from a prior
-    // fetchShoreVector() call (likely already done on position change).
-    const vec = window.SHORE_VECTOR;
-    const vecReady = vec && Math.abs(vec.lat - lat) < 0.001 && Math.abs(vec.lon - lon) < 0.001;
-    window.SHORE_DEBUG = {
-      lat, lon, bbox,
-      mercatorBbox:   mb,
-      metersPerPixel: (mb.east - mb.west) / width,
-      wmsUrl:         buildWmsUrl(bbox, WMS_WIDTH, WMS_HEIGHT),
-      originPx,
-      originIsWater,
-      width, height,
-      imageData,
-      bearings,
-      vectorState: vecReady ? vec.state : 'loading',
-      coastWays:   vecReady ? vec.coastWays  : [],
-      waterPolys:  vecReady ? vec.waterPolys : [],
-    };
-
-    // Fetch (or reuse) Overpass vector data — deduplicates if already in flight.
-    fetchShoreVector(lat, lon);
-
-    const hasAnyWater   = Array.from(mask).some(v => v > 0);
-    const anySeaBearing = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
-
-    window.SHORE_STATUS = !hasAnyWater
-      ? { state: 'inland', msg: 'No water within 5 km – location appears inland' }
-      : !anySeaBearing
-        ? { state: 'ok', msg: 'Coast nearby but no open-sea bearing found' }
-        : { state: 'ok', msg: '' };
-
-  } catch (e) {
-    console.warn('[shore] WMS analysis failed:', e);
-    window.SHORE_MASK = null;
-    const isTimeout = e && (e.name === 'AbortError' || e.name === 'TimeoutError'
-                            || /timeout/i.test(e.message));
-    window.SHORE_STATUS = {
-      state: 'error',
-      msg:   isTimeout ? 'Land cover fetch timed out' : 'Land cover fetch failed',
-    };
-  }
-
-  if (onDone) onDone();
+    _rasterFetchPromise = null;
+    if (onDone) onDone();
+  })();
+  return _rasterFetchPromise;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
