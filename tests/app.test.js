@@ -433,50 +433,51 @@ describe('buildPortraitSeries', () => {
 
   const { ctx } = loadApp({ portrait: true });
 
-  // With base 2025-06-16T10:00Z the display series is (3h daytime, 6h night for 0-48h):
-  //   idx 0     = 10:00        (daytime 0–24h, step=3)
-  //   idx 1     = 13:00
-  //   idx 2     = 16:00
-  //   idx 3     = 19:00
-  //   idx 4     = 22:00        (night in 0–24h zone → step=6)
-  //   idx 5     = 04:00 (day+1)
-  //   idx 6     = 10:00 (day+1, hoursAhead=24 → baseStep=3, step=3)
-  //   idx 7     = 13:00 (day+1)
-  //   idx 12    = 10:00 (day+2, hoursAhead=48 → baseStep=6, step=6)
-  //   idx 13    = 16:00 (day+2)
+  // With base 2025-06-16T10:00Z the display series is:
+  //   idx 0..9  = 10:00..19:00 (1h steps, daytime in 0–24h zone)
+  //   idx 10    = 20:00 (night in 0–24h zone → step=3)
+  //   idx 11    = 23:00
+  //   idx 12    = 02:00 (day+1)
+  //   idx 13    = 05:00
+  //   idx 14    = 08:00 (back to daytime, hoursAhead=22, step=1)
+  //   idx 15    = 09:00
+  //   idx 16    = 10:00 (day+1, hoursAhead=24 → baseStep=3, step=3)
+  //   idx 17    = 13:00
+  //   idx 22    = 10:00 (day+2, hoursAhead=48 → baseStep=6, step=6)
+  //   idx 23    = 16:00
 
-  it('produces 3-hour spacing for daytime slots in the first 24 hours', () => {
+  it('produces 1-hour spacing for daytime slots in the first 24 hours', () => {
     const ds = ctx.buildPortraitSeries(makeFixedSlice());
     const dt = new Date(ds.times[1]).getTime() - new Date(ds.times[0]).getTime();
-    expect(dt).toBe(3 * HR);
+    expect(dt).toBe(HR);
   });
 
-  it('coarsens nighttime slots in the first 24 hours to 6h', () => {
+  it('coarsens nighttime slots in the first 24 hours to 3h', () => {
     const ds = ctx.buildPortraitSeries(makeFixedSlice());
     // Find the first pair of adjacent display slots within the first 24h of input
-    // that are separated by exactly 6h — that gap indicates night coarsening.
+    // that are separated by exactly 3h — that gap indicates night coarsening.
     // The exact index depends on the local timezone, so we search rather than hardcode.
     const t0ms = new Date(ds.times[0]).getTime();
     let found = false;
     for (let i = 1; i < ds.times.length; i++) {
       const dt = new Date(ds.times[i]).getTime() - new Date(ds.times[i - 1]).getTime();
       const hoursAhead = (new Date(ds.times[i - 1]).getTime() - t0ms) / 3600000;
-      if (hoursAhead < 24 && dt === 6 * HR) { found = true; break; }
+      if (hoursAhead < 24 && dt === 3 * HR) { found = true; break; }
     }
     expect(found).toBe(true);
   });
 
   it('produces 3-hour spacing for daytime slots in 24–48h', () => {
     const ds = ctx.buildPortraitSeries(makeFixedSlice());
-    // idx 6 = day+1 10:00 (hoursAhead=24, daytime), idx 7 = 13:00 → 3h gap
-    const dt = new Date(ds.times[7]).getTime() - new Date(ds.times[6]).getTime();
+    // idx 16 = day+1 10:00 (hoursAhead=24, daytime), idx 17 = 13:00 → 3h gap
+    const dt = new Date(ds.times[17]).getTime() - new Date(ds.times[16]).getTime();
     expect(dt).toBe(3 * HR);
   });
 
   it('produces 6-hour spacing from 48h onwards', () => {
     const ds = ctx.buildPortraitSeries(makeFixedSlice());
-    // idx 12 = day+2 10:00 (hoursAhead=48), idx 13 = 16:00 → 6h gap
-    const dt = new Date(ds.times[13]).getTime() - new Date(ds.times[12]).getTime();
+    // idx 22 = day+2 10:00 (hoursAhead=48), idx 23 = 16:00 → 6h gap
+    const dt = new Date(ds.times[23]).getTime() - new Date(ds.times[22]).getTime();
     expect(dt).toBe(6 * HR);
   });
 
