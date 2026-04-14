@@ -31,8 +31,10 @@ jobs:
       - name: Fetch NinJo station data from DMI
         run: |
           curl -fsSL \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
             'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9' \
-            -o deploy/ninjo-stations.json
+            -o deploy/ninjo-stations.json \
+            || echo '{}' > deploy/ninjo-stations.json
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
