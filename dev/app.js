@@ -160,6 +160,8 @@ async function load(cityName, model) {
     // Store coords for on-demand shore analysis (triggered from the kite modal)
     lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     updateShoreStatusUI();
+    // DMI observations (fire-and-forget; re-renders when done)
+    loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -514,6 +516,24 @@ function showTooltip(idx1h, idx3h) {
   const desc    = WMO_DESC[code] || 'Unknown';
   const kiteRow = isKiteOptimal(wind, dir, timeStr)
     ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>` : '';
+  // DMI observed wind nearest to this time slot (within 30 min)
+  let obsRow = '';
+  if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
+    const hoverT = new Date(d.times1h[idx1h]).getTime();
+    const nearest = window.DMI_OBS.obs.reduce((a, b) =>
+      Math.abs(a.t - hoverT) < Math.abs(b.t - hoverT) ? a : b
+    );
+    if (Math.abs(nearest.t - hoverT) < 30 * 60 * 1000) {
+      const wStr = nearest.wind != null ? `${nearest.wind.toFixed(1)} m/s` : '—';
+      const gStr = nearest.gust != null
+        ? `<span style="color:rgba(255,150,50,1)"> / gust ${nearest.gust.toFixed(1)} m/s</span>`
+        : '';
+      obsRow = `<div class="tt-row">`
+             + `<span class="tt-label" title="DMI ${window.DMI_OBS.stationName} · ${window.DMI_OBS.distKm} km">Obs (DMI)</span>`
+             + `<span class="tt-val" style="color:#ffe040;font-size:10px">${wStr}${gStr}</span>`
+             + `</div>`;
+    }
+  }
   tip.innerHTML = `
     <div class="tt-time">${day} at ${h}:00</div>
     ${kiteRow}
@@ -544,6 +564,7 @@ function showTooltip(idx1h, idx3h) {
       <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
     </div>
     ${gustUncRow}
+    ${obsRow}
     <div class="tt-row">
       <span class="tt-label">Direction</span>
       <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
@@ -692,11 +713,10 @@ function updateShoreStatusUI() {
     text = '🌊 Calculating sea bearings…';
   } else if (s.state === 'ok') {
     const seaCount = window.SHORE_MASK
-      ? Array.from(window.SHORE_MASK).filter(v => v >= 0.5).length : 0;
+      ? Array.from(window.SHORE_MASK).filter(v => v >= SHORE_SEA_THRESH).length : 0;
     text  = `🌊 ${seaCount} sea bearings`;
     color = seaCount > 0 ? '#00c890' : '#aa8844';
-  } else if (s.state === 'inland') {
-    text  = '🏔 Inland (no coast)';
+  } else if (s.state === 'inland') {    text  = '🏔 Inland (no coast)';
     color = '#aa8844';
   } else if (s.state === 'error') {
     text  = '🌊 Shore: unavailable';
@@ -712,6 +732,34 @@ function updateShoreStatusUI() {
   }
   renderShoreDebug();
 }
+
+/* ══════════════════════════════════════════════════
+   DMI OBSERVATION STATUS UI
+══════════════════════════════════════════════════ */
+function updateDmiObsStatusUI() {
+  const el = document.getElementById('dmi-obs-status');
+  if (!el) return;
+  const s = window.DMI_OBS_STATUS || { state: 'idle', msg: '' };
+  let text = '', color = '#778';
+  if (s.state === 'loading') {
+    text  = `📡 DMI: ${s.msg || 'loading…'}`;
+    color = '#778';
+  } else if (s.state === 'ok') {
+    // msg = "StationName · N km" — prefix makes it clear this is the basis for the wind obs dots
+    text  = `📡 Obs: ${s.msg}`;
+    color = '#5a9';
+  } else if (s.state === 'no-station') {
+    text  = '📡 DMI: no station nearby';
+    color = '#aa8844';
+  } else if (s.state === 'error') {
+    text  = `📡 DMI: ${s.msg}`;
+    color = '#a77';
+  }
+  // 'idle' and 'not-dk' show nothing
+  el.textContent = text;
+  el.style.color  = color;
+}
+window.updateDmiObsStatusUI = updateDmiObsStatusUI;
 
 /* ══════════════════════════════════════════════════
    SHORE DEBUG PANEL
@@ -798,7 +846,7 @@ function drawShoreDebugMap(d) {
     const [lx, ly] = last.px != null
       ? imgToCanvas(last.px, last.py)
       : latLonToCanvas(last.lat, last.lon);
-    ctx.strokeStyle = row.seaFrac >= 0.5
+    ctx.strokeStyle = row.seaFrac >= SHORE_SEA_THRESH
       ? 'rgba(0,200,160,0.22)'
       : 'rgba(220,140,50,0.18)';
     ctx.beginPath();
@@ -899,7 +947,7 @@ function renderShoreDebug() {
 
   drawShoreDebugMap(d);
 
-  const seaCount = Array.from(window.SHORE_MASK || []).filter(v => v >= 0.5).length;
+  const seaCount = Array.from(window.SHORE_MASK || []).filter(v => v >= SHORE_SEA_THRESH).length;
   metaEl.innerHTML = `
     <span class="sdd-key">Location:</span>
     <span class="sdd-val">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</span>
@@ -960,7 +1008,7 @@ function renderShoreDebug() {
   };
   bearTb.innerHTML = d.bearings.map(row => {
     const pct   = Math.round(row.seaFrac * 100);
-    const isSea = row.seaFrac >= 0.5;
+    const isSea = row.seaFrac >= SHORE_SEA_THRESH;
     const cells = row.samples.map(s => {
       const abbr = REASON_ABBR[s.reason] ?? s.reason;
 
@@ -979,15 +1027,17 @@ function renderShoreDebug() {
    KITE CONFIG DIALOG
 ══════════════════════════════════════════════════ */
 (function () {
-  const overlay       = document.getElementById('kite-modal-overlay');
-  const minInput      = document.getElementById('kite-min-input');
-  const maxInput      = document.getElementById('kite-max-input');
-  const daylightInput = document.getElementById('kite-at-night-input');
-  const applyBtn      = document.getElementById('kite-modal-apply');
-  const cancelBtn     = document.getElementById('kite-modal-cancel');
-  const resetBtn      = document.getElementById('kite-modal-reset');
-  const cfgBtn        = document.getElementById('kite-cfg-btn');
-  const shoreFetchBtn = document.getElementById('kite-shore-fetch-btn');
+  const overlay          = document.getElementById('kite-modal-overlay');
+  const minInput         = document.getElementById('kite-min-input');
+  const maxInput         = document.getElementById('kite-max-input');
+  const daylightInput    = document.getElementById('kite-at-night-input');
+  const seaThreshSlider  = document.getElementById('kite-sea-thresh-input');
+  const seaThreshLabel   = document.getElementById('kite-sea-thresh-label');
+  const applyBtn         = document.getElementById('kite-modal-apply');
+  const cancelBtn        = document.getElementById('kite-modal-cancel');
+  const resetBtn         = document.getElementById('kite-modal-reset');
+  const cfgBtn           = document.getElementById('kite-cfg-btn');
+  const shoreFetchBtn    = document.getElementById('kite-shore-fetch-btn');
 
   // ── Active bearings state ─────────────────────────────────────────────
   let activeBearings = [];   // array of snapped 10° bearings (numbers)
@@ -1016,7 +1066,8 @@ function renderShoreDebug() {
     }
 
     window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
-      window.SHORE_MASK, windDeg, windGood, activeBearings);
+      window.SHORE_MASK, windDeg, windGood, activeBearings,
+      seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : null);
   }
 
   // ── Drag-to-select on the compass canvas ─────────────────────────────
@@ -1086,19 +1137,31 @@ function renderShoreDebug() {
     window.addEventListener('touchend',   onPointerUp);
   }
 
+  // ── Sea-threshold slider: live label + compass preview ───────────────────
+  if (seaThreshSlider) {
+    seaThreshSlider.addEventListener('input', () => {
+      if (seaThreshLabel) seaThreshLabel.textContent = seaThreshSlider.value + '%';
+      drawModalCompass();
+    });
+  }
+
   // ── Sync dialog ↔ config ─────────────────────────────────────────────
   function syncDialogToConfig(cfg) {
     minInput.value        = cfg.min;
     maxInput.value        = cfg.max;
     daylightInput.checked = !cfg.daylight;
     activeBearings        = cfg.dirs.slice();
+    const pct = Math.round((cfg.seaThresh ?? KITE_DEFAULTS.seaThresh) * 100);
+    if (seaThreshSlider) seaThreshSlider.value = pct;
+    if (seaThreshLabel)  seaThreshLabel.textContent = pct + '%';
   }
   function readDialogConfig() {
     return {
-      min:      parseFloat(minInput.value) || KITE_DEFAULTS.min,
-      max:      parseFloat(maxInput.value) || KITE_DEFAULTS.max,
-      dirs:     activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
-      daylight: !daylightInput.checked,
+      min:       parseFloat(minInput.value) || KITE_DEFAULTS.min,
+      max:       parseFloat(maxInput.value) || KITE_DEFAULTS.max,
+      dirs:      activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
+      daylight:  !daylightInput.checked,
+      seaThresh: seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : KITE_DEFAULTS.seaThresh,
     };
   }
 
@@ -1117,6 +1180,7 @@ function renderShoreDebug() {
   resetBtn.addEventListener('click', () => { syncDialogToConfig(KITE_DEFAULTS); drawModalCompass(); });
   applyBtn.addEventListener('click', () => {
     const cfg = readDialogConfig();
+    window.setShoreSeaThresh(cfg.seaThresh);   // commit threshold before re-render
     setKiteParams(cfg);
     overlay.classList.remove('open');
     if (lastData) renderDisplay(lastData);
@@ -1139,9 +1203,10 @@ function renderShoreDebug() {
     window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon, () => {
       // Auto-select all sea bearings, deselect all land bearings
       if (window.SHORE_MASK) {
+        const fetchThresh = seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : SHORE_SEA_THRESH;
         activeBearings = [];
         for (let b = 0; b < SHORE_BEARINGS; b++) {
-          if (window.SHORE_MASK[b] >= SHORE_SEA_THRESH) {
+          if (window.SHORE_MASK[b] >= fetchThresh) {
             activeBearings.push(b * 10);
           }
         }
@@ -1185,6 +1250,7 @@ async function loadAtCoords(lat, lon, model) {
 
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    let reverseCountryCode = null;
     try {
       const r = await fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
@@ -1194,6 +1260,7 @@ async function loadAtCoords(lat, lon, model) {
         const d = await r.json();
         displayName = d.address?.city || d.address?.town || d.address?.village
                       || d.display_name.split(',')[0];
+        reverseCountryCode = (d.address?.country_code || '').toUpperCase() || null;
       }
     } catch(_) { /* keep coord string */ }
 
@@ -1309,9 +1376,21 @@ async function loadAtCoords(lat, lon, model) {
       ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => renderDisplay(lastData)));
-    // ── Do NOT call loadRadar here – radar map position is already correct ──
+    // Call loadRadar only when the section is not yet visible (i.e. on a fresh
+    // page load restored from a dragged-pin URL).  When called from a live drag
+    // the radar is already initialised and correctly positioned, so skip it.
+    if (window.loadRadar) {
+      const radarSection = document.getElementById('radar-section');
+      if (!radarSection || radarSection.style.display !== 'flex') {
+        window.loadRadar(lat, lon);
+      }
+    }
     lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
+    // DMI observations (fire-and-forget; re-renders when done)
+    if (reverseCountryCode) {
+      loadDmiObservations(lat, lon, reverseCountryCode).catch(() => null);
+    }
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display          = 'none';

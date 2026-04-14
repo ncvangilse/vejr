@@ -778,6 +778,39 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     });
   }
 
+  // --- DMI observed wind dots ---
+  // Yellow dots  = 10-min mean wind speed from the nearest DMI station.
+  // Orange dots  = 10-min gust (wind_gust_always_10min) — faint, drawn first so
+  //                the wind dots appear on top.
+  // x-mapping: elapsed hours from times[0] × colW, centred like cx2().
+  if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
+    const t0ms = new Date(times[0]).getTime();
+    ctx.save();
+    for (const ob of window.DMI_OBS.obs) {
+      const fracH = (ob.t - t0ms) / 3600000;
+      const x = (fracH + 0.5) * colW;
+      if (x < -8 || x > cssW + 8) continue;
+      // gust dot (faint orange — drawn first so wind dot appears on top)
+      if (ob.gust != null && isFinite(ob.gust)) {
+        ctx.beginPath();
+        ctx.arc(x, wy(ob.gust), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,150,50,0.65)';
+        ctx.fill();
+      }
+      // wind dot (yellow, slightly larger and more opaque)
+      if (ob.wind != null && isFinite(ob.wind)) {
+        ctx.beginPath();
+        ctx.arc(x, wy(ob.wind), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,240,80,0.9)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   // --- axis labels ---
   _drawWindAxisLabels(wLevels, wy, WIND_H);
 }
