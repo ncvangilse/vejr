@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.14-42-claude-vector-data-overlay-lwOAG-5';
+const CACHE_NAME = 'vejr-2026.04.14-43-nchvg-dmi_obs_batch_fetch-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
@@ -38,17 +38,31 @@ self.addEventListener('fetch', event => {
   // Never intercept non-GET requests (POST etc.) — Cache API doesn't support them
   if (event.request.method !== 'GET') return;
 
-  // Network-only: weather APIs, radar, geocoding, and Overpass (must always be live)
+  // Network-only: weather APIs, radar, geocoding, CORS proxies, and Overpass (must always be live)
   if (
     url.hostname.includes('dmi.dk') ||
     url.hostname.includes('open-meteo.com') ||
     url.hostname.includes('nominatim') ||
     url.hostname.includes('rainviewer.com') ||
     url.hostname.includes('overpass-api.de') ||
-    url.hostname.includes('overpass.kumi.systems')
+    url.hostname.includes('overpass.kumi.systems') ||
+    url.hostname.includes('allorigins.win') ||   // NinJo CORS proxy
+    url.hostname.includes('corsproxy.io')         // NinJo CORS proxy fallback
   ) {
-    // Tile images are not CORS-enabled — let them pass through as-is
-    // without re-fetching through the SW (which would enforce CORS)
+    // Let the browser handle these directly — no SW interception, no caching.
+    return;
+  }
+
+  // Network-first + cache: ninjo-stations.json is refreshed by CI every 15 min.
+  // Always fetch fresh; fall back to cached copy when offline.
+  if (url.pathname.endsWith('ninjo-stations.json')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' }).then(response => {
+        if (response.ok)
+          caches.open(CACHE_NAME).then(c => c.put(event.request, response.clone()));
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
     return;
   }
 
@@ -72,12 +86,15 @@ self.addEventListener('fetch', event => {
   // Cache-first: static assets (icons, fonts, manifest)
   event.respondWith(
     caches.match(event.request).then(cached => {
-      return cached || fetch(event.request).then(response => {
+      if (cached) return cached;
+      return fetch(event.request).then(response => {
+        // Only cache successful same-origin or CORS-enabled responses.
+        if (!response || response.status !== 200 || response.type === 'error') return response;
         return caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, response.clone());
           return response;
         });
       });
-    })
+    }).catch(() => fetch(event.request))
   );
 });

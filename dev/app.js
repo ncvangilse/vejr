@@ -21,10 +21,6 @@ async function load(cityName, model) {
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
     const loc = await geocode(cityName);
-    // Kick off the Overpass vector fetch in parallel with the weather requests —
-    // coords are now known so there's no reason to wait.
-    lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
-    if (window.fetchShoreVector) window.fetchShoreVector(loc.latitude, loc.longitude).catch(() => null);
     // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
@@ -173,6 +169,8 @@ async function load(cityName, model) {
     }));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
+    // Store coords for on-demand shore analysis (triggered from the kite modal)
+    lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     updateShoreStatusUI();
     // DMI observations (fire-and-forget; re-renders when done)
     loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
@@ -1159,17 +1157,10 @@ function renderShoreDebug() {
     window.addEventListener('touchend',   onPointerUp);
   }
 
-  // ── Sea-threshold slider: live label, bearing re-select + compass preview ──
+  // ── Sea-threshold slider: live label + compass preview ───────────────────
   if (seaThreshSlider) {
     seaThreshSlider.addEventListener('input', () => {
       if (seaThreshLabel) seaThreshLabel.textContent = seaThreshSlider.value + '%';
-      if (window.SHORE_MASK) {
-        const thresh = parseInt(seaThreshSlider.value) / 100;
-        activeBearings = [];
-        for (let b = 0; b < SHORE_BEARINGS; b++) {
-          if (window.SHORE_MASK[b] >= thresh) activeBearings.push(b * 10);
-        }
-      }
       drawModalCompass();
     });
   }
@@ -1202,12 +1193,6 @@ function renderShoreDebug() {
   cfgBtn.addEventListener('click', () => {
     syncDialogToConfig(KITE_CFG);
     overlay.classList.add('open');
-    // Ensure vector data is fetched (or retried if a previous attempt failed).
-    // fetchShoreVector deduplicates in-flight requests and dispatches
-    // 'shore-vector-ready' immediately if data is already cached.
-    if (lastShoreCoords && window.fetchShoreVector) {
-      window.fetchShoreVector(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
-    }
     requestAnimationFrame(() => { drawModalCompass(); updateShoreStatusUI(); renderShoreDebug(); });
   });
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
@@ -1221,13 +1206,8 @@ function renderShoreDebug() {
     if (lastData) renderDisplay(lastData);
   });
 
-  // Re-render debug panel and compass when the Overpass vector fetch completes.
-  // Use requestAnimationFrame so the canvas draw happens after any pending layout
-  // (e.g. the modal becoming display:flex) has been committed by the browser.
-  window.addEventListener('shore-vector-ready', () => {
-    renderShoreDebug();
-    requestAnimationFrame(() => drawModalCompass());
-  });
+  // Re-render debug panel when the background Overpass vector fetch completes
+  window.addEventListener('shore-vector-ready', () => renderShoreDebug());
 
   shoreFetchBtn.addEventListener('click', () => {    if (!lastShoreCoords) {
       const el = document.getElementById('shore-modal-status');
@@ -1287,10 +1267,6 @@ async function loadAtCoords(lat, lon, model) {
   try {
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
-    // Coords are already known — start the Overpass fetch immediately so it
-    // runs in parallel with the reverse-geocode and weather requests.
-    lastShoreCoords = { lat, lon };
-    if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
 
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
@@ -1441,6 +1417,7 @@ async function loadAtCoords(lat, lon, model) {
         window.loadRadar(lat, lon);
       }
     }
+    lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
     // DMI observations (fire-and-forget; re-renders when done)
     if (reverseCountryCode) {
