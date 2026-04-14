@@ -79,6 +79,39 @@ async function fetchEnsemble(lat, lon, model) {
   return r.json();
 }
 
+// All deterministic models available for comparison overlays.
+const OTHER_WIND_MODELS = [
+  'icon_seamless',
+  'ecmwf_ifs025',
+  'meteofrance_seamless',
+  'gfs_seamless',
+  'dmi_seamless',
+];
+
+/**
+ * Fetch 1-hour wind speed for every model except the currently selected one.
+ * Returns [{model, winds1h}] — failures/empty results are silently dropped.
+ */
+async function fetchOtherModelsWind(lat, lon, selectedModel) {
+  // For best_match we still show all named models (best_match is not a named run).
+  const toFetch = OTHER_WIND_MODELS.filter(m => m !== selectedModel);
+  const results = await Promise.all(toFetch.map(async model => {
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+        + `&hourly=windspeed_10m`
+        + `&forecast_days=${FORECAST_DAYS}&timezone=auto&windspeed_unit=ms`
+        + `&models=${model}`;
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      const d = await r.json();
+      const winds = d.hourly?.windspeed_10m;
+      if (!winds || !winds.length) return null;
+      return { model, winds1h: winds };
+    } catch (_) { return null; }
+  }));
+  return results.filter(Boolean);
+}
+
 // Given the ensemble hourly object, extract p10/p50/p90 arrays for a variable, sampled at step (default STEP)
 function ensemblePercentiles(H, varPrefix, step) {
   step = step || STEP;

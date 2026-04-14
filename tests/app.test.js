@@ -117,6 +117,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     geocode:            () => new Promise(() => {}),
     fetchWeather:       () => new Promise(() => {}),
     fetchEnsemble:      () => new Promise(() => {}),
+    fetchOtherModelsWind: () => Promise.resolve([]),
     ensemblePercentiles: () => null,
     renderAll:          renderAllSpy || (() => {}),
     isKiteOptimal:      () => false,
@@ -555,6 +556,41 @@ describe('buildPortraitSeries', () => {
     for (let i = 1; i < ds.slotIdx1h.length; i++) {
       expect(ds.slotIdx1h[i]).toBeGreaterThanOrEqual(ds.slotIdx1h[i - 1]);
     }
+  });
+
+  it('slices otherModelsWind1h arrays to match the 1h window in portrait mode', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    d.otherModelsWind1h = [
+      { model: 'icon_seamless', winds1h: Array(TOTAL_1H).fill(5) },
+      { model: 'ecmwf_ifs025',  winds1h: Array(TOTAL_1H).fill(6) },
+    ];
+    ctx.renderDisplay(d);
+    expect(calls).toHaveLength(1);
+    // Sliced arrays must match the times1h window length exactly
+    expect(calls[0].otherModelsWind1h).toHaveLength(2);
+    expect(calls[0].otherModelsWind1h[0].model).toBe('icon_seamless');
+    expect(calls[0].otherModelsWind1h[0].winds1h).toHaveLength(calls[0].times1h.length);
+    expect(calls[0].otherModelsWind1h[1].winds1h).toHaveLength(calls[0].times1h.length);
+  });
+
+  it('passes null otherModelsWind1h through when source is null', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    d.otherModelsWind1h = null;
+    ctx.renderDisplay(d);
+    expect(calls[0].otherModelsWind1h).toBeNull();
+  });
+
+  it('handles missing otherModelsWind1h (undefined) without throwing', () => {
+    const calls = [];
+    const { ctx } = loadApp({ portrait: false, renderAllSpy: (d) => calls.push(d) });
+    const d = makeData(TOTAL_3H, TOTAL_1H);
+    // No otherModelsWind1h property at all (e.g. old lastData shape)
+    expect(() => ctx.renderDisplay(d)).not.toThrow();
+    expect(calls[0].otherModelsWind1h).toBeNull();
   });
 });
 
