@@ -674,7 +674,7 @@ function initPortraitScrollSync() {
   let rafId = null;
   let velX = 0, lastX = 0, lastT = 0, startY = 0;
   let horizontal = null;
-  const DECEL = 0.92;
+  const DECEL = 0.96;
 
   wraps.forEach(wrap => {
     wrap.addEventListener('touchstart', e => {
