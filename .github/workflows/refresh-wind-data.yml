@@ -1,9 +1,7 @@
 name: Refresh wind station data
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'   # every 15 minutes (best-effort; GH scheduler may delay by hours)
-  workflow_dispatch:           # allow manual trigger
+  workflow_dispatch:           # triggered by cron-job.org every 15 min via GitHub API
   workflow_run:                # also run after every successful production deploy
     workflows: ["Build & Deploy (Production)"]
     types: [completed]
