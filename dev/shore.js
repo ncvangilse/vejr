@@ -67,6 +67,7 @@ const WMS_COLOR_TOLERANCE = 40;  // max Euclidean RGB distance for a colour matc
 window.SHORE_MASK   = null;       // Float32Array(36) or null
 window.SHORE_STATUS = { state: 'idle', msg: '' };
 window.SHORE_DEBUG  = null;       // debug snapshot set after each analyseShore()
+window.SHORE_VECTOR = null;       // { lat, lon, state, coastWays, waterPolys } — updated by fetchShoreVector
 
 /* ══════════════════════════════════════════════════════════════════════════
    GEO HELPERS
@@ -351,10 +352,11 @@ async function fetchWmsImageData(bbox, width, height) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   OVERPASS VECTOR DATA  –  for debug visualisation only
+   OVERPASS VECTOR DATA  –  coastlines + water polygons
    ──────────────────────────────────────────────────────────────────────────
-   Fetched in parallel with the WMS request and stored in SHORE_DEBUG.
-   Never used for the actual sea-bearing classification.
+   Fetched eagerly on position change (fetchShoreVector) and reused by
+   analyseShore().  Also used to render a geo-projected overlay on the shore
+   compass widget.  Never used for the actual sea-bearing classification.
 ══════════════════════════════════════════════════════════════════════════ */
 
 const OVERPASS_VIZ_ENDPOINTS = [
@@ -411,6 +413,64 @@ function parseOverpassViz(data) {
   return { coastWays, waterPolys };
 }
 
+/* ── deduplication state for fetchShoreVector ───────────────────────────── */
+let _vectorFetchPromise = null;
+let _vectorFetchCoords  = null;
+
+/**
+ * Fetch (and cache) Overpass vector data for the area around (lat, lon).
+ *
+ * Deduplicates: if a fetch is already in flight for the same coordinates, or
+ * valid data is already stored in window.SHORE_VECTOR, the call returns early.
+ * Dispatches a 'shore-vector-ready' CustomEvent on window when complete.
+ * Also back-fills window.SHORE_DEBUG (used by the debug panel) when both
+ * objects describe the same location.
+ *
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {Promise<void>}
+ */
+async function fetchShoreVector(lat, lon) {
+  const near = (a) => a && Math.abs(a.lat - lat) < 0.001 && Math.abs(a.lon - lon) < 0.001;
+
+  // Already have valid data for this location — just signal ready
+  if (near(window.SHORE_VECTOR) && window.SHORE_VECTOR.state === 'ok') {
+    window.dispatchEvent(new CustomEvent('shore-vector-ready'));
+    return;
+  }
+
+  // Already fetching for this location — wait for the existing request
+  if (near(_vectorFetchCoords) && _vectorFetchPromise) {
+    return _vectorFetchPromise;
+  }
+
+  window.SHORE_VECTOR = { lat, lon, state: 'loading', coastWays: [], waterPolys: [] };
+  _vectorFetchCoords  = { lat, lon };
+  const bbox = expandBbox(lat, lon, SHORE_MAX_KM + 1);
+
+  _vectorFetchPromise = (async () => {
+    try {
+      const raw = await fetchOverpassViz(bbox);
+      const { coastWays, waterPolys } = parseOverpassViz(raw);
+      window.SHORE_VECTOR = { lat, lon, state: raw ? 'ok' : 'error', coastWays, waterPolys };
+      console.debug(`[shore] vector: ${coastWays.length} coast ways, ${waterPolys.length} water polys`);
+    } catch (e) {
+      console.debug('[shore] fetchShoreVector failed:', e);
+      window.SHORE_VECTOR = { lat, lon, state: 'error', coastWays: [], waterPolys: [] };
+    }
+    // Back-fill SHORE_DEBUG so the debug panel also sees the new data
+    if (window.SHORE_DEBUG && near(window.SHORE_DEBUG)) {
+      window.SHORE_DEBUG.coastWays   = window.SHORE_VECTOR.coastWays;
+      window.SHORE_DEBUG.waterPolys  = window.SHORE_VECTOR.waterPolys;
+      window.SHORE_DEBUG.vectorState = window.SHORE_VECTOR.state;
+    }
+    _vectorFetchPromise = null;
+    window.dispatchEvent(new CustomEvent('shore-vector-ready'));
+  })();
+
+  return _vectorFetchPromise;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    MAIN ANALYSIS FUNCTION
 ══════════════════════════════════════════════════════════════════════════ */
@@ -459,6 +519,11 @@ async function analyseShore(lat, lon, onDone) {
 
     const mb = bboxToMercator(bbox);
     window.SHORE_MASK  = mask;
+
+    // Seed SHORE_DEBUG with any vector data already available from a prior
+    // fetchShoreVector() call (likely already done on position change).
+    const vec = window.SHORE_VECTOR;
+    const vecReady = vec && Math.abs(vec.lat - lat) < 0.001 && Math.abs(vec.lon - lon) < 0.001;
     window.SHORE_DEBUG = {
       lat, lon, bbox,
       mercatorBbox:   mb,
@@ -469,26 +534,13 @@ async function analyseShore(lat, lon, onDone) {
       width, height,
       imageData,
       bearings,
-      // Vector fields populated asynchronously below
-      vectorState: 'loading',
-      coastWays:   [],
-      waterPolys:  [],
+      vectorState: vecReady ? vec.state : 'loading',
+      coastWays:   vecReady ? vec.coastWays  : [],
+      waterPolys:  vecReady ? vec.waterPolys : [],
     };
 
-    // Fire-and-forget: fetch Overpass vector data for debug visualisation only.
-    // Does not block the mask result or onDone callback.
-    fetchOverpassViz(bbox).then(raw => {
-      if (!window.SHORE_DEBUG) return;
-      const { coastWays, waterPolys } = parseOverpassViz(raw);
-      window.SHORE_DEBUG.coastWays   = coastWays;
-      window.SHORE_DEBUG.waterPolys  = waterPolys;
-      window.SHORE_DEBUG.vectorState = raw ? 'ok' : 'error';
-      console.debug(`[shore] vector viz: ${coastWays.length} coast ways, ${waterPolys.length} water polys`);
-      window.dispatchEvent(new CustomEvent('shore-vector-ready'));
-    }).catch(() => {
-      if (window.SHORE_DEBUG) window.SHORE_DEBUG.vectorState = 'error';
-      window.dispatchEvent(new CustomEvent('shore-vector-ready'));
-    });
+    // Fetch (or reuse) Overpass vector data — deduplicates if already in flight.
+    fetchShoreVector(lat, lon);
 
     const hasAnyWater   = Array.from(mask).some(v => v > 0);
     const anySeaBearing = Array.from(mask).some(v => v >= SHORE_SEA_THRESH);
@@ -516,6 +568,81 @@ async function analyseShore(lat, lon, onDone) {
 /* ══════════════════════════════════════════════════════════════════════════
    SHORE COMPASS WIDGET  –  draws a small polar rose showing sea bearings
 ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Draw the Overpass vector data (water polygons + coastlines) as a
+ * geo-projected overlay on the shore compass.
+ *
+ * The compass is a polar plot where the centre represents the fetched location
+ * and the outer edge represents SHORE_MAX_KM km in any direction.  A flat-earth
+ * projection (accurate to < 0.1 % at 5 km) maps each Overpass node to canvas
+ * (x, y) coordinates.  The overlay is clipped to the compass circle.
+ *
+ * Reads from window.SHORE_VECTOR; no-ops when data is absent or not yet ready.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx      compass centre X (CSS px)
+ * @param {number} cy      compass centre Y (CSS px)
+ * @param {number} radius  outer radius of the compass (CSS px)
+ */
+function drawVectorOverlay(ctx, cx, cy, radius) {
+  const vec = window.SHORE_VECTOR;
+  if (!vec || vec.state !== 'ok') return;
+  if (!vec.coastWays.length && !vec.waterPolys.length) return;
+
+  // Flat-earth scale factors: 1° lat ≈ 111.32 km; 1° lon varies with latitude
+  const cosLat = Math.cos(vec.lat * Math.PI / 180);
+  const scale  = radius / SHORE_MAX_KM;  // px per km
+
+  /** Convert a geographic point to compass canvas coordinates. */
+  function geoToXY(lat, lon) {
+    return {
+      x: cx + (lon - vec.lon) * 111.32 * cosLat * scale,
+      y: cy - (lat - vec.lat) * 111.32          * scale,
+    };
+  }
+
+  ctx.save();
+
+  // Clip to compass circle so nothing bleeds outside
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius - 1, 0, Math.PI * 2);
+  ctx.clip();
+
+  // ── Water-area polygons — semi-transparent fill ──
+  ctx.fillStyle = 'rgba(30, 120, 220, 0.22)';
+  for (const poly of vec.waterPolys) {
+    if (poly.length < 3) continue;
+    ctx.beginPath();
+    const p0 = geoToXY(poly[0].lat, poly[0].lon);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < poly.length; i++) {
+      const p = geoToXY(poly[i].lat, poly[i].lon);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ── Coastline ways — stroked ──
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+  ctx.lineWidth   = 1.5;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  for (const way of vec.coastWays) {
+    if (way.length < 2) continue;
+    ctx.beginPath();
+    const p0 = geoToXY(way[0].lat, way[0].lon);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < way.length; i++) {
+      const p = geoToXY(way[i].lat, way[i].lon);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
 
 /**
  * Draw the shore-mask compass into a <canvas> element.
@@ -585,6 +712,9 @@ function drawShoreCompass(ctx, cx, cy, radius, mask, windDeg, isGood, selectedBe
     ctx.lineWidth = 0.5;
     ctx.stroke();
   }
+
+  // ── Vector overlay (Overpass coastlines + water polygons) ──
+  drawVectorOverlay(ctx, cx, cy, fillR);
 
   // ── Inner hub ──
   ctx.beginPath();
@@ -685,6 +815,7 @@ function isSeaBearing(deg) {
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 window.analyseShore     = analyseShore;
+window.fetchShoreVector = fetchShoreVector;
 window.drawShoreCompass = drawShoreCompass;
 window.isSeaBearing     = isSeaBearing;
 /** Update the sea-bearing threshold at runtime (called from the kite dialog). */

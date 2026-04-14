@@ -171,6 +171,8 @@ async function load(cityName, model) {
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
     // Store coords for on-demand shore analysis (triggered from the kite modal)
     lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
+    // Eagerly prefetch Overpass vector data so it's ready when the kite modal opens
+    if (window.fetchShoreVector) window.fetchShoreVector(loc.latitude, loc.longitude).catch(() => null);
     updateShoreStatusUI();
     // DMI observations (fire-and-forget; re-renders when done)
     loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
@@ -1206,8 +1208,11 @@ function renderShoreDebug() {
     if (lastData) renderDisplay(lastData);
   });
 
-  // Re-render debug panel when the background Overpass vector fetch completes
-  window.addEventListener('shore-vector-ready', () => renderShoreDebug());
+  // Re-render debug panel and compass when the Overpass vector fetch completes
+  window.addEventListener('shore-vector-ready', () => {
+    renderShoreDebug();
+    drawModalCompass();
+  });
 
   shoreFetchBtn.addEventListener('click', () => {    if (!lastShoreCoords) {
       const el = document.getElementById('shore-modal-status');
@@ -1418,6 +1423,8 @@ async function loadAtCoords(lat, lon, model) {
       }
     }
     lastShoreCoords = { lat, lon };
+    // Eagerly prefetch Overpass vector data so it's ready when the kite modal opens
+    if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
     updateShoreStatusUI();
     // DMI observations (fire-and-forget; re-renders when done)
     if (reverseCountryCode) {
