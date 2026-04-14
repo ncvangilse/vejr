@@ -417,31 +417,28 @@
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
   // ── Wind station overlay ──────────────────────────────────────────────
-  // Primary source: same-origin ninjo-stations.json, fetched server-side by CI every 15 min.
-  // Fallback: direct NinJo API (works on dmi.dk), then CORS proxies for other origins.
-  const NINJO_SAME_ORIGIN = './ninjo-stations.json';
-  const NINJO_URL     = 'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9';
-  const NINJO_PROXIES = [
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(NINJO_URL),
-    'https://corsproxy.io/?url='          + encodeURIComponent(NINJO_URL),
+  const WIND_DIRECT = 'https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json';
+  // On GitHub Pages a scheduled workflow writes this file to the same origin
+  // (no CORS). On localhost it 404s and we fall back to proxy.
+  const WIND_SAME_ORIGIN = './wind-speeds.json';
+  // Public CORS proxies – fallback for local development only.
+  const WIND_PROXIES = [
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(WIND_DIRECT),
+    'https://corsproxy.io/?url='          + encodeURIComponent(WIND_DIRECT),
   ];
-  let windLayer   = null;
-  let windVisible = true;
+  let windLayer       = null;
+  let windVisible     = true;
+  let dmiMarker       = null;   // DMI nearest-station arrow marker (lives inside windLayer)
+  let dmiAllMarkers   = [];     // All other DMI station dot-markers (lives inside windLayer)
 
-  async function fetchNinjoStations() {
-    // 1. Same-origin cached file — written by CI at deploy time and refreshed every 15 min.
-    //    Fast, reliable, no CORS. Falls through only if the file doesn't exist (404).
+  async function fetchWindJson() {
+    // 1. Same-origin first — works on GitHub Pages AND local dev (wind-speeds.json is in repo).
     try {
-      const r = await fetch(NINJO_SAME_ORIGIN, { cache: 'no-store' });
+      const r = await fetch(WIND_SAME_ORIGIN, { cache: 'no-store' });
       if (r.ok) return r.json();
     } catch (_) {}
-    // 2. Direct fetch — succeeds on dmi.dk-hosted deploys.
-    try {
-      const r = await fetch(NINJO_URL, { cache: 'no-store' });
-      if (r.ok) return r.json();
-    } catch (_) {}
-    // 3. CORS proxies — last-resort fallback for cross-origin environments.
-    for (const url of NINJO_PROXIES) {
+    // 2. CORS proxies — fallback when the local file is absent (e.g. fresh checkout before workflow)
+    for (const url of WIND_PROXIES) {
       try {
         const r = await fetch(url, { cache: 'no-store' });
         if (r.ok) return r.json();
@@ -450,83 +447,102 @@
     return null;
   }
 
-  /** Parse a NinJo timestamp "YYYYMMDDHHmmss" → Unix ms (UTC). */
-  function _parseNinjoTime(s) {
-    if (!s || s.length < 14) return null;
-    return Date.UTC(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8),
-                    +s.slice(8,10), +s.slice(10,12), +s.slice(12,14));
+  const DIR_DEG = {
+    N:0, NNE:22, NE:45, ENE:67, E:90, ESE:112, SE:135, SSE:157,
+    S:180, SSW:202, SW:225, WSW:247, W:270, WNW:292, NW:315, NNW:337,
+  };
+
+  function windColor(mps) {
+    // Same ramp as WINDY_RAMP in charts.js – alpha forced to 1 for solid badge.
+    const r = [
+      [ 0, 130, 190, 255],
+      [ 2, 130, 190, 255],
+      [ 4, 100, 180, 255],
+      [ 7,  50, 200,  80],
+      [10, 255, 160,  20],
+      [13, 220,  30,  30],
+      [16, 160,  30, 220],
+      [19,  60,  10, 180],
+      [22,  20,  40, 160],
+      [27, 140, 180, 240],
+      [32, 220, 235, 255],
+    ];
+    const s = parseFloat(mps) || 0;
+    if (s <= r[0][0]) return `rgb(${r[0][1]},${r[0][2]},${r[0][3]})`;
+    for (let i = 1; i < r.length; i++) {
+      if (s <= r[i][0]) {
+        const t = (s - r[i-1][0]) / (r[i][0] - r[i-1][0]);
+        const lerp = (a, b) => Math.round(a + (b - a) * t);
+        return `rgb(${lerp(r[i-1][1],r[i][1])},${lerp(r[i-1][2],r[i][2])},${lerp(r[i-1][3],r[i][3])})`;
+      }
+    }
+    const last = r[r.length-1];
+    return `rgb(${last[1]},${last[2]},${last[3]})`;
   }
 
-  // charts.js exposes windColor() returning [r,g,b,a] and windColorStr() returning a CSS string.
-  // Inside this IIFE we always need a solid CSS colour, so alias windColorStr(ms,1).
-  const windColor = ms => windColorStr(ms, 1);
-
   async function refreshWindStations() {
-    if (!radarMap) return;
+    console.log('[WindStations] refreshWindStations called — radarMap:', !!radarMap, '| windVisible:', windVisible, '| windLayer before rebuild:', !!windLayer);
+    if (!radarMap) { console.log('[WindStations] skip — radarMap null'); return; }
 
+    // Always rebuild windLayer so the DMI marker is shown even when the
+    // wind-speeds.json fetch fails or returns null.
+    dmiMarker = null;
     if (windLayer) { radarMap.removeLayer(windLayer); windLayer = null; }
     windLayer = L.layerGroup();
+    console.log('[WindStations] new windLayer created, fetching wind JSON…');
 
     try {
-      const data = await fetchNinjoStations();
-      if (data && typeof data === 'object' && !Array.isArray(data)) {
-        for (const [stationId, st] of Object.entries(data)) {
-          if (!st || typeof st !== 'object') continue;
-          const vals = st.values || {};
-          const wind = vals.WindSpeed10m;
-          if (wind == null) continue;
+      const geo = await fetchWindJson();
+      console.log('[WindStations] fetchWindJson done — geo:', geo ? `${(geo.features||[]).length} features` : 'null');
+      if (geo) {
+        (geo.features || []).forEach(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+          const spd = parseFloat(windSpeed) || 0;
+          const deg = DIR_DEG[windDirection] ?? 0;
+          const col = windColor(spd);
+          // Arrow points WHERE wind goes (same convention as forecast chart)
+          const rot = (deg - 180 + 360) % 360;
 
-          const dir  = vals.WindDirection10m  ?? null;
-          const gust = vals.WindGustLast10Min ?? null;
-          const lat  = st.latitude;
-          const lon  = st.longitude;
-          if (lat == null || lon == null) continue;
+          const halo  = 'rgba(255,255,255,0.8)';
+          const arrow =
+            `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
+                 `style="display:block;overflow:visible">` +
+              `<g transform="rotate(${rot})">` +
+                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
+                `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
+                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
+                `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
+              `</g>` +
+            `</svg>`;
 
-          const col      = windColor(wind);
-          const svgPart  = dir != null ? _dmiArrowSvg(dir, col) : _dmiCircleSvg(col);
-          const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${Math.round(wind)}</div></div>`;
           const icon = L.divIcon({
-            className: '', html: iconHtml,
-            iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
+            className: '',
+            html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
+            iconSize:    [24, 38],
+            iconAnchor:  [12, 12],
+            popupAnchor: [0, -14],
           });
 
-          const stationObj = {
-            id:         stationId,
-            name:       st.name || stationId,
-            lat, lon,
-            latest:     { wind, gust, dir, time: _parseNinjoTime(st.time) },
-            obsHistory: null,
-          };
-
-          const popupEl = _buildNinjoPopupEl(stationObj);
-          const marker  = L.marker([lat, lon], { icon, interactive: true })
-            .bindPopup(popupEl, { maxWidth: 300, minWidth: 250 });
-
-          marker.on('popupopen', () => {
-            const histEl = popupEl.querySelector('.dmi-hist-container');
-            if (!histEl || histEl.dataset.loaded === '1') return;
-            if (typeof window.dmiLoadStationHistory !== 'function') return;
-            window.dmiLoadStationHistory(stationObj)
-              .then(obs => {
-                _renderDmiHistory(histEl, obs);
-                histEl.dataset.loaded = '1';
-                marker.getPopup()?.update();
-              })
-              .catch(() => {
-                histEl.innerHTML = '<span style="color:#aaa;font-size:11px">History unavailable</span>';
-                histEl.dataset.loaded = '1';
-                marker.getPopup()?.update();
-              });
-          });
-
-          marker.addTo(windLayer);
-        }
+          L.marker([lat, lon], { icon, interactive: true })
+            .bindPopup(
+              `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
+              `<b style="font-size:14px">${spd} m/s</b><br>` +
+              `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
+              `</div>`,
+              { maxWidth: 200 }
+            )
+            .addTo(windLayer);
+        });
       }
     } catch (e) {
-      console.warn('[NinJo] refreshWindStations error:', e);
+      console.warn('[WindStations] fetchWindJson threw:', e);
     }
 
+    console.log('[WindStations] windVisible:', windVisible, '— adding windLayer to map:', windVisible);
     if (windVisible) windLayer.addTo(radarMap);
+    console.log('[WindStations] windLayer on map:', radarMap.hasLayer(windLayer), '— calling _refreshDmiMarker');
+    _refreshDmiMarker();
   }
 
   // ── DMI station markers ───────────────────────────────────────────────────
@@ -560,8 +576,8 @@
       `</svg>`;
   }
 
-  /** Build the popup DOM element for a NinJo station marker. */
-  function _buildNinjoPopupEl(s) {
+  /** Build the initial popup DOM element for a DMI station marker. */
+  function _buildDmiPopupEl(s, isNearest) {
     const latest = s.latest;
     const col    = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
     let windHtml = '<div style="color:#aaa;font-size:11px;margin:2px 0">No recent wind data</div>';
@@ -581,7 +597,9 @@
     el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:280px');
     el.innerHTML =
       `<div style="font-size:13px;font-weight:700">${s.name}</div>` +
-      `<div style="color:#999;font-size:11px;margin-bottom:4px">DMI observation</div>` +
+      `<div style="color:#999;font-size:11px;margin-bottom:4px">` +
+        `DMI&nbsp;·&nbsp;${Math.round(s.dist)}&nbsp;km${isNearest ? '&nbsp;·&nbsp;nearest' : ''}` +
+      `</div>` +
       windHtml +
       `<div class="dmi-hist-container" style="margin-top:6px;border-top:1px solid #e8e8e8;padding-top:5px">` +
         `<span style="color:#bbb;font-size:11px">Loading 24h history…</span>` +
@@ -773,12 +791,126 @@
     ctx.fillText('— wind  ╌ gust  ↑ dir', PAD_L + CW, PAD_T + W_H - 2);
   }
 
-  // ── _refreshDmiMarker kept as no-op ──────────────────────────────────────
-  //  NinJo stations are now the sole source of radar map wind markers.
-  //  dmi.js still calls window.refreshDmiMarker() after loading observations
-  //  (used for the chart overlay dots); the map itself is refreshed by the
-  //  NinJo 10-minute interval in refreshWindStations().
-  function _refreshDmiMarker() {}
+  function _refreshDmiMarker() {
+    console.log('[DMI marker] _refreshDmiMarker called — radarMap:', !!radarMap,
+      '| windVisible:', windVisible,
+      '| DMI_STATIONS:', window.DMI_STATIONS ? window.DMI_STATIONS.length + ' stations' : 'null');
+
+    // ── Remove all stale DMI markers ──────────────────────────────────────
+    if (dmiMarker) {
+      try { if (windLayer) windLayer.removeLayer(dmiMarker); } catch (_) {}
+      dmiMarker = null;
+    }
+    for (const m of dmiAllMarkers) {
+      try { if (windLayer) windLayer.removeLayer(m); } catch (_) {}
+    }
+    dmiAllMarkers = [];
+
+    if (!radarMap) {
+      // Radar map not initialised yet — retry once the map is ready.
+      console.log('[DMI marker] radarMap not ready — retry in 500 ms');
+      setTimeout(_refreshDmiMarker, 500);
+      return;
+    }
+
+    // windLayer may not exist yet if refreshWindStations() is still in-flight.
+    if (!windLayer) {
+      console.log('[DMI marker] windLayer not ready — retry in 500 ms');
+      setTimeout(_refreshDmiMarker, 500);
+      return;
+    }
+
+    const allStations = window.DMI_STATIONS;
+    if (!allStations || !allStations.length) {
+      console.log('[DMI marker] no stations to show');
+      return;
+    }
+
+    const nearestId = window.DMI_OBS ? window.DMI_OBS.stationId : null;
+
+    for (const s of allStations) {
+      const isNearest = !!(nearestId && s.id === nearestId);
+
+      // Use station.latest when available.  For the nearest station, fall back
+      // to computing directly from window.DMI_OBS so the arrow shows even when
+      // the loadDmiObservations / _refreshDmiMarker calls are interleaved with
+      // refreshWindStations (timing-dependent race).
+      let latest = s.latest;
+      if (isNearest && (!latest || latest.wind == null) && window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
+        const obsArr = window.DMI_OBS.obs;
+        const lw = [...obsArr].reverse().find(o => o.wind != null && isFinite(o.wind));
+        if (lw) {
+          const dirEntries = obsArr.filter(o => o.dir != null && isFinite(o.dir));
+          let dir = null;
+          if (dirEntries.length) {
+            const closest = dirEntries.reduce((a, b) =>
+              Math.abs(a.t - lw.t) <= Math.abs(b.t - lw.t) ? a : b);
+            if (Math.abs(closest.t - lw.t) <= 30 * 60 * 1000) dir = closest.dir;
+          }
+          latest = { wind: lw.wind, gust: lw.gust, dir, time: lw.t };
+        }
+      }
+
+      // Non-nearest stations that have no wind data are skipped entirely.
+      // null  = fetch completed, station has no wind sensor.
+      // undefined = fetch not yet started (will appear once the batch completes).
+      // Either way, a teal dot on a wind map adds clutter without information.
+      if (!isNearest && (latest == null || latest.wind == null)) continue;
+
+      // Every station that reaches this point has valid wind data.
+      const col      = windColor(latest.wind);
+      const svgPart  = latest.dir != null ? _dmiArrowSvg(latest.dir, col) : _dmiCircleSvg(col);
+      const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${Math.round(latest.wind)}</div></div>`;
+      const iconSize   = [24, 38];
+      const iconAnchor = [12, 12];
+
+      const icon = L.divIcon({
+        className: '', html: iconHtml, iconSize, iconAnchor, popupAnchor: [0, -14],
+      });
+
+      // ── Popup with lazy-loaded 24h history ──────────────────────────────
+      const popupEl = _buildDmiPopupEl(s, isNearest);
+      const marker  = L.marker([s.lat, s.lon], {
+        icon, interactive: true, zIndexOffset: isNearest ? 500 : 300,
+      }).bindPopup(popupEl, { maxWidth: 300, minWidth: 250 });
+
+      marker.on('popupopen', () => {
+        const histEl = popupEl.querySelector('.dmi-hist-container');
+        if (!histEl || histEl.dataset.loaded === '1') return;
+
+        const doRender = (obsArr) => {
+          _renderDmiHistory(histEl, obsArr);
+          histEl.dataset.loaded = '1';
+          const p = marker.getPopup();
+          if (p) p.update();
+        };
+
+        // Nearest station has 48h history pre-cached; others load on demand.
+        if (s.obsHistory != null) { doRender(s.obsHistory); return; }
+
+        if (typeof window.dmiLoadStationHistory !== 'function') return;
+        window.dmiLoadStationHistory(s)
+          .then(obsArr => doRender(obsArr))
+          .catch(() => {
+            histEl.innerHTML = '<span style="color:#aaa;font-size:11px">History unavailable</span>';
+            histEl.dataset.loaded = '1';
+            const p = marker.getPopup();
+            if (p) p.update();
+          });
+      });
+
+      marker.addTo(windLayer);
+      if (isNearest) {
+        dmiMarker = marker;
+        console.log(`[DMI marker] placed nearest arrow at (${s.lat}, ${s.lon}) — ${s.name},`,
+          `wind: ${latest && latest.wind != null ? latest.wind.toFixed(1) + ' m/s' : 'n/a'}`);
+      } else {
+        dmiAllMarkers.push(marker);
+      }
+    }
+
+    console.log(`[DMI marker] placed ${dmiAllMarkers.length} non-nearest + ${dmiMarker ? 1 : 0} nearest marker(s)`);
+  }
   window.refreshDmiMarker = _refreshDmiMarker;
 
   function initWindToggle() {
