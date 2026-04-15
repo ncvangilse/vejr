@@ -170,7 +170,7 @@
   // ── Create a tile layer, fire onReady() when all viewport tiles loaded
   function makeLayer(frame, opacity, onReady) {
     const l = new SafeTileLayer(frameUrl(frame), {
-      opacity, tileSize: 256, maxNativeZoom: 12, maxZoom: 18,
+      opacity, tileSize: 256, maxNativeZoom: 7, maxZoom: 18,
       keepBuffer: 0, updateWhenIdle: true,
     });
     let pending = 0, errors = 0, probeUrl = null;
