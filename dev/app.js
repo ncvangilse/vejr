@@ -1571,6 +1571,24 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     load(decision.value, model);
   }
 })();
+/* ══════════════════════════════════════════════════
+   CREDITS MODAL
+══════════════════════════════════════════════════ */
+(function () {
+  const overlay  = document.getElementById('credits-modal-overlay');
+  const closeBtn = document.getElementById('credits-modal-close');
+  const openBtn  = document.getElementById('credits-btn');
+
+  openBtn.addEventListener('click', () => overlay.classList.add('open'));
+  closeBtn.addEventListener('click', () => overlay.classList.remove('open'));
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') overlay.classList.remove('open');
+  });
+})();
+
 // Register service worker for PWA / offline support
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
