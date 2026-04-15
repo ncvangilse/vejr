@@ -671,12 +671,5 @@ body.inverted-colors #kite-modal-overlay { filter: invert(1); }
    and the weather icon canvas after OS double-inversion. */
 body.inverted-colors #hover-tooltip { filter: invert(1); }
 
-/* Wind station markers: pre-invert SVG arrows/circles and speed labels so
-   the OS double-inversion restores the original wind-speed colour ramp. */
-body.inverted-colors .ws-wrap { filter: invert(1); }
-
-/* DMI history popup: pre-invert the entire Leaflet popup (background, canvas
-   mini-chart, text) so the OS double-inversion restores all original colours. */
-body.inverted-colors .leaflet-popup { filter: invert(1); }
 
 
