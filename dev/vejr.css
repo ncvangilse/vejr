@@ -306,21 +306,49 @@ canvas.main-canvas {
 }
 #kite-cfg-btn:hover { background: #225a38; }
 
-/* ── Credits button ── */
+/* ── App footer ── */
+#app-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px max(10px, calc(env(safe-area-inset-bottom) + 6px)) 14px;
+  background: #bdc5cd;
+  border-top: 1px solid #a0a8b0;
+  margin-top: 10px;
+}
+#app-footer #shore-status {
+  flex: 1;
+  font-size: 10px;
+  color: #556;
+  font-family: 'IBM Plex Mono', monospace;
+  min-width: 0;
+}
+#app-footer #build-number {
+  font-size: 9px;
+  color: #889;
+  letter-spacing: 0.5px;
+  font-family: 'IBM Plex Mono', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Credits button (in footer) ── */
 #credits-btn {
-  padding: 8px 12px;
-  background: #1a2a3a;
+  padding: 7px 16px;
+  background: #2a3a50;
   color: #8ab4d4;
-  border: 2px solid #3a5a7a;
+  border: 1px solid #4a6a8a;
+  border-radius: 4px;
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  line-height: 1;
+  min-height: 36px;
 }
-#credits-btn:hover { background: #223344; color: #b0d4f4; border-color: #5a8aaa; }
+#credits-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
 
 /* ── Credits modal ── */
 #credits-modal-overlay {
@@ -421,11 +449,14 @@ canvas.main-canvas {
 /* Credits modal inverted-colors pre-invert */
 body.inverted-colors #credits-modal-overlay { filter: invert(1); }
 body.inverted-colors #credits-btn {
-  background:   #e5d5c5;
+  background:   #d5c5af;
   color:        #754b2b;
-  border-color: #855b3b;
+  border-color: #b5957a;
 }
-body.inverted-colors #credits-btn:hover { background: #d5c5b5; }
+body.inverted-colors #credits-btn:hover { background: #c5b59f; }
+body.inverted-colors #app-footer { background: #423a32; border-color: #5f574f; }
+body.inverted-colors #app-footer #shore-status,
+body.inverted-colors #app-footer #build-number { color: #aaa9a8; }
 
 /* ── Kite config modal ── */
 #kite-modal-overlay {
