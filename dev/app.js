@@ -21,6 +21,11 @@ async function load(cityName, model) {
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
     const loc = await geocode(cityName);
+    // Kick off the Overpass vector fetch in parallel with the weather requests —
+    // coords are now known so there's no reason to wait.
+    lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
+    if (window.fetchShoreVector) window.fetchShoreVector(loc.latitude, loc.longitude).catch(() => null);
+    if (window.analyseShore)     window.analyseShore(loc.latitude, loc.longitude).catch(() => null);
     // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
@@ -169,8 +174,6 @@ async function load(cityName, model) {
     }));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
-    // Store coords for on-demand shore analysis (triggered from the kite modal)
-    lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     updateShoreStatusUI();
     // DMI observations (fire-and-forget; re-renders when done)
     loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
@@ -187,7 +190,7 @@ async function load(cityName, model) {
    so the current day is shown at the finest available time resolution,
    and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 36; // px per 1-hour slot in portrait scroll mode (= ICON_H, icons fit exactly)
+const PORTRAIT_COL_W = 30; // px per slot in portrait scroll mode (ICON_H=36, visible content ~24px fits with ~6px gap)
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
@@ -198,15 +201,18 @@ function slicePercentilesFrom(obj, start, n) {
  * Compute CSS x-center positions for each 1h data point on the variable-resolution
  * display grid.  Each display slot has width portraitColW px; a 1h point that falls
  * at offset t within a slot of duration D gets centered at:
- *   x = (slotIndex + (t + 0.5h) / D) * portraitColW
+ *   x = (slotIndex + 0.5 + t / D) * portraitColW
+ * The +0.5 shifts the slot-start time to the slot centre, matching where icons,
+ * wind arrows and tick marks are drawn, so all chart rows align on the same x axis.
  * Returns { xMap1h, xFrac1h, slotIdx1h } — parallel arrays of length times1h.length.
  */
 function computeXMap1h(times1h, displayTimes, portraitColW) {
   const n1h  = times1h.length;
   const nDsp = displayTimes.length;
-  const totalCssW = nDsp * portraitColW;
   const dspMs = displayTimes.map(t => new Date(t).getTime());
-  const HALF_H = 1800000; // 0.5 h in ms
+  // Use (nDsp + 1) slots as denominator so xFrac stays in (0, 1) even when late
+  // points in the final coarse slot extend slightly past the canvas edge.
+  const fracDenom = (nDsp + 1) * portraitColW;
   const xMap = [], xFrac = [], slotIdx = [];
   let j = 0;
   for (let k = 0; k < n1h; k++) {
@@ -215,9 +221,9 @@ function computeXMap1h(times1h, displayTimes, portraitColW) {
     const slotDur = j < nDsp - 1
       ? dspMs[j + 1] - dspMs[j]
       : (j > 0 ? dspMs[j] - dspMs[j - 1] : 3600000);
-    const x = (j + (tk - dspMs[j] + HALF_H) / slotDur) * portraitColW;
+    const x = (j + 0.5 + (tk - dspMs[j]) / slotDur) * portraitColW;
     xMap.push(x);
-    xFrac.push(x / totalCssW);
+    xFrac.push(x / fracDenom);
     slotIdx.push(j);
   }
   return { xMap1h: xMap, xFrac1h: xFrac, slotIdx1h: slotIdx };
@@ -671,7 +677,7 @@ function initPortraitScrollSync() {
   let rafId = null;
   let velX = 0, lastX = 0, lastT = 0, startY = 0;
   let horizontal = null;
-  const DECEL = 0.92;
+  const DECEL = 0.975;
 
   wraps.forEach(wrap => {
     wrap.addEventListener('touchstart', e => {
@@ -1157,11 +1163,20 @@ function renderShoreDebug() {
     window.addEventListener('touchend',   onPointerUp);
   }
 
-  // ── Sea-threshold slider: live label + compass preview ───────────────────
+  // ── Sea-threshold slider: live label, bearing re-select + compass preview ──
   if (seaThreshSlider) {
     seaThreshSlider.addEventListener('input', () => {
       if (seaThreshLabel) seaThreshLabel.textContent = seaThreshSlider.value + '%';
+      const thresh = parseInt(seaThreshSlider.value) / 100;
+      if (window.setShoreSeaThresh) window.setShoreSeaThresh(thresh);
+      if (window.SHORE_MASK) {
+        activeBearings = [];
+        for (let b = 0; b < SHORE_BEARINGS; b++) {
+          if (window.SHORE_MASK[b] >= thresh) activeBearings.push(b * 10);
+        }
+      }
       drawModalCompass();
+      updateShoreStatusUI();
     });
   }
 
@@ -1193,6 +1208,12 @@ function renderShoreDebug() {
   cfgBtn.addEventListener('click', () => {
     syncDialogToConfig(KITE_CFG);
     overlay.classList.add('open');
+    // Ensure raster + vector data is fetched (or retried if a previous attempt failed).
+    // Both functions deduplicate in-flight requests, so duplicate calls are free.
+    if (lastShoreCoords) {
+      if (window.fetchShoreVector) window.fetchShoreVector(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
+      if (window.analyseShore)     window.analyseShore(lastShoreCoords.lat, lastShoreCoords.lon).catch(() => null);
+    }
     requestAnimationFrame(() => { drawModalCompass(); updateShoreStatusUI(); renderShoreDebug(); });
   });
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
@@ -1206,8 +1227,26 @@ function renderShoreDebug() {
     if (lastData) renderDisplay(lastData);
   });
 
-  // Re-render debug panel when the background Overpass vector fetch completes
-  window.addEventListener('shore-vector-ready', () => renderShoreDebug());
+  // Re-render debug panel and compass when the Overpass vector fetch completes.
+  // Use requestAnimationFrame so the canvas draw happens after any pending layout
+  // (e.g. the modal becoming display:flex) has been committed by the browser.
+  window.addEventListener('shore-vector-ready', () => {
+    renderShoreDebug();
+    requestAnimationFrame(() => drawModalCompass());
+  });
+
+  // Update status and compass when the raster analysis (SHORE_MASK) completes.
+  // Also auto-populate activeBearings if they haven't been set yet for this load.
+  window.addEventListener('shore-mask-ready', () => {
+    if (window.SHORE_MASK && activeBearings.length === 0) {
+      const thresh = seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : SHORE_SEA_THRESH;
+      for (let b = 0; b < SHORE_BEARINGS; b++) {
+        if (window.SHORE_MASK[b] >= thresh) activeBearings.push(b * 10);
+      }
+    }
+    updateShoreStatusUI();
+    requestAnimationFrame(() => drawModalCompass());
+  });
 
   shoreFetchBtn.addEventListener('click', () => {    if (!lastShoreCoords) {
       const el = document.getElementById('shore-modal-status');
@@ -1267,6 +1306,11 @@ async function loadAtCoords(lat, lon, model) {
   try {
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
+    // Coords are already known — start the Overpass fetch immediately so it
+    // runs in parallel with the reverse-geocode and weather requests.
+    lastShoreCoords = { lat, lon };
+    if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
+    if (window.analyseShore)     window.analyseShore(lat, lon).catch(() => null);
 
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
@@ -1417,7 +1461,6 @@ async function loadAtCoords(lat, lon, model) {
         window.loadRadar(lat, lon);
       }
     }
-    lastShoreCoords = { lat, lon };
     updateShoreStatusUI();
     // DMI observations (fire-and-forget; re-renders when done)
     if (reverseCountryCode) {

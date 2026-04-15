@@ -447,6 +447,17 @@
   let ninjoActive     = false;  // true when ninjo-stations.json is in use
   let dmiMarker       = null;   // DMI nearest-station arrow marker (lives inside windLayer)
   let dmiAllMarkers   = [];     // All other DMI station dot-markers (lives inside windLayer)
+  let _lastWindGeo    = null;   // cache of last fetched wind-speeds.json (for dark-mode rebuild)
+
+  // True when the body has the 'inverted-colors' class set by app.js.
+  const _inv = () => document.body.classList.contains('inverted-colors');
+
+  // Pre-invert an "rgb(R,G,B)" colour string so the OS double-inversion
+  // round-trip restores the original colour.
+  function _preInvRgb(rgb) {
+    return rgb.replace(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/, (_, r, g, b) =>
+      `rgb(${255 - +r},${255 - +g},${255 - +b})`);
+  }
 
   async function fetchWindJson() {
     // 1. Same-origin first — works on GitHub Pages AND local dev (wind-speeds.json is in repo).
@@ -512,6 +523,52 @@
     }
     const last = r[r.length-1];
     return `rgb(${last[1]},${last[2]},${last[3]})`;
+  }
+
+  /** Build markers from wind-speeds.json GeoJSON and add them to windLayer.
+   *  Colours are pre-inverted when in inverted-colours (dark) mode. */
+  function _addGeoMarkersToLayer(geo) {
+    const inv = _inv();
+    (geo.features || []).forEach(f => {
+      const [lon, lat] = f.geometry.coordinates;
+      const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+      const spd    = parseFloat(windSpeed) || 0;
+      const deg    = DIR_DEG[windDirection] ?? 0;
+      const rawCol = windColor(spd);
+      const col    = inv ? _preInvRgb(rawCol) : rawCol;
+      // Arrow points WHERE wind goes (same convention as forecast chart)
+      const rot  = (deg - 180 + 360) % 360;
+      const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+
+      const arrow =
+        `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
+             `style="display:block;overflow:visible">` +
+          `<g transform="rotate(${rot})">` +
+            `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
+            `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
+            `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
+            `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
+          `</g>` +
+        `</svg>`;
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
+        iconSize:    [24, 38],
+        iconAnchor:  [12, 12],
+        popupAnchor: [0, -14],
+      });
+
+      L.marker([lat, lon], { icon, interactive: true })
+        .bindPopup(
+          `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
+          `<b style="font-size:14px">${spd} m/s</b><br>` +
+          `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
+          `</div>`,
+          { maxWidth: 200 }
+        )
+        .addTo(windLayer);
+    });
   }
 
   async function refreshWindStations() {
@@ -664,8 +721,8 @@
   const _COMPASS_PTS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   function _degToCompass(deg) { return _COMPASS_PTS[Math.round(deg / 22.5) % 16]; }
 
-  function _dmiArrowSvg(dir, col) {
-    const halo = 'rgba(255,255,255,0.8)';
+  function _dmiArrowSvg(dir, col, inv) {
+    const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
     const rot  = (dir - 180 + 360) % 360;
     return `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
       `<g transform="rotate(${rot})">` +
@@ -677,8 +734,8 @@
       `</svg>`;
   }
 
-  function _dmiCircleSvg(col) {
-    const halo = 'rgba(255,255,255,0.8)';
+  function _dmiCircleSvg(col, inv) {
+    const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
     return `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
       `<circle r="7" fill="${halo}"/><circle r="6" fill="${col}" opacity="0.9"/>` +
       `</svg>`;
@@ -686,8 +743,10 @@
 
   /** Build the initial popup DOM element for a DMI station marker. */
   function _buildDmiPopupEl(s, isNearest) {
+    const inv    = _inv();
     const latest = s.latest;
-    const col    = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
+    const rawCol = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
+    const col    = (inv && latest && latest.wind != null) ? _preInvRgb(rawCol) : rawCol;
     let windHtml = '<div style="color:#aaa;font-size:11px;margin:2px 0">No recent wind data</div>';
     if (latest && latest.wind != null) {
       windHtml =
@@ -776,9 +835,9 @@
     const ty = w => PAD_T + W_H - (w / wNice) * W_H;
 
     // ── Backgrounds ──────────────────────────────────────────────────────
-    ctx.fillStyle = '#f4f6f9';
+    ctx.fillStyle = '#1e2a38';
     ctx.fillRect(0, 0, CSS_W, PAD_T + W_H);
-    ctx.fillStyle = '#eceff5';
+    ctx.fillStyle = '#162030';
     ctx.fillRect(0, PAD_T + W_H, CSS_W, D_H + PAD_B);
 
     // ── Horizontal grid + Y labels ───────────────────────────────────────
@@ -788,11 +847,11 @@
     for (let w = 0; w <= wNice; w += 5) {
       const y = ty(w);
       if (y < PAD_T - 1) continue;
-      ctx.strokeStyle = '#dde2ea';
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
       ctx.lineWidth   = 0.5;
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + CW, y); ctx.stroke();
       if (w > 0) {
-        ctx.fillStyle = '#bbb';
+        ctx.fillStyle = '#8899aa';
         ctx.fillText(String(w), PAD_L - 2, y);
       }
     }
@@ -808,13 +867,13 @@
       while (tick.getTime() <= tMax) {
         const x = tx(tick.getTime());
         if (x >= PAD_L + 3 && x <= PAD_L + CW - 3) {
-          ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+          ctx.strokeStyle = 'rgba(255,255,255,0.07)';
           ctx.lineWidth   = 1;
           ctx.beginPath();
           ctx.moveTo(x, PAD_T);
           ctx.lineTo(x, PAD_T + W_H + D_H);
           ctx.stroke();
-          ctx.fillStyle = '#aaa';
+          ctx.fillStyle = '#8899aa';
           ctx.fillText(String(tick.getHours()).padStart(2, '0'), x, PAD_T + W_H + D_H + 2);
         }
         tick.setHours(tick.getHours() + 6);
@@ -825,7 +884,7 @@
     if (gustPts.length > 1) {
       ctx.save();
       ctx.setLineDash([2, 3]);
-      ctx.strokeStyle = 'rgba(190,110,40,0.55)';
+      ctx.strokeStyle = 'rgba(255,170,60,0.7)';
       ctx.lineWidth   = 1.2;
       ctx.beginPath();
       gustPts.forEach((o, i) => {
@@ -841,7 +900,7 @@
     for (const o of entries) ctx.lineTo(tx(o.t), ty(o.wind));
     ctx.lineTo(tx(entries[entries.length - 1].t), ty(0));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(100,160,220,0.15)';
+    ctx.fillStyle = 'rgba(100,160,220,0.25)';
     ctx.fill();
 
     ctx.lineWidth  = 2;
@@ -886,7 +945,7 @@
     }
 
     // ── Axes / dividers ───────────────────────────────────────────────────
-    ctx.strokeStyle = '#d0d5de';
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
     ctx.lineWidth   = 0.5;
     // wind / direction separator
     ctx.beginPath();
@@ -903,8 +962,21 @@
     ctx.font         = `8px 'IBM Plex Sans', sans-serif`;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillStyle    = '#bbb';
+    ctx.fillStyle    = '#8899aa';
     ctx.fillText('— wind  ╌ gust  ↑ dir', PAD_L + CW, PAD_T + W_H - 2);
+
+    // Pre-invert all pixels so the OS double-inversion round-trip restores
+    // the original wind-speed colour ramp and chart colours.
+    if (_inv()) {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const px = imgData.data;
+      for (let i = 0; i < px.length; i += 4) {
+        px[i]   = 255 - px[i];
+        px[i+1] = 255 - px[i+1];
+        px[i+2] = 255 - px[i+2];
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
   }
 
   function _refreshDmiMarker() {
@@ -977,8 +1049,10 @@
       if (!isNearest && (latest == null || latest.wind == null)) continue;
 
       // Every station that reaches this point has valid wind data.
-      const col      = windColor(latest.wind);
-      const svgPart  = latest.dir != null ? _dmiArrowSvg(latest.dir, col) : _dmiCircleSvg(col);
+      const inv      = _inv();
+      const rawCol   = windColor(latest.wind);
+      const col      = inv ? _preInvRgb(rawCol) : rawCol;
+      const svgPart  = latest.dir != null ? _dmiArrowSvg(latest.dir, col, inv) : _dmiCircleSvg(col, inv);
       const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${Math.round(latest.wind)}</div></div>`;
       const iconSize   = [24, 38];
       const iconAnchor = [12, 12];
@@ -1031,6 +1105,15 @@
     console.log(`[map · nearest] placed ${dmiAllMarkers.length} non-nearest + ${dmiMarker ? 1 : 0} nearest marker(s)`);
   }
   window.refreshDmiMarker = _refreshDmiMarker;
+
+  // Rebuild wind-station markers whenever inverted-colours mode is toggled so
+  // that SVG arrow colours and halo colours are re-computed for the new state.
+  window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
+    if (!windLayer || !radarMap) return;
+    windLayer.clearLayers();
+    if (_lastWindGeo) _addGeoMarkersToLayer(_lastWindGeo);
+    _refreshDmiMarker();
+  });
 
   function initWindToggle() {
     const btn = document.getElementById('radar-wind-toggle');
