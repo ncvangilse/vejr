@@ -224,6 +224,10 @@ canvas.main-canvas {
   min-height: 320px;
   background: #e8e0d8;
   position: relative;
+  /* z-index creates a stacking context so Leaflet's internal z-indices
+     (leaflet-top/bottom at 1000) are contained here and cannot beat the
+     fixed #app-footer at z-index 999 in the root stacking context. */
+  z-index: 1;
 }
 #radar-loading {
   position: absolute;
