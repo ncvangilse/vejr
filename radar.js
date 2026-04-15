@@ -1069,11 +1069,12 @@
 
   // Rebuild wind-station markers whenever inverted-colours mode is toggled so
   // that SVG arrow colours and halo colours are re-computed for the new state.
+  // A full refreshWindStations() call is needed because NinJo markers (rendered
+  // inside refreshWindStations) are cleared too, and _refreshDmiMarker() skips
+  // re-adding them when ninjoActive is true.
   window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
-    if (!windLayer || !radarMap) return;
-    windLayer.clearLayers();
-    if (_lastWindGeo) _addGeoMarkersToLayer(_lastWindGeo);
-    _refreshDmiMarker();
+    if (!radarMap) return;
+    refreshWindStations();
   });
 
 
