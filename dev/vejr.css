@@ -4,6 +4,7 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -222,10 +223,10 @@ canvas.main-canvas {
   min-height: 320px;
   background: #e8e0d8;
   position: relative;
-  /* z-index creates a stacking context so Leaflet's internal z-indices
-     (leaflet-top/bottom at 1000) are contained here and cannot beat the
-     fixed #app-footer at z-index 999 in the root stacking context. */
-  z-index: 1;
+  /* isolation:isolate creates a stacking context that contains Leaflet's
+     internal z-indices (leaflet-top/bottom at 1000) without assigning a
+     specific z-index in the root stacking context. */
+  isolation: isolate;
 }
 #radar-loading {
   position: absolute;
