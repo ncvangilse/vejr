@@ -1274,7 +1274,7 @@ function renderShoreDebug() {
       drawModalCompass();
       if (lastData) renderDisplay(lastData);
       shoreFetchBtn.disabled    = false;
-      shoreFetchBtn.textContent = '🌊 Auto-detect sea bearings';
+      shoreFetchBtn.textContent = '🌊 Fetch sea bearings';
     });
   });
 })();

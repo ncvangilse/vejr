@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.15-67-claude-rename-sea-bearings-button-zWBjG-5';
+const CACHE_NAME = 'vejr-2026.04.15-68-nchvg-ninjo_caching-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
