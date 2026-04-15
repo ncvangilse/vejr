@@ -416,11 +416,27 @@
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
+  // ── NinJo station IDs confirmed to have wind_speed history in the DMI
+  //    open-data obs API (opendataapi.dmi.dk/v2/metObs).
+  //    All other NinJo stations (wind farms, harbour sensors, etc.) are
+  //    rendered non-interactively like Trafikkort arrows.
+  //    Last verified: 2026-04-15 via inspect_ninjo.py cross-reference.
+  const NINJO_HAS_HISTORY = new Set([
+    '06019','06030','06032','06039','06041','06049','06056','06060',
+    '06065','06068','06070','06072','06073','06079','06080','06081',
+    '06082','06096','06102','06104','06108','06110','06116','06118',
+    '06119','06120','06123','06124','06126','06134','06135','06136',
+    '06138','06141','06147','06149','06151','06154','06156','06159',
+    '06168','06169','06170','06174','06180','06181','06183','06188',
+    '06190','06193','06197',
+  ]);
+
   // ── Wind station overlay ──────────────────────────────────────────────
   const WIND_DIRECT = 'https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json';
   // On GitHub Pages a scheduled workflow writes this file to the same origin
   // (no CORS). On localhost it 404s and we fall back to proxy.
-  const WIND_SAME_ORIGIN = './wind-speeds.json';
+  const WIND_SAME_ORIGIN  = './wind-speeds.json';
+  const NINJO_SAME_ORIGIN = './ninjo-stations.json';  // RPi-uploaded DMI station snapshot
   // Public CORS proxies – fallback for local development only.
   const WIND_PROXIES = [
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(WIND_DIRECT),
@@ -428,6 +444,7 @@
   ];
   let windLayer       = null;
   let windVisible     = true;
+  let ninjoActive     = false;  // true when ninjo-stations.json is in use
   let dmiMarker       = null;   // DMI nearest-station arrow marker (lives inside windLayer)
   let dmiAllMarkers   = [];     // All other DMI station dot-markers (lives inside windLayer)
   let _lastWindGeo    = null;   // cache of last fetched wind-speeds.json (for dark-mode rebuild)
@@ -456,6 +473,23 @@
       } catch (_) {}
     }
     return null;
+  }
+
+  /** Fetch RPi-uploaded NinJo snapshot (same-origin only, no proxy fallback). */
+  async function fetchNinjoJson() {
+    try {
+      const r = await fetch(NINJO_SAME_ORIGIN, { cache: 'no-store' });
+      if (r.ok) return await r.json();  // await so parse errors are caught below
+    } catch (_) {}
+    return null;
+  }
+
+  /** "20260414103000" → Date (UTC) */
+  function _parseNinjoTime(s) {
+    return new Date(
+      `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` +
+      `T${s.slice(8,10)}:${s.slice(10,12)}:${s.slice(12,14)}Z`
+    );
   }
 
   const DIR_DEG = {
@@ -497,14 +531,13 @@
     const inv = _inv();
     (geo.features || []).forEach(f => {
       const [lon, lat] = f.geometry.coordinates;
-      const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+      const { windSpeed, windDirection } = f.properties;
       const spd    = parseFloat(windSpeed) || 0;
       const deg    = DIR_DEG[windDirection] ?? 0;
       const rawCol = windColor(spd);
       const col    = inv ? _preInvRgb(rawCol) : rawCol;
-      // Arrow points WHERE wind goes (same convention as forecast chart)
-      const rot  = (deg - 180 + 360) % 360;
-      const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+      const rot    = (deg - 180 + 360) % 360;
+      const halo   = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
 
       const arrow =
         `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
@@ -520,46 +553,123 @@
       const icon = L.divIcon({
         className: '',
         html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
-        iconSize:    [24, 38],
-        iconAnchor:  [12, 12],
-        popupAnchor: [0, -14],
+        iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
       });
 
-      L.marker([lat, lon], { icon, interactive: true })
-        .bindPopup(
-          `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
-          `<b style="font-size:14px">${spd} m/s</b><br>` +
-          `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
-          `</div>`,
-          { maxWidth: 200 }
-        )
+      L.marker([lat, lon], { icon, interactive: false })
         .addTo(windLayer);
     });
   }
 
   async function refreshWindStations() {
-    console.log('[WindStations] refreshWindStations called — radarMap:', !!radarMap, '| windVisible:', windVisible, '| windLayer before rebuild:', !!windLayer);
-    if (!radarMap) { console.log('[WindStations] skip — radarMap null'); return; }
+    console.log('[map] refreshWindStations — radarMap:', !!radarMap, '| windVisible:', windVisible);
+    if (!radarMap) { console.log('[map] skip — radarMap null'); return; }
 
-    // Always rebuild windLayer so the DMI marker is shown even when the
-    // wind-speeds.json fetch fails or returns null.
     dmiMarker = null;
     if (windLayer) { radarMap.removeLayer(windLayer); windLayer = null; }
     windLayer = L.layerGroup();
-    console.log('[WindStations] new windLayer created, fetching wind JSON…');
 
     try {
-      const geo = await fetchWindJson();
+      // Fetch both sources in parallel ─────────────────────────────────────
+      const [ninjo, geo] = await Promise.all([fetchNinjoJson(), fetchWindJson()]);
+
+      const ninjoEntries = ninjo
+        ? Object.entries(ninjo).filter(([, e]) => e.values?.WindSpeed10m != null)
+        : [];
+      ninjoActive = ninjoEntries.length > 0;
+
+      // ── Trafikkort (background, non-interactive) ─────────────────────────
       _lastWindGeo = geo;   // cache for dark-mode colour rebuild
-      console.log('[WindStations] fetchWindJson done — geo:', geo ? `${(geo.features||[]).length} features` : 'null');
+      console.log(`[map · Trafikkort] ${geo ? (geo.features||[]).length : 0} features`);
       if (geo) _addGeoMarkersToLayer(geo);
+
+      // ── NinJo stations ───────────────────────────────────────────────────
+      // Stations in NINJO_HAS_HISTORY are confirmed DMI obs API stations:
+      // interactive, dark-outline style, popup with 24h history.
+      // All other NinJo stations (wind farms, harbour sensors, etc.) are
+      // rendered non-interactively like Trafikkort arrows: no popup, no outline.
+      if (ninjoEntries.length > 0) {
+        const ninjoWithHist    = ninjoEntries.filter(([id]) => NINJO_HAS_HISTORY.has(id)).length;
+        const ninjoWithoutHist = ninjoEntries.length - ninjoWithHist;
+        console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data (${ninjoWithHist} interactive / ${ninjoWithoutHist} non-interactive)`);
+        for (const [id, entry] of ninjoEntries) {
+          const spd     = entry.values.WindSpeed10m;
+          const deg     = entry.values.WindDirection10m ?? null;
+          const gust    = entry.values.WindGustLast10Min ?? null;
+          const inv     = _inv();
+          const rawCol  = windColor(spd);
+          const col     = inv ? _preInvRgb(rawCol) : rawCol;
+          const hasHist = NINJO_HAS_HISTORY.has(id);  // confirmed in DMI obs API
+
+          const svgPart = deg != null ? _dmiArrowSvg(deg, col, inv) : _dmiCircleSvg(col, inv);
+
+          if (!hasHist) {
+            // ── Non-interactive (Trafikkort-style) ──────────────────────────
+            const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
+            const icon = L.divIcon({
+              className: '', html: iconHtml,
+              iconSize: [24, 38], iconAnchor: [12, 12],
+            });
+            L.marker([entry.latitude, entry.longitude], { icon, interactive: false })
+              .addTo(windLayer);
+            continue;
+          }
+
+          // ── Interactive (DMI met-station with history) ───────────────────
+          const iconHtml = `<div class="ws-wrap ws-ninjo">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
+          const icon = L.divIcon({
+            className: '', html: iconHtml,
+            iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
+          });
+
+          const obsTime = entry.time ? _parseNinjoTime(entry.time) : null;
+          const sObj = {
+            id,
+            name: entry.name,
+            lat: entry.latitude,
+            lon: entry.longitude,
+            source: 'NinJo',
+            obsTime,
+            latest: { wind: spd, gust, dir: deg, time: obsTime?.getTime() ?? null },
+          };
+
+          const popupEl = _buildDmiPopupEl(sObj, false);
+          const marker  = L.marker([entry.latitude, entry.longitude], {
+            icon, interactive: true, zIndexOffset: 200,
+          }).bindPopup(popupEl, { maxWidth: 300, minWidth: 250 });
+
+          marker.on('popupopen', () => {
+            const histEl = popupEl.querySelector('.dmi-hist-container');
+            if (!histEl || histEl.dataset.loaded === '1') return;
+            const doRender = obsArr => {
+              _renderDmiHistory(histEl, obsArr);
+              histEl.dataset.loaded = '1';
+              marker.getPopup()?.update();
+            };
+            if (sObj.obsHistory != null) { doRender(sObj.obsHistory); return; }
+            if (typeof window.dmiLoadStationHistory !== 'function') {
+              histEl.innerHTML = '<span style="color:#aaa;font-size:11px">History unavailable</span>';
+              histEl.dataset.loaded = '1';
+              return;
+            }
+            window.dmiLoadStationHistory(sObj)
+              .then(doRender)
+              .catch(() => {
+                histEl.innerHTML = '<span style="color:#aaa;font-size:11px">History unavailable</span>';
+                histEl.dataset.loaded = '1';
+                marker.getPopup()?.update();
+              });
+          });
+
+          marker.addTo(windLayer);
+        }
+      }
     } catch (e) {
-      console.warn('[WindStations] fetchWindJson threw:', e);
+      console.warn('[map] error in refreshWindStations:', e);
+      ninjoActive = false;
     }
 
-    console.log('[WindStations] windVisible:', windVisible, '— adding windLayer to map:', windVisible);
     if (windVisible) windLayer.addTo(radarMap);
-    console.log('[WindStations] windLayer on map:', radarMap.hasLayer(windLayer), '— calling _refreshDmiMarker');
     _refreshDmiMarker();
   }
 
@@ -574,8 +684,8 @@
   const _COMPASS_PTS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   function _degToCompass(deg) { return _COMPASS_PTS[Math.round(deg / 22.5) % 16]; }
 
-  function _dmiArrowSvg(dir, col, inv) {
-    const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+  function _dmiArrowSvg(dir, col) {
+    const halo = 'rgba(255,255,255,0.8)';
     const rot  = (dir - 180 + 360) % 360;
     return `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
       `<g transform="rotate(${rot})">` +
@@ -587,8 +697,8 @@
       `</svg>`;
   }
 
-  function _dmiCircleSvg(col, inv) {
-    const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+  function _dmiCircleSvg(col) {
+    const halo = 'rgba(255,255,255,0.8)';
     return `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
       `<circle r="7" fill="${halo}"/><circle r="6" fill="${col}" opacity="0.9"/>` +
       `</svg>`;
@@ -596,10 +706,8 @@
 
   /** Build the initial popup DOM element for a DMI station marker. */
   function _buildDmiPopupEl(s, isNearest) {
-    const inv    = _inv();
     const latest = s.latest;
-    const rawCol = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
-    const col    = (inv && latest && latest.wind != null) ? _preInvRgb(rawCol) : rawCol;
+    const col    = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
     let windHtml = '<div style="color:#aaa;font-size:11px;margin:2px 0">No recent wind data</div>';
     if (latest && latest.wind != null) {
       windHtml =
@@ -613,13 +721,21 @@
           ? `<div style="color:#666;font-size:11px">From&nbsp;<b>${_degToCompass(latest.dir)}</b>&nbsp;(${Math.round(latest.dir)}°)</div>`
           : '');
     }
+    const isNinjo = s.source === 'NinJo';
+    let metaHtml;
+    if (isNinjo) {
+      const timeStr = s.obsTime
+        ? s.obsTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '';
+      metaHtml = `NinJo${timeStr ? `&nbsp;·&nbsp;obs&nbsp;${timeStr}` : ''}`;
+    } else {
+      metaHtml = `DMI&nbsp;·&nbsp;${Math.round(s.dist)}&nbsp;km${isNearest ? '&nbsp;·&nbsp;nearest' : ''}`;
+    }
     const el = document.createElement('div');
     el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:280px');
     el.innerHTML =
       `<div style="font-size:13px;font-weight:700">${s.name}</div>` +
-      `<div style="color:#999;font-size:11px;margin-bottom:4px">` +
-        `DMI&nbsp;·&nbsp;${Math.round(s.dist)}&nbsp;km${isNearest ? '&nbsp;·&nbsp;nearest' : ''}` +
-      `</div>` +
+      `<div style="color:#999;font-size:11px;margin-bottom:4px">${metaHtml}</div>` +
       windHtml +
       `<div class="dmi-hist-container" style="margin-top:6px;border-top:1px solid #e8e8e8;padding-top:5px">` +
         `<span style="color:#bbb;font-size:11px">Loading 24h history…</span>` +
@@ -679,10 +795,15 @@
     const tx = t => PAD_L + ((t - tMin) / tSpan) * CW;
     const ty = w => PAD_T + W_H - (w / wNice) * W_H;
 
+    // inv is only used for the pixel pre-inversion at the end (same pattern as
+    // the forecast charts: always draw in light-theme colours, then flip pixels
+    // so the OS double-inversion round-trip restores the same appearance).
+    const inv = _inv();
+
     // ── Backgrounds ──────────────────────────────────────────────────────
-    ctx.fillStyle = '#1e2a38';
+    ctx.fillStyle = inv ? '#1e2a38' : '#f4f6f9';
     ctx.fillRect(0, 0, CSS_W, PAD_T + W_H);
-    ctx.fillStyle = '#162030';
+    ctx.fillStyle = inv ? '#162030' : '#eceff5';
     ctx.fillRect(0, PAD_T + W_H, CSS_W, D_H + PAD_B);
 
     // ── Horizontal grid + Y labels ───────────────────────────────────────
@@ -692,11 +813,11 @@
     for (let w = 0; w <= wNice; w += 5) {
       const y = ty(w);
       if (y < PAD_T - 1) continue;
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.strokeStyle = inv ? 'rgba(255,255,255,0.1)' : '#dde2ea';
       ctx.lineWidth   = 0.5;
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + CW, y); ctx.stroke();
       if (w > 0) {
-        ctx.fillStyle = '#8899aa';
+        ctx.fillStyle = inv ? '#8899aa' : '#bbb';
         ctx.fillText(String(w), PAD_L - 2, y);
       }
     }
@@ -712,13 +833,13 @@
       while (tick.getTime() <= tMax) {
         const x = tx(tick.getTime());
         if (x >= PAD_L + 3 && x <= PAD_L + CW - 3) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+          ctx.strokeStyle = inv ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
           ctx.lineWidth   = 1;
           ctx.beginPath();
           ctx.moveTo(x, PAD_T);
           ctx.lineTo(x, PAD_T + W_H + D_H);
           ctx.stroke();
-          ctx.fillStyle = '#8899aa';
+          ctx.fillStyle = inv ? '#8899aa' : '#aaa';
           ctx.fillText(String(tick.getHours()).padStart(2, '0'), x, PAD_T + W_H + D_H + 2);
         }
         tick.setHours(tick.getHours() + 6);
@@ -729,7 +850,7 @@
     if (gustPts.length > 1) {
       ctx.save();
       ctx.setLineDash([2, 3]);
-      ctx.strokeStyle = 'rgba(255,170,60,0.7)';
+      ctx.strokeStyle = inv ? 'rgba(255,170,60,0.7)' : 'rgba(190,110,40,0.55)';
       ctx.lineWidth   = 1.2;
       ctx.beginPath();
       gustPts.forEach((o, i) => {
@@ -745,7 +866,7 @@
     for (const o of entries) ctx.lineTo(tx(o.t), ty(o.wind));
     ctx.lineTo(tx(entries[entries.length - 1].t), ty(0));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(100,160,220,0.25)';
+    ctx.fillStyle = inv ? 'rgba(100,160,220,0.25)' : 'rgba(100,160,220,0.15)';
     ctx.fill();
 
     ctx.lineWidth  = 2;
@@ -790,7 +911,7 @@
     }
 
     // ── Axes / dividers ───────────────────────────────────────────────────
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.strokeStyle = inv ? 'rgba(255,255,255,0.18)' : '#d0d5de';
     ctx.lineWidth   = 0.5;
     // wind / direction separator
     ctx.beginPath();
@@ -807,7 +928,7 @@
     ctx.font         = `8px 'IBM Plex Sans', sans-serif`;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillStyle    = '#8899aa';
+    ctx.fillStyle    = inv ? '#8899aa' : '#bbb';
     ctx.fillText('— wind  ╌ gust  ↑ dir', PAD_L + CW, PAD_T + W_H - 2);
 
     // Pre-invert all pixels so the OS double-inversion round-trip restores
@@ -825,9 +946,15 @@
   }
 
   function _refreshDmiMarker() {
-    console.log('[DMI marker] _refreshDmiMarker called — radarMap:', !!radarMap,
+    console.log('[map · nearest] _refreshDmiMarker — radarMap:', !!radarMap,
       '| windVisible:', windVisible,
       '| DMI_STATIONS:', window.DMI_STATIONS ? window.DMI_STATIONS.length + ' stations' : 'null');
+
+    // NinJo already covers every station on the map — nothing to add.
+    if (ninjoActive) {
+      console.log('[map · nearest] skipped — NinJo is active');
+      return;
+    }
 
     // ── Remove all stale DMI markers ──────────────────────────────────────
     if (dmiMarker) {
@@ -841,21 +968,21 @@
 
     if (!radarMap) {
       // Radar map not initialised yet — retry once the map is ready.
-      console.log('[DMI marker] radarMap not ready — retry in 500 ms');
+      console.log('[map · nearest] radarMap not ready — retry in 500 ms');
       setTimeout(_refreshDmiMarker, 500);
       return;
     }
 
     // windLayer may not exist yet if refreshWindStations() is still in-flight.
     if (!windLayer) {
-      console.log('[DMI marker] windLayer not ready — retry in 500 ms');
+      console.log('[map · nearest] windLayer not ready — retry in 500 ms');
       setTimeout(_refreshDmiMarker, 500);
       return;
     }
 
     const allStations = window.DMI_STATIONS;
     if (!allStations || !allStations.length) {
-      console.log('[DMI marker] no stations to show');
+      console.log('[map · nearest] no DMI_STATIONS to show');
       return;
     }
 
@@ -884,10 +1011,7 @@
         }
       }
 
-      // Non-nearest stations that have no wind data are skipped entirely.
-      // null  = fetch completed, station has no wind sensor.
-      // undefined = fetch not yet started (will appear once the batch completes).
-      // Either way, a teal dot on a wind map adds clutter without information.
+      // Skip non-nearest stations that have no wind data yet — they add clutter without information.
       if (!isNearest && (latest == null || latest.wind == null)) continue;
 
       // Every station that reaches this point has valid wind data.
@@ -937,25 +1061,27 @@
       marker.addTo(windLayer);
       if (isNearest) {
         dmiMarker = marker;
-        console.log(`[DMI marker] placed nearest arrow at (${s.lat}, ${s.lon}) — ${s.name},`,
+        console.log(`[map · nearest] placed ${s.name} (${s.id}) —`,
           `wind: ${latest && latest.wind != null ? latest.wind.toFixed(1) + ' m/s' : 'n/a'}`);
       } else {
         dmiAllMarkers.push(marker);
       }
     }
 
-    console.log(`[DMI marker] placed ${dmiAllMarkers.length} non-nearest + ${dmiMarker ? 1 : 0} nearest marker(s)`);
+    console.log(`[map · nearest] placed ${dmiAllMarkers.length} non-nearest + ${dmiMarker ? 1 : 0} nearest marker(s)`);
   }
   window.refreshDmiMarker = _refreshDmiMarker;
 
   // Rebuild wind-station markers whenever inverted-colours mode is toggled so
   // that SVG arrow colours and halo colours are re-computed for the new state.
+  // A full refreshWindStations() call is needed because NinJo markers (rendered
+  // inside refreshWindStations) are cleared too, and _refreshDmiMarker() skips
+  // re-adding them when ninjoActive is true.
   window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
-    if (!windLayer || !radarMap) return;
-    windLayer.clearLayers();
-    if (_lastWindGeo) _addGeoMarkersToLayer(_lastWindGeo);
-    _refreshDmiMarker();
+    if (!radarMap) return;
+    refreshWindStations();
   });
+
 
   function initWindToggle() {
     const btn = document.getElementById('radar-wind-toggle');
@@ -973,6 +1099,12 @@
     });
   }
 })();
+
+
+
+
+
+
 
 
 
