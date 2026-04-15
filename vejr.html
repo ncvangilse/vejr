@@ -53,6 +53,7 @@
     <option value="gfs_seamless">NOAA GFS</option>
   </select>
 <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
+<button id="credits-btn" title="Data sources &amp; credits">ⓘ</button>
 </div>
 
 <div id="forecast-container">
@@ -231,6 +232,68 @@
       <button id="kite-modal-reset">Reset</button>
       <button id="kite-modal-cancel">Cancel</button>
       <button id="kite-modal-apply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Credits modal ── -->
+<div id="credits-modal-overlay">
+  <div id="credits-modal">
+    <h2>Data sources &amp; credits</h2>
+    <div class="credits-list">
+
+      <div class="credits-item">
+        <div class="credits-name">Open-Meteo</div>
+        <div class="credits-desc">Weather forecast &amp; ensemble model data</div>
+        <div class="credits-license">CC BY 4.0 — non-commercial free tier</div>
+        <a class="credits-link" href="https://open-meteo.com" target="_blank" rel="noopener">open-meteo.com</a>
+      </div>
+
+      <div class="credits-item">
+        <div class="credits-name">OpenStreetMap · Nominatim</div>
+        <div class="credits-desc">City search &amp; geocoding</div>
+        <div class="credits-license">ODbL — © OpenStreetMap contributors</div>
+        <a class="credits-link" href="https://nominatim.openstreetmap.org" target="_blank" rel="noopener">nominatim.openstreetmap.org</a>
+      </div>
+
+      <div class="credits-item">
+        <div class="credits-name">ESA WorldCover · Terrascope</div>
+        <div class="credits-desc">Land/sea classification for kitesurfing analysis</div>
+        <div class="credits-license">CC BY 4.0 — © ESA WorldCover project 2021 / Copernicus Sentinel data processed by ESA WorldCover consortium</div>
+        <a class="credits-link" href="https://esa-worldcover.org" target="_blank" rel="noopener">esa-worldcover.org</a>
+      </div>
+
+      <div class="credits-item">
+        <div class="credits-name">DMI FriData</div>
+        <div class="credits-desc">Danish weather station observations</div>
+        <div class="credits-license">CC BY 4.0 — Danmarks Meteorologiske Institut</div>
+        <a class="credits-link" href="https://www.dmi.dk/friedata" target="_blank" rel="noopener">dmi.dk/friedata</a>
+      </div>
+
+      <div class="credits-item">
+        <div class="credits-name">RainViewer</div>
+        <div class="credits-desc">Radar precipitation imagery</div>
+        <div class="credits-license">Free for personal &amp; educational use</div>
+        <a class="credits-link" href="https://www.rainviewer.com" target="_blank" rel="noopener">rainviewer.com</a>
+      </div>
+
+      <div class="credits-item">
+        <div class="credits-name">Leaflet</div>
+        <div class="credits-desc">Interactive map for radar overlay</div>
+        <div class="credits-license">BSD 2-Clause — © Leaflet contributors</div>
+        <a class="credits-link" href="https://leafletjs.com" target="_blank" rel="noopener">leafletjs.com</a>
+      </div>
+
+      <div class="credits-item">
+        <div class="credits-name">IBM Plex</div>
+        <div class="credits-desc">UI typography</div>
+        <div class="credits-license">SIL Open Font License — IBM</div>
+        <a class="credits-link" href="https://www.ibm.com/plex" target="_blank" rel="noopener">ibm.com/plex</a>
+      </div>
+
+    </div>
+    <div class="credits-actions">
+      <button id="credits-modal-close">Close</button>
     </div>
   </div>
 </div>
