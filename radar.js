@@ -565,14 +565,50 @@
     windLayer = L.layerGroup();
 
     try {
-      // ── NinJo first (RPi-uploaded same-origin snapshot) ──────────────────
-      const ninjo = await fetchNinjoJson();
+      // Fetch both sources in parallel ─────────────────────────────────────
+      const [ninjo, geo] = await Promise.all([fetchNinjoJson(), fetchWindJson()]);
+
       const ninjoEntries = ninjo
         ? Object.entries(ninjo).filter(([, e]) => e.values?.WindSpeed10m != null)
         : [];
+      ninjoActive = ninjoEntries.length > 0;
 
+      // ── Trafikkort (background, non-interactive) ─────────────────────────
+      console.log(`[map · Trafikkort] ${geo ? (geo.features||[]).length : 0} features`);
+      if (geo) {
+        (geo.features || []).forEach(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+          const spd = parseFloat(windSpeed) || 0;
+          const deg = DIR_DEG[windDirection] ?? 0;
+          const col = windColor(spd);
+          const rot = (deg - 180 + 360) % 360;
+
+          const halo  = 'rgba(255,255,255,0.8)';
+          const arrow =
+            `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
+                 `style="display:block;overflow:visible">` +
+              `<g transform="rotate(${rot})">` +
+                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
+                `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
+                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
+                `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
+              `</g>` +
+            `</svg>`;
+
+          const icon = L.divIcon({
+            className: '',
+            html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
+            iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
+          });
+
+          L.marker([lat, lon], { icon, interactive: false })
+            .addTo(windLayer);
+        });
+      }
+
+      // ── NinJo (interactive, dark outline, popup + 24h history) ───────────
       if (ninjoEntries.length > 0) {
-        ninjoActive = true;
         console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data`);
         for (const [id, entry] of ninjoEntries) {
           const spd  = entry.values.WindSpeed10m;
@@ -581,7 +617,7 @@
           const col  = windColor(spd);
 
           const svgPart  = deg != null ? _dmiArrowSvg(deg, col) : _dmiCircleSvg(col);
-          const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
+          const iconHtml = `<div class="ws-wrap ws-ninjo">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
           const icon = L.divIcon({
             className: '', html: iconHtml,
             iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
@@ -600,7 +636,7 @@
 
           const popupEl = _buildDmiPopupEl(sObj, false);
           const marker  = L.marker([entry.latitude, entry.longitude], {
-            icon, interactive: true, zIndexOffset: 100,
+            icon, interactive: true, zIndexOffset: 200,
           }).bindPopup(popupEl, { maxWidth: 300, minWidth: 250 });
 
           marker.on('popupopen', () => {
@@ -627,52 +663,6 @@
           });
 
           marker.addTo(windLayer);
-        }
-      } else {
-        // ── Fall back to Trafikkort wind-speeds.json ──────────────────────
-        ninjoActive = false;
-        const geo = await fetchWindJson();
-        console.log(`[map · Trafikkort] fetchWindJson — ${geo ? (geo.features||[]).length + ' features' : 'null'}`);
-        if (geo) {
-          (geo.features || []).forEach(f => {
-            const [lon, lat] = f.geometry.coordinates;
-            const { windSpeed, windDirection, windDirectionDanish } = f.properties;
-            const spd = parseFloat(windSpeed) || 0;
-            const deg = DIR_DEG[windDirection] ?? 0;
-            const col = windColor(spd);
-            // Arrow points WHERE wind goes (same convention as forecast chart)
-            const rot = (deg - 180 + 360) % 360;
-
-            const halo  = 'rgba(255,255,255,0.8)';
-            const arrow =
-              `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
-                   `style="display:block;overflow:visible">` +
-                `<g transform="rotate(${rot})">` +
-                  `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
-                  `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
-                  `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
-                  `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
-                `</g>` +
-              `</svg>`;
-
-            const icon = L.divIcon({
-              className: '',
-              html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
-              iconSize:    [24, 38],
-              iconAnchor:  [12, 12],
-              popupAnchor: [0, -14],
-            });
-
-            L.marker([lat, lon], { icon, interactive: true })
-              .bindPopup(
-                `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
-                `<b style="font-size:14px">${spd} m/s</b><br>` +
-                `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
-                `</div>`,
-                { maxWidth: 200 }
-              )
-              .addTo(windLayer);
-          });
         }
       }
     } catch (e) {
