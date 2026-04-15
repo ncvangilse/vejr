@@ -43,6 +43,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `manifest.json` | PWA manifest |
 | `tests/` | Vitest test files + VM loader helper |
 | `scripts/fetch-ninjo.py` | AppDaemon app (Home Assistant RPi): fetches NinJo station data every 15 min → pushes to gh-pages |
+| `.github/workflows/` | `deploy-prod.yml` (auto on main push), `deploy-test.yml` (non-main branches) |
 
 ### Data Flow
 

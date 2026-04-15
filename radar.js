@@ -464,7 +464,7 @@
   async function fetchNinjoJson() {
     try {
       const r = await fetch(NINJO_SAME_ORIGIN, { cache: 'no-store' });
-      if (r.ok) return r.json();
+      if (r.ok) return await r.json();  // await so parse errors are caught below
     } catch (_) {}
     return null;
   }
@@ -958,6 +958,12 @@
       '| windVisible:', windVisible,
       '| DMI_STATIONS:', window.DMI_STATIONS ? window.DMI_STATIONS.length + ' stations' : 'null');
 
+    // NinJo already covers every station on the map — nothing to add.
+    if (ninjoActive) {
+      console.log('[map · nearest] skipped — NinJo is active');
+      return;
+    }
+
     // ── Remove all stale DMI markers ──────────────────────────────────────
     if (dmiMarker) {
       try { if (windLayer) windLayer.removeLayer(dmiMarker); } catch (_) {}
@@ -1013,12 +1019,8 @@
         }
       }
 
-      // Non-nearest stations that have no wind data are skipped entirely.
-      // null  = fetch completed, station has no wind sensor.
-      // undefined = fetch not yet started (will appear once the batch completes).
-      // Either way, a teal dot on a wind map adds clutter without information.
-      // When NinJo is active all stations are already rendered; only keep nearest.
-      if (!isNearest && (ninjoActive || latest == null || latest.wind == null)) continue;
+      // Skip non-nearest stations that have no wind data yet — they add clutter without information.
+      if (!isNearest && (latest == null || latest.wind == null)) continue;
 
       // Every station that reaches this point has valid wind data.
       const inv      = _inv();
