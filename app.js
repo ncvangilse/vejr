@@ -190,7 +190,7 @@ async function load(cityName, model) {
    so the current day is shown at the finest available time resolution,
    and the user can swipe to travel through time.
 ══════════════════════════════════════════════════ */
-const PORTRAIT_COL_W = 36; // px per 1-hour slot in portrait scroll mode (= ICON_H, icons fit exactly)
+const PORTRAIT_COL_W = 30; // px per slot in portrait scroll mode (ICON_H=36, visible content ~24px fits with ~6px gap)
 
 function slicePercentilesFrom(obj, start, n) {
   if (!obj) return null;
@@ -201,15 +201,18 @@ function slicePercentilesFrom(obj, start, n) {
  * Compute CSS x-center positions for each 1h data point on the variable-resolution
  * display grid.  Each display slot has width portraitColW px; a 1h point that falls
  * at offset t within a slot of duration D gets centered at:
- *   x = (slotIndex + (t + 0.5h) / D) * portraitColW
+ *   x = (slotIndex + 0.5 + t / D) * portraitColW
+ * The +0.5 shifts the slot-start time to the slot centre, matching where icons,
+ * wind arrows and tick marks are drawn, so all chart rows align on the same x axis.
  * Returns { xMap1h, xFrac1h, slotIdx1h } — parallel arrays of length times1h.length.
  */
 function computeXMap1h(times1h, displayTimes, portraitColW) {
   const n1h  = times1h.length;
   const nDsp = displayTimes.length;
-  const totalCssW = nDsp * portraitColW;
   const dspMs = displayTimes.map(t => new Date(t).getTime());
-  const HALF_H = 1800000; // 0.5 h in ms
+  // Use (nDsp + 1) slots as denominator so xFrac stays in (0, 1) even when late
+  // points in the final coarse slot extend slightly past the canvas edge.
+  const fracDenom = (nDsp + 1) * portraitColW;
   const xMap = [], xFrac = [], slotIdx = [];
   let j = 0;
   for (let k = 0; k < n1h; k++) {
@@ -218,9 +221,9 @@ function computeXMap1h(times1h, displayTimes, portraitColW) {
     const slotDur = j < nDsp - 1
       ? dspMs[j + 1] - dspMs[j]
       : (j > 0 ? dspMs[j] - dspMs[j - 1] : 3600000);
-    const x = (j + (tk - dspMs[j] + HALF_H) / slotDur) * portraitColW;
+    const x = (j + 0.5 + (tk - dspMs[j]) / slotDur) * portraitColW;
     xMap.push(x);
-    xFrac.push(x / totalCssW);
+    xFrac.push(x / fracDenom);
     slotIdx.push(j);
   }
   return { xMap1h: xMap, xFrac1h: xFrac, slotIdx1h: slotIdx };
@@ -674,7 +677,7 @@ function initPortraitScrollSync() {
   let rafId = null;
   let velX = 0, lastX = 0, lastT = 0, startY = 0;
   let horizontal = null;
-  const DECEL = 0.92;
+  const DECEL = 0.975;
 
   wraps.forEach(wrap => {
     wrap.addEventListener('touchstart', e => {
