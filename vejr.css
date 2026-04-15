@@ -4,8 +4,6 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  /* leave room for the fixed #app-footer */
-  padding-bottom: 52px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -312,27 +310,23 @@ canvas.main-canvas {
 }
 #kite-cfg-btn:hover { background: #225a38; }
 
-/* ── App footer (fixed, above Leaflet z-index layers) ── */
+/* ── App footer ── */
 #app-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 999;
+  width: 100%;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 7px
-           max(14px, calc(env(safe-area-inset-right)  + 8px))
-           max(10px, calc(env(safe-area-inset-bottom) + 6px))
-           max(14px, calc(env(safe-area-inset-left)   + 8px));
-  background: #bdc5cd;
-  border-top: 1px solid #a0a8b0;
+  padding: 8px 12px;
+  margin-top: 12px;
+  background: #d8dfe8;
+  border: 1px solid #a8b0b8;
+  box-shadow: 2px 3px 8px rgba(0,0,0,0.22);
 }
 #app-footer #shore-status {
   flex: 1;
   font-size: 10px;
-  color: #556;
+  color: #667;
   font-family: 'IBM Plex Mono', monospace;
   min-width: 0;
 }
