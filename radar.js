@@ -108,6 +108,7 @@
     dropStaging();
     clearTimeout(playTimeout);
     clearTimeout(rateLimitTimer);
+    hideLoadingOverlay();
     const el = document.getElementById('radar-tile-counter');
     if (el) { el.textContent = '429 – wait 60s'; el.className = 'limit'; }
     const genAtLimit = loadGen;
