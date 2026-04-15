@@ -95,6 +95,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
       },
       querySelectorAll: () => [],
       querySelector: () => null,
+      addEventListener: () => {},
       body: { classList: { toggle: () => {}, contains: () => false } },
     },
     localStorage: mockLocalStorage,
