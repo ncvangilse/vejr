@@ -416,6 +416,21 @@
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
+  // ── NinJo station IDs confirmed to have wind_speed history in the DMI
+  //    open-data obs API (opendataapi.dmi.dk/v2/metObs).
+  //    All other NinJo stations (wind farms, harbour sensors, etc.) are
+  //    rendered non-interactively like Trafikkort arrows.
+  //    Last verified: 2026-04-15 via inspect_ninjo.py cross-reference.
+  const NINJO_HAS_HISTORY = new Set([
+    '06019','06030','06032','06039','06041','06049','06056','06060',
+    '06065','06068','06070','06072','06073','06079','06080','06081',
+    '06082','06096','06102','06104','06108','06110','06116','06118',
+    '06119','06120','06123','06124','06126','06134','06135','06136',
+    '06138','06141','06147','06149','06151','06154','06156','06159',
+    '06168','06169','06170','06174','06180','06181','06183','06188',
+    '06190','06193','06197',
+  ]);
+
   // ── Wind station overlay ──────────────────────────────────────────────
   const WIND_DIRECT = 'https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json';
   // On GitHub Pages a scheduled workflow writes this file to the same origin
@@ -551,13 +566,12 @@
       }
 
       // ── NinJo stations ───────────────────────────────────────────────────
-      // Stations with a `symbol` value are proper DMI met-stations: interactive,
-      // dark-outline style, popup with 24h history.
-      // Stations without `symbol` (wind-farm parks, lighthouse-only, etc.) have
-      // no history in the DMI obs API — render them exactly like Trafikkort
-      // arrows: non-interactive, no popup, no ws-ninjo outline.
+      // Stations in NINJO_HAS_HISTORY are confirmed DMI obs API stations:
+      // interactive, dark-outline style, popup with 24h history.
+      // All other NinJo stations (wind farms, harbour sensors, etc.) are
+      // rendered non-interactively like Trafikkort arrows: no popup, no outline.
       if (ninjoEntries.length > 0) {
-        const ninjoWithHist    = ninjoEntries.filter(([, e]) => e.values.symbol != null).length;
+        const ninjoWithHist    = ninjoEntries.filter(([id]) => NINJO_HAS_HISTORY.has(id)).length;
         const ninjoWithoutHist = ninjoEntries.length - ninjoWithHist;
         console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data (${ninjoWithHist} interactive / ${ninjoWithoutHist} non-interactive)`);
         for (const [id, entry] of ninjoEntries) {
@@ -565,7 +579,7 @@
           const deg     = entry.values.WindDirection10m ?? null;
           const gust    = entry.values.WindGustLast10Min ?? null;
           const col     = windColor(spd);
-          const hasHist = entry.values.symbol != null;  // symbol present ↔ DMI obs API station
+          const hasHist = NINJO_HAS_HISTORY.has(id);  // confirmed in DMI obs API
 
           const svgPart = deg != null ? _dmiArrowSvg(deg, col) : _dmiCircleSvg(col);
 
