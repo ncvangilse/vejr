@@ -613,12 +613,6 @@ canvas.main-canvas {
   font-family: 'IBM Plex Mono', monospace;
   cursor: pointer;
 }
-/* NinJo station markers — dark outline distinguishes them from Trafikkort */
-.ws-ninjo svg {
-  filter:
-    drop-shadow(0 0 2px rgba(0,0,0,0.9))
-    drop-shadow(0 0 1px rgba(0,0,0,0.7));
-}
 .ws-speed {
   font-size: 10px;
   font-weight: 700;
