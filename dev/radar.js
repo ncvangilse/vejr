@@ -125,8 +125,13 @@
   //    request when we know the tile would 429 (or just to fill gaps).
   const TRANSPARENT_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-  // ── Safe tile layer: guards _tileOnError against removed tiles, and
-  //    short-circuits createTile while rate-limited so no new 429s are fired.
+  // Maximum zoom level at which RainViewer has actual radar tiles.
+  // Requests above this are upscaled by Leaflet from the native-zoom tiles.
+  const RADAR_NATIVE_MAX_ZOOM = 7;
+
+  // ── Safe tile layer: guards _tileOnError against removed tiles,
+  //    short-circuits createTile while rate-limited, and hard-caps the
+  //    tile URL zoom so the RainViewer CDN never receives z > native max.
   const SafeTileLayer = L.TileLayer.extend({
     createTile(coords, done) {
       // While rate-limited, return a transparent placeholder immediately —
@@ -140,6 +145,14 @@
         return img;
       }
       return L.TileLayer.prototype.createTile.call(this, coords, done);
+    },
+    // Hard-cap the z value written into the tile URL regardless of what
+    // Leaflet's internal _tileZoom resolves to.
+    _getZoomForUrl() {
+      return Math.min(
+        L.TileLayer.prototype._getZoomForUrl.call(this),
+        RADAR_NATIVE_MAX_ZOOM
+      );
     },
     _tileOnError(done, tile, e) {
       if (!tile || !tile.el) return;
@@ -170,9 +183,10 @@
   // ── Create a tile layer, fire onReady() when all viewport tiles loaded
   function makeLayer(frame, opacity, onReady) {
     const l = new SafeTileLayer(frameUrl(frame), {
-      opacity, tileSize: 256, maxNativeZoom: 7, maxZoom: 18,
+      opacity, tileSize: 256, maxNativeZoom: RADAR_NATIVE_MAX_ZOOM, maxZoom: 18,
       keepBuffer: 0, updateWhenIdle: true,
     });
+    console.log(`[radar] makeLayer z≤${RADAR_NATIVE_MAX_ZOOM} — ${frameUrl(frame).replace('{z}/{x}/{y}','...')}`);
     let pending = 0, errors = 0, probeUrl = null;
     l.on('tileloadstart', (e) => {
       pending++;
