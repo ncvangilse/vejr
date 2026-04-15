@@ -136,6 +136,41 @@ describe('_otherModelLineColor', () => {
   });
 });
 
+// ── windColorStr ─────────────────────────────────────────────────────────────
+
+describe('windColorStr', () => {
+  let ctx;
+  beforeEach(() => { ctx = loadChartLogic(); });
+
+  it('returns an rgba() string', () => {
+    expect(ctx.windColorStr(10)).toMatch(/^rgba\(\d+,\d+,\d+,[\d.]+\)$/);
+  });
+
+  it('without alphaOverride, calm wind (0 m/s) has alpha 0 (speed-based)', () => {
+    // WINDY_RAMP has alpha 0.00 at 0 m/s
+    expect(ctx.windColorStr(0)).toBe('rgba(130,190,255,0)');
+  });
+
+  it('alphaOverride=1 forces fully opaque even for calm wind', () => {
+    expect(ctx.windColorStr(0, 1)).toBe('rgba(130,190,255,1)');
+  });
+
+  it('alphaOverride=0 forces fully transparent regardless of speed', () => {
+    const result = ctx.windColorStr(10, 0);
+    expect(result).toMatch(/rgba\(\d+,\d+,\d+,0\)/);
+  });
+
+  it('alphaOverride=0.5 sets a custom alpha', () => {
+    const result = ctx.windColorStr(10, 0.5);
+    expect(result).toMatch(/rgba\(\d+,\d+,\d+,0\.5\)/);
+  });
+
+  it('high wind speed (10 m/s) has alpha 1 even without override', () => {
+    // WINDY_RAMP has alpha 1.00 at 10 m/s
+    expect(ctx.windColorStr(10)).toMatch(/rgba\(\d+,\d+,\d+,1\)/);
+  });
+});
+
 // ── isKiteDirOnly vs isKiteOptimal relationship ──────────────────────────────
 
 describe('isKiteDirOnly is a superset of isKiteOptimal', () => {
