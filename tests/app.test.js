@@ -240,10 +240,10 @@ describe('loadAndSync', () => {
 // ── HTML structure ────────────────────────────────────────────────────────────
 
 describe('vejr.html structure', () => {
-  it('build-number is inside header-right', () => {
-    const headerRightMatch = HTML_SRC.match(/<div id="header-right"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/);
-    expect(headerRightMatch).not.toBeNull();
-    expect(headerRightMatch[0]).toContain('id="build-number"');
+  it('build-number is inside app-footer', () => {
+    const footerMatch = HTML_SRC.match(/<footer id="app-footer"[\s\S]*?<\/footer>/);
+    expect(footerMatch).not.toBeNull();
+    expect(footerMatch[0]).toContain('id="build-number"');
   });
 
   it('does not contain a search-btn button', () => {
