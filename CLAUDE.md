@@ -42,7 +42,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `sw.js` | Service Worker (app shell cache, offline support) |
 | `manifest.json` | PWA manifest |
 | `tests/` | Vitest test files + VM loader helper |
-| `.github/workflows/` | `deploy-prod.yml` (auto on main push), `deploy-test.yml` (manual) |
+| `scripts/fetch-ninjo.py` | AppDaemon app (Home Assistant RPi): fetches NinJo station data every 15 min → pushes to gh-pages |
 
 ### Data Flow
 
@@ -61,7 +61,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Kite config** — URL params + localStorage bidirectional sync (shareable links + iOS Home Screen survival)
 - **Land/sea threshold** — `SHORE_SEA_THRESH` (default 0.75) is a `let` in shore.js, initialised from `KITE_CFG.seaThresh` (config.js loads first). Persisted as `kite_sea_thresh` URL param. Exposed via `window.setShoreSeaThresh` / `window.getShoreSeaThresh`. The kite dialog has a range slider (10–100 %, step 5) that previews the threshold live on the compass and commits it on Apply.
 - **DMI observations** — `dmi.js` fetches real wind measurements from the nearest DMI automatic weather station (within ~50 km). Only activates for DK/GL/FO. Uses the keyless open-data endpoint `https://opendataapi.dmi.dk/v2/metObs` — no registration needed. Observations (10-min intervals, past 48 h) fetch `wind_speed`, `wind_gust_always_10min`, and `wind_dir` in parallel; all three are merged by timestamp into `{t, wind, gust, dir}` entries stored on `window.DMI_OBS`. Status shown in the header as "📡 Obs: StationName · N km". Non-fatal: silently skipped outside Denmark or when the API is unavailable.
-- **Radar map wind stations** — `radar.js` shows wind arrows from `wind-speeds.json` (fetched same-origin on GitHub Pages, falls back to GCS direct URL then CORS proxies). The data comes from the Danish Trafikkort GeoJSON feed (Google Cloud Storage). A scheduled GitHub Actions workflow (`refresh-wind-data.yml`) re-publishes this file to GitHub Pages every 15 minutes. `window.refreshDmiMarker` is kept as a no-op for backward compatibility with `dmi.js` callbacks.
+- **Radar map wind stations** — `radar.js` tries `ninjo-stations.json` (same-origin) first; if it has stations with `WindSpeed10m`, those are rendered as wind arrows (source label: "NinJo · obs HH:MM"). Station IDs match the DMI obs API, so clicking any marker lazy-loads a 24h history chart via `window.dmiLoadStationHistory`. When `ninjoActive` is true, `_refreshDmiMarker` skips non-nearest DMI station markers to avoid duplication. Falls back to `wind-speeds.json` (Trafikkort / GCS) when NinJo is absent. `ninjo-stations.json` is uploaded every 15 min by an AppDaemon app on a home Raspberry Pi running Home Assistant (`scripts/fetch-ninjo.py`) that can reach the DMI NinJo endpoint without being blocked by their IP filter.
 - **Land/sea analysis** — single Terrascope WMS `GetMap` request (512×512 PNG) for a ~12 km bbox; pixel RGB matched against ESA WorldCover official class colours (class 80 water = rgb(0,100,200), class 90 wetland = rgb(0,150,160)); no new library required
 - **iOS inverted colors** — canvas pixels pre-inverted in JS to survive OS double-inversion
 - **Service Worker strategy** — network-only for all API calls, network-first for app files, cache-first for static assets
