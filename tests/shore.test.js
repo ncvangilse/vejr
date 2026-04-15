@@ -583,7 +583,7 @@ describe('analyseShore', () => {
     const origFetch = fctx.fetch;
     fctx.fetch = (url) => { fetchCallCount++; return origFetch(url); };
 
-    // Simulate the "Fetch sea bearings" button: null the mask before re-calling.
+    // Simulate the "Auto-detect sea bearings" button: null the mask before re-calling.
     window.SHORE_MASK = null;
     await fctx.analyseShore(55.0, 12.0);
 

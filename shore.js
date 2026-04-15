@@ -489,7 +489,7 @@ async function fetchShoreVector(lat, lon) {
  * Dispatches a 'shore-mask-ready' CustomEvent on window when a new fetch
  * completes and SHORE_MASK is populated.
  *
- * To force a re-fetch (e.g. the "Fetch sea bearings" button) set
+ * To force a re-fetch (e.g. the "Auto-detect sea bearings" button) set
  * window.SHORE_MASK = null before calling — that bypasses the fast path.
  *
  * @param {number}   lat
