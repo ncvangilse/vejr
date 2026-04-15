@@ -169,7 +169,7 @@
   // ── Create a tile layer, fire onReady() when all viewport tiles loaded
   function makeLayer(frame, opacity, onReady) {
     const l = new SafeTileLayer(frameUrl(frame), {
-      opacity, tileSize: 256, maxZoom: 12,
+      opacity, tileSize: 256, maxNativeZoom: 12,
       keepBuffer: 0, updateWhenIdle: true,
     });
     let pending = 0, errors = 0, probeUrl = null;
@@ -273,9 +273,9 @@
       // First-time init: load wind stations and start auto-refresh
       refreshWindStations();
       setInterval(refreshWindStations, 10 * 60 * 1000);
-      initWindToggle();
+      initOverlayToggles();
     }
-    radarMap.setView([lat, lon], 7);
+    radarMap.setView([lat, lon], 8);
   }
 
   // ── Loading overlay ───────────────────────────────────────────────────
@@ -442,12 +442,14 @@
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(WIND_DIRECT),
     'https://corsproxy.io/?url='          + encodeURIComponent(WIND_DIRECT),
   ];
-  let windLayer       = null;
-  let windVisible     = true;
-  let ninjoActive     = false;  // true when ninjo-stations.json is in use
-  let dmiMarker       = null;   // DMI nearest-station arrow marker (lives inside windLayer)
-  let dmiAllMarkers   = [];     // All other DMI station dot-markers (lives inside windLayer)
-  let _lastWindGeo    = null;   // cache of last fetched wind-speeds.json (for dark-mode rebuild)
+  let trafikinfoLayer   = null;
+  let dmiLayer          = null;
+  let trafikinfoVisible = true;
+  let dmiVisible        = true;
+  let ninjoActive       = false;  // true when ninjo-stations.json is in use
+  let dmiMarker         = null;   // DMI nearest-station arrow marker (lives inside dmiLayer)
+  let dmiAllMarkers     = [];     // All other DMI station dot-markers (lives inside dmiLayer)
+  let _lastWindGeo      = null;   // cache of last fetched wind-speeds.json (for dark-mode rebuild)
 
   // True when the body has the 'inverted-colors' class set by app.js.
   const _inv = () => document.body.classList.contains('inverted-colors');
@@ -525,9 +527,9 @@
     return `rgb(${last[1]},${last[2]},${last[3]})`;
   }
 
-  /** Build markers from wind-speeds.json GeoJSON and add them to windLayer.
+  /** Build markers from wind-speeds.json GeoJSON and add them to the given layer.
    *  Colours are pre-inverted when in inverted-colours (dark) mode. */
-  function _addGeoMarkersToLayer(geo) {
+  function _addGeoMarkersToLayer(geo, layer) {
     const inv = _inv();
     (geo.features || []).forEach(f => {
       const [lon, lat] = f.geometry.coordinates;
@@ -557,17 +559,21 @@
       });
 
       L.marker([lat, lon], { icon, interactive: false })
-        .addTo(windLayer);
+        .addTo(layer);
     });
   }
 
   async function refreshWindStations() {
-    console.log('[map] refreshWindStations — radarMap:', !!radarMap, '| windVisible:', windVisible);
+    console.log('[map] refreshWindStations — radarMap:', !!radarMap,
+      '| trafikinfoVisible:', trafikinfoVisible, '| dmiVisible:', dmiVisible);
     if (!radarMap) { console.log('[map] skip — radarMap null'); return; }
 
     dmiMarker = null;
-    if (windLayer) { radarMap.removeLayer(windLayer); windLayer = null; }
-    windLayer = L.layerGroup();
+    dmiAllMarkers = [];
+    if (trafikinfoLayer) { radarMap.removeLayer(trafikinfoLayer); trafikinfoLayer = null; }
+    if (dmiLayer)        { radarMap.removeLayer(dmiLayer);        dmiLayer        = null; }
+    trafikinfoLayer = L.layerGroup();
+    dmiLayer        = L.layerGroup();
 
     try {
       // Fetch both sources in parallel ─────────────────────────────────────
@@ -581,7 +587,7 @@
       // ── Trafikkort (background, non-interactive) ─────────────────────────
       _lastWindGeo = geo;   // cache for dark-mode colour rebuild
       console.log(`[map · Trafikkort] ${geo ? (geo.features||[]).length : 0} features`);
-      if (geo) _addGeoMarkersToLayer(geo);
+      if (geo) _addGeoMarkersToLayer(geo, trafikinfoLayer);
 
       // ── NinJo stations ───────────────────────────────────────────────────
       // Stations in NINJO_HAS_HISTORY are confirmed DMI obs API stations:
@@ -611,7 +617,7 @@
               iconSize: [24, 38], iconAnchor: [12, 12],
             });
             L.marker([entry.latitude, entry.longitude], { icon, interactive: false })
-              .addTo(windLayer);
+              .addTo(dmiLayer);
             continue;
           }
 
@@ -661,7 +667,7 @@
               });
           });
 
-          marker.addTo(windLayer);
+          marker.addTo(dmiLayer);
         }
       }
     } catch (e) {
@@ -669,7 +675,8 @@
       ninjoActive = false;
     }
 
-    if (windVisible) windLayer.addTo(radarMap);
+    if (trafikinfoVisible) trafikinfoLayer.addTo(radarMap);
+    if (dmiVisible)        dmiLayer.addTo(radarMap);
     _refreshDmiMarker();
   }
 
@@ -947,7 +954,7 @@
 
   function _refreshDmiMarker() {
     console.log('[map · nearest] _refreshDmiMarker — radarMap:', !!radarMap,
-      '| windVisible:', windVisible,
+      '| dmiVisible:', dmiVisible,
       '| DMI_STATIONS:', window.DMI_STATIONS ? window.DMI_STATIONS.length + ' stations' : 'null');
 
     // NinJo already covers every station on the map — nothing to add.
@@ -958,11 +965,11 @@
 
     // ── Remove all stale DMI markers ──────────────────────────────────────
     if (dmiMarker) {
-      try { if (windLayer) windLayer.removeLayer(dmiMarker); } catch (_) {}
+      try { if (dmiLayer) dmiLayer.removeLayer(dmiMarker); } catch (_) {}
       dmiMarker = null;
     }
     for (const m of dmiAllMarkers) {
-      try { if (windLayer) windLayer.removeLayer(m); } catch (_) {}
+      try { if (dmiLayer) dmiLayer.removeLayer(m); } catch (_) {}
     }
     dmiAllMarkers = [];
 
@@ -973,9 +980,9 @@
       return;
     }
 
-    // windLayer may not exist yet if refreshWindStations() is still in-flight.
-    if (!windLayer) {
-      console.log('[map · nearest] windLayer not ready — retry in 500 ms');
+    // dmiLayer may not exist yet if refreshWindStations() is still in-flight.
+    if (!dmiLayer) {
+      console.log('[map · nearest] dmiLayer not ready — retry in 500 ms');
       setTimeout(_refreshDmiMarker, 500);
       return;
     }
@@ -1058,7 +1065,7 @@
           });
       });
 
-      marker.addTo(windLayer);
+      marker.addTo(dmiLayer);
       if (isNearest) {
         dmiMarker = marker;
         console.log(`[map · nearest] placed ${s.name} (${s.id}) —`,
@@ -1083,20 +1090,36 @@
   });
 
 
-  function initWindToggle() {
-    const btn = document.getElementById('radar-wind-toggle');
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-      windVisible = !windVisible;
-      btn.classList.toggle('active', windVisible);
-      if (!radarMap) return;
-      if (windVisible) {
-        if (windLayer) { windLayer.addTo(radarMap); _refreshDmiMarker(); }
-        else refreshWindStations();
-      } else {
-        if (windLayer) radarMap.removeLayer(windLayer);
-      }
-    });
+  function initOverlayToggles() {
+    const trafikinfoBtn = document.getElementById('radar-trafikinfo-toggle');
+    if (trafikinfoBtn) {
+      trafikinfoBtn.addEventListener('click', () => {
+        trafikinfoVisible = !trafikinfoVisible;
+        trafikinfoBtn.classList.toggle('active', trafikinfoVisible);
+        if (!radarMap) return;
+        if (trafikinfoVisible) {
+          if (trafikinfoLayer) trafikinfoLayer.addTo(radarMap);
+          else refreshWindStations();
+        } else {
+          if (trafikinfoLayer) radarMap.removeLayer(trafikinfoLayer);
+        }
+      });
+    }
+
+    const dmiBtn = document.getElementById('radar-dmi-toggle');
+    if (dmiBtn) {
+      dmiBtn.addEventListener('click', () => {
+        dmiVisible = !dmiVisible;
+        dmiBtn.classList.toggle('active', dmiVisible);
+        if (!radarMap) return;
+        if (dmiVisible) {
+          if (dmiLayer) { dmiLayer.addTo(radarMap); _refreshDmiMarker(); }
+          else refreshWindStations();
+        } else {
+          if (dmiLayer) radarMap.removeLayer(dmiLayer);
+        }
+      });
+    }
   }
 })();
 
