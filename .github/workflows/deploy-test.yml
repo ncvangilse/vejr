@@ -60,7 +60,6 @@ jobs:
       # No need to fetch them here.
 
       - name: Deploy to GitHub Pages (test)
-      - name: Deploy to GitHub Pages (test)
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
