@@ -550,16 +550,38 @@
         });
       }
 
-      // ── NinJo (interactive, dark outline, popup + 24h history) ───────────
+      // ── NinJo stations ───────────────────────────────────────────────────
+      // Stations with a `symbol` value are proper DMI met-stations: interactive,
+      // dark-outline style, popup with 24h history.
+      // Stations without `symbol` (wind-farm parks, lighthouse-only, etc.) have
+      // no history in the DMI obs API — render them exactly like Trafikkort
+      // arrows: non-interactive, no popup, no ws-ninjo outline.
       if (ninjoEntries.length > 0) {
-        console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data`);
+        const ninjoWithHist    = ninjoEntries.filter(([, e]) => e.values.symbol != null).length;
+        const ninjoWithoutHist = ninjoEntries.length - ninjoWithHist;
+        console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data (${ninjoWithHist} interactive / ${ninjoWithoutHist} non-interactive)`);
         for (const [id, entry] of ninjoEntries) {
-          const spd  = entry.values.WindSpeed10m;
-          const deg  = entry.values.WindDirection10m ?? null;
-          const gust = entry.values.WindGustLast10Min ?? null;
-          const col  = windColor(spd);
+          const spd     = entry.values.WindSpeed10m;
+          const deg     = entry.values.WindDirection10m ?? null;
+          const gust    = entry.values.WindGustLast10Min ?? null;
+          const col     = windColor(spd);
+          const hasHist = entry.values.symbol != null;  // symbol present ↔ DMI obs API station
 
-          const svgPart  = deg != null ? _dmiArrowSvg(deg, col) : _dmiCircleSvg(col);
+          const svgPart = deg != null ? _dmiArrowSvg(deg, col) : _dmiCircleSvg(col);
+
+          if (!hasHist) {
+            // ── Non-interactive (Trafikkort-style) ──────────────────────────
+            const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
+            const icon = L.divIcon({
+              className: '', html: iconHtml,
+              iconSize: [24, 38], iconAnchor: [12, 12],
+            });
+            L.marker([entry.latitude, entry.longitude], { icon, interactive: false })
+              .addTo(windLayer);
+            continue;
+          }
+
+          // ── Interactive (DMI met-station with history) ───────────────────
           const iconHtml = `<div class="ws-wrap ws-ninjo">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
           const icon = L.divIcon({
             className: '', html: iconHtml,
