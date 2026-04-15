@@ -528,8 +528,8 @@ function showTooltip(idx1h, idx3h) {
   const t   = new Date(timeStr);
   const day = DA_DAYS[t.getDay()];
   const h   = t.getHours().toString().padStart(2,'0');
-  const windCol = windColorStr(wind);
-  const gustCol = windColorStr(gust);
+  const windCol = windColorStr(wind, 1);
+  const gustCol = windColorStr(gust, 1);
   const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
   const tempUncRow   = (tp10 != null && tp90 != null)
     ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';

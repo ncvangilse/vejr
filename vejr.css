@@ -151,7 +151,7 @@ canvas.main-canvas {
   z-index: 1000;
   bottom: max(10px, calc(env(safe-area-inset-bottom) + 4px));
   right:  max(10px, calc(env(safe-area-inset-right)  + 4px));
-  background: rgba(18, 26, 38, 0.93);
+  background: rgb(18, 26, 38);
   border: 1px solid rgba(120,160,200,0.35);
   border-radius: 6px;
   padding: 8px 11px;
@@ -583,8 +583,8 @@ canvas.main-canvas {
 .sdd-sea-cell  { color: #40c8a8; }
 .sdd-land-cell { color: #c88040; }
 
-/* ── Wind station toggle button ── */
-#radar-wind-toggle {
+/* ── Radar overlay toggle buttons ── */
+.radar-overlay-toggle {
   padding: 2px 8px;
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 10px;
@@ -596,8 +596,8 @@ canvas.main-canvas {
   transition: background 0.2s, color 0.2s, border-color 0.2s;
   font-weight: 400;
 }
-#radar-wind-toggle:hover { background: rgba(0,0,0,0.13); }
-#radar-wind-toggle.active {
+.radar-overlay-toggle:hover { background: rgba(0,0,0,0.13); }
+.radar-overlay-toggle.active {
   background: rgba(0,100,50,0.12);
   border-color: #5a8a6a;
   color: #1a6a3a;
