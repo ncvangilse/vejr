@@ -795,13 +795,15 @@
     const tx = t => PAD_L + ((t - tMin) / tSpan) * CW;
     const ty = w => PAD_T + W_H - (w / wNice) * W_H;
 
-    // Theme colours — light in normal mode, dark in inverted-colours mode.
+    // inv is only used for the pixel pre-inversion at the end (same pattern as
+    // the forecast charts: always draw in light-theme colours, then flip pixels
+    // so the OS double-inversion round-trip restores the same appearance).
     const inv = _inv();
 
     // ── Backgrounds ──────────────────────────────────────────────────────
-    ctx.fillStyle = inv ? '#1e2a38' : '#f4f6f9';
+    ctx.fillStyle = '#f4f6f9';
     ctx.fillRect(0, 0, CSS_W, PAD_T + W_H);
-    ctx.fillStyle = inv ? '#162030' : '#eceff5';
+    ctx.fillStyle = '#eceff5';
     ctx.fillRect(0, PAD_T + W_H, CSS_W, D_H + PAD_B);
 
     // ── Horizontal grid + Y labels ───────────────────────────────────────
@@ -811,11 +813,11 @@
     for (let w = 0; w <= wNice; w += 5) {
       const y = ty(w);
       if (y < PAD_T - 1) continue;
-      ctx.strokeStyle = inv ? 'rgba(255,255,255,0.1)' : '#dde2ea';
+      ctx.strokeStyle = '#dde2ea';
       ctx.lineWidth   = 0.5;
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + CW, y); ctx.stroke();
       if (w > 0) {
-        ctx.fillStyle = inv ? '#8899aa' : '#bbb';
+        ctx.fillStyle = '#bbb';
         ctx.fillText(String(w), PAD_L - 2, y);
       }
     }
@@ -831,13 +833,13 @@
       while (tick.getTime() <= tMax) {
         const x = tx(tick.getTime());
         if (x >= PAD_L + 3 && x <= PAD_L + CW - 3) {
-          ctx.strokeStyle = inv ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+          ctx.strokeStyle = 'rgba(0,0,0,0.07)';
           ctx.lineWidth   = 1;
           ctx.beginPath();
           ctx.moveTo(x, PAD_T);
           ctx.lineTo(x, PAD_T + W_H + D_H);
           ctx.stroke();
-          ctx.fillStyle = inv ? '#8899aa' : '#aaa';
+          ctx.fillStyle = '#aaa';
           ctx.fillText(String(tick.getHours()).padStart(2, '0'), x, PAD_T + W_H + D_H + 2);
         }
         tick.setHours(tick.getHours() + 6);
@@ -848,7 +850,7 @@
     if (gustPts.length > 1) {
       ctx.save();
       ctx.setLineDash([2, 3]);
-      ctx.strokeStyle = inv ? 'rgba(255,170,60,0.7)' : 'rgba(190,110,40,0.55)';
+      ctx.strokeStyle = 'rgba(190,110,40,0.55)';
       ctx.lineWidth   = 1.2;
       ctx.beginPath();
       gustPts.forEach((o, i) => {
@@ -864,7 +866,7 @@
     for (const o of entries) ctx.lineTo(tx(o.t), ty(o.wind));
     ctx.lineTo(tx(entries[entries.length - 1].t), ty(0));
     ctx.closePath();
-    ctx.fillStyle = inv ? 'rgba(100,160,220,0.25)' : 'rgba(100,160,220,0.15)';
+    ctx.fillStyle = 'rgba(100,160,220,0.15)';
     ctx.fill();
 
     ctx.lineWidth  = 2;
@@ -909,7 +911,7 @@
     }
 
     // ── Axes / dividers ───────────────────────────────────────────────────
-    ctx.strokeStyle = inv ? 'rgba(255,255,255,0.18)' : '#d0d5de';
+    ctx.strokeStyle = '#d0d5de';
     ctx.lineWidth   = 0.5;
     // wind / direction separator
     ctx.beginPath();
@@ -926,7 +928,7 @@
     ctx.font         = `8px 'IBM Plex Sans', sans-serif`;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillStyle    = inv ? '#8899aa' : '#bbb';
+    ctx.fillStyle    = '#bbb';
     ctx.fillText('— wind  ╌ gust  ↑ dir', PAD_L + CW, PAD_T + W_H - 2);
 
     // Pre-invert all pixels so the OS double-inversion round-trip restores
@@ -1097,6 +1099,8 @@
     });
   }
 })();
+
+
 
 
 
