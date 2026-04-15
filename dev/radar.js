@@ -420,8 +420,8 @@
   const WIND_DIRECT = 'https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json';
   // On GitHub Pages a scheduled workflow writes this file to the same origin
   // (no CORS). On localhost it 404s and we fall back to proxy.
-  const WIND_SAME_ORIGIN  = './wind-speeds.json';
-  const NINJO_SAME_ORIGIN = './ninjo-stations.json';  // RPi-uploaded DMI station snapshot
+  const WIND_SAME_ORIGIN  = '../wind-speeds.json';
+  const NINJO_SAME_ORIGIN = '../ninjo-stations.json';  // RPi-uploaded DMI station snapshot
   // Public CORS proxies – fallback for local development only.
   const WIND_PROXIES = [
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(WIND_DIRECT),
@@ -453,7 +453,7 @@
   async function fetchNinjoJson() {
     try {
       const r = await fetch(NINJO_SAME_ORIGIN, { cache: 'no-store' });
-      if (r.ok) return r.json();
+      if (r.ok) return await r.json();  // await so parse errors are caught below
     } catch (_) {}
     return null;
   }
@@ -886,6 +886,12 @@
       '| windVisible:', windVisible,
       '| DMI_STATIONS:', window.DMI_STATIONS ? window.DMI_STATIONS.length + ' stations' : 'null');
 
+    // NinJo already covers every station on the map — nothing to add.
+    if (ninjoActive) {
+      console.log('[map · nearest] skipped — NinJo is active');
+      return;
+    }
+
     // ── Remove all stale DMI markers ──────────────────────────────────────
     if (dmiMarker) {
       try { if (windLayer) windLayer.removeLayer(dmiMarker); } catch (_) {}
@@ -941,12 +947,8 @@
         }
       }
 
-      // Non-nearest stations that have no wind data are skipped entirely.
-      // null  = fetch completed, station has no wind sensor.
-      // undefined = fetch not yet started (will appear once the batch completes).
-      // Either way, a teal dot on a wind map adds clutter without information.
-      // When NinJo is active all stations are already rendered; only keep nearest.
-      if (!isNearest && (ninjoActive || latest == null || latest.wind == null)) continue;
+      // Skip non-nearest stations that have no wind data yet — they add clutter without information.
+      if (!isNearest && (latest == null || latest.wind == null)) continue;
 
       // Every station that reaches this point has valid wind data.
       const col      = windColor(latest.wind);
