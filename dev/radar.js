@@ -531,14 +531,13 @@
     const inv = _inv();
     (geo.features || []).forEach(f => {
       const [lon, lat] = f.geometry.coordinates;
-      const { windSpeed, windDirection, windDirectionDanish } = f.properties;
+      const { windSpeed, windDirection } = f.properties;
       const spd    = parseFloat(windSpeed) || 0;
       const deg    = DIR_DEG[windDirection] ?? 0;
       const rawCol = windColor(spd);
       const col    = inv ? _preInvRgb(rawCol) : rawCol;
-      // Arrow points WHERE wind goes (same convention as forecast chart)
-      const rot  = (deg - 180 + 360) % 360;
-      const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+      const rot    = (deg - 180 + 360) % 360;
+      const halo   = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
 
       const arrow =
         `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
@@ -554,19 +553,10 @@
       const icon = L.divIcon({
         className: '',
         html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
-        iconSize:    [24, 38],
-        iconAnchor:  [12, 12],
-        popupAnchor: [0, -14],
+        iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
       });
 
-      L.marker([lat, lon], { icon, interactive: true })
-        .bindPopup(
-          `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.8;min-width:120px">` +
-          `<b style="font-size:14px">${spd} m/s</b><br>` +
-          `From <b>${windDirection}</b> (${windDirectionDanish || ''})` +
-          `</div>`,
-          { maxWidth: 200 }
-        )
+      L.marker([lat, lon], { icon, interactive: false })
         .addTo(windLayer);
     });
   }
@@ -589,38 +579,9 @@
       ninjoActive = ninjoEntries.length > 0;
 
       // ── Trafikkort (background, non-interactive) ─────────────────────────
+      _lastWindGeo = geo;   // cache for dark-mode colour rebuild
       console.log(`[map · Trafikkort] ${geo ? (geo.features||[]).length : 0} features`);
-      if (geo) {
-        (geo.features || []).forEach(f => {
-          const [lon, lat] = f.geometry.coordinates;
-          const { windSpeed, windDirection, windDirectionDanish } = f.properties;
-          const spd = parseFloat(windSpeed) || 0;
-          const deg = DIR_DEG[windDirection] ?? 0;
-          const col = windColor(spd);
-          const rot = (deg - 180 + 360) % 360;
-
-          const halo  = 'rgba(255,255,255,0.8)';
-          const arrow =
-            `<svg width="24" height="24" viewBox="-12 -12 24 24" ` +
-                 `style="display:block;overflow:visible">` +
-              `<g transform="rotate(${rot})">` +
-                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${halo}" stroke-width="5" stroke-linecap="round"/>` +
-                `<polygon points="0,-12 -6,-3 6,-3" fill="${halo}"/>` +
-                `<line x1="0" y1="8" x2="0" y2="-3" stroke="${col}" stroke-width="3" stroke-linecap="round"/>` +
-                `<polygon points="0,-12 -6,-3 6,-3" fill="${col}"/>` +
-              `</g>` +
-            `</svg>`;
-
-          const icon = L.divIcon({
-            className: '',
-            html: `<div class="ws-wrap">${arrow}<div class="ws-speed" style="color:${col}">${spd}</div></div>`,
-            iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
-          });
-
-          L.marker([lat, lon], { icon, interactive: false })
-            .addTo(windLayer);
-        });
-      }
+      if (geo) _addGeoMarkersToLayer(geo);
 
       // ── NinJo stations ───────────────────────────────────────────────────
       // Stations in NINJO_HAS_HISTORY are confirmed DMI obs API stations:
@@ -635,10 +596,12 @@
           const spd     = entry.values.WindSpeed10m;
           const deg     = entry.values.WindDirection10m ?? null;
           const gust    = entry.values.WindGustLast10Min ?? null;
-          const col     = windColor(spd);
+          const inv     = _inv();
+          const rawCol  = windColor(spd);
+          const col     = inv ? _preInvRgb(rawCol) : rawCol;
           const hasHist = NINJO_HAS_HISTORY.has(id);  // confirmed in DMI obs API
 
-          const svgPart = deg != null ? _dmiArrowSvg(deg, col) : _dmiCircleSvg(col);
+          const svgPart = deg != null ? _dmiArrowSvg(deg, col, inv) : _dmiCircleSvg(col, inv);
 
           if (!hasHist) {
             // ── Non-interactive (Trafikkort-style) ──────────────────────────
@@ -721,8 +684,8 @@
   const _COMPASS_PTS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   function _degToCompass(deg) { return _COMPASS_PTS[Math.round(deg / 22.5) % 16]; }
 
-  function _dmiArrowSvg(dir, col, inv) {
-    const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+  function _dmiArrowSvg(dir, col) {
+    const halo = 'rgba(255,255,255,0.8)';
     const rot  = (dir - 180 + 360) % 360;
     return `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
       `<g transform="rotate(${rot})">` +
@@ -734,8 +697,8 @@
       `</svg>`;
   }
 
-  function _dmiCircleSvg(col, inv) {
-    const halo = inv ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)';
+  function _dmiCircleSvg(col) {
+    const halo = 'rgba(255,255,255,0.8)';
     return `<svg width="24" height="24" viewBox="-12 -12 24 24" style="display:block;overflow:visible">` +
       `<circle r="7" fill="${halo}"/><circle r="6" fill="${col}" opacity="0.9"/>` +
       `</svg>`;
@@ -743,10 +706,8 @@
 
   /** Build the initial popup DOM element for a DMI station marker. */
   function _buildDmiPopupEl(s, isNearest) {
-    const inv    = _inv();
     const latest = s.latest;
-    const rawCol = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
-    const col    = (inv && latest && latest.wind != null) ? _preInvRgb(rawCol) : rawCol;
+    const col    = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
     let windHtml = '<div style="color:#aaa;font-size:11px;margin:2px 0">No recent wind data</div>';
     if (latest && latest.wind != null) {
       windHtml =
@@ -1114,6 +1075,7 @@
     if (_lastWindGeo) _addGeoMarkersToLayer(_lastWindGeo);
     _refreshDmiMarker();
   });
+
 
   function initWindToggle() {
     const btn = document.getElementById('radar-wind-toggle');
