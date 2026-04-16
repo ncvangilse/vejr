@@ -242,6 +242,25 @@ canvas.main-canvas {
 #radar-loading.hidden {
   opacity: 0;
 }
+#radar-pan-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+#radar-pan-hint.visible {
+  opacity: 1;
+}
 #radar-controls {
   display: flex;
   align-items: center;
