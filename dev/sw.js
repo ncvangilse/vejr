@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.16-91-claude-add-credits-screen-AXXQa-5';
+const CACHE_NAME = 'vejr-2026.04.16-92-claude-two-finger-radar-panning-vdUXN-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
