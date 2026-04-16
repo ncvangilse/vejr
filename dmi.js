@@ -188,7 +188,6 @@ async function loadDmiObservations(lat, lon, countryCode) {
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 
     const result = await _dmiFindStation(lat, lon);
-    const station     = result.nearest;
     const allStations = result.all;
 
     // Store ALL active stations so the radar map can show them immediately,
@@ -196,17 +195,13 @@ async function loadDmiObservations(lat, lon, countryCode) {
     window.DMI_STATIONS = allStations;
     if (window.refreshDmiMarker) window.refreshDmiMarker();
 
-    if (!station) {
+    if (!allStations.length) {
       console.log('[obs · DMI] no active station found within 0.5° of', lat, lon);
       window.DMI_OBS_STATUS = { state: 'no-station', msg: 'No station nearby' };
       if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
       return;
     }
-    console.log('[obs · DMI] nearest station:', station.name, '— id:', station.id, '— dist:', station.dist.toFixed(1), 'km');
-    console.log('[obs · DMI] all stations in bbox:', allStations.map(s => s.name).join(', '));
-
-    window.DMI_OBS_STATUS = { state: 'loading', msg: `Loading ${station.name}…` };
-    if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
+    console.log('[obs · DMI] all stations in bbox:', allStations.map(s => `${s.name}(${s.dist.toFixed(1)}km)`).join(', '));
 
     // Fetch the past 48 hours (covers the visible portion of the forecast chart)
     const now     = new Date();
@@ -214,23 +209,51 @@ async function loadDmiObservations(lat, lon, countryCode) {
     const fromIso = new Date(fromMs).toISOString().slice(0, 19) + 'Z';
     const toIso   = now.toISOString().slice(0, 19) + 'Z';
 
-    // Fetch nearest station obs first — these are critical for the chart overlay.
-    // Non-nearest obs are fetched afterwards, one at a time, to avoid bursting
-    // the DMI API and triggering 429 rate-limit errors.
-    const [windResp, gustResp, dirResp] = await Promise.all([
-      _dmiObs(station.id, 'wind_speed',             fromIso, toIso),
-      _dmiObs(station.id, 'wind_gust_always_10min', fromIso, toIso).catch(() => null),
-      _dmiObs(station.id, 'wind_dir',               fromIso, toIso).catch(() => null),
-    ]);
-    console.log('[obs · DMI] wind_speed features:', windResp.features?.length,
-                '| wind_gust features:', gustResp?.features?.length ?? 'err',
-                '| wind_dir features:', dirResp?.features?.length ?? 'err');
+    // Try stations in distance order — use the first one that has actual wind data.
+    // This skips stations that are online but haven't reported recently.
+    const sortedStations = [...allStations].sort((a, b) => a.dist - b.dist);
+    let station = null, windResp = null, gustResp = null, dirResp = null, obs = [];
+    for (const candidate of sortedStations) {
+      window.DMI_OBS_STATUS = { state: 'loading', msg: `Loading ${candidate.name}…` };
+      if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
+      console.log('[obs · DMI] trying station:', candidate.name, '— id:', candidate.id, '— dist:', candidate.dist.toFixed(1), 'km');
+      let wR, gR, dR;
+      try {
+        [wR, gR, dR] = await Promise.all([
+          _dmiObs(candidate.id, 'wind_speed',             fromIso, toIso),
+          _dmiObs(candidate.id, 'wind_gust_always_10min', fromIso, toIso).catch(() => null),
+          _dmiObs(candidate.id, 'wind_dir',               fromIso, toIso).catch(() => null),
+        ]);
+      } catch (fetchErr) {
+        console.warn('[obs · DMI] fetch failed for', candidate.name, fetchErr.message || fetchErr);
+        continue;
+      }
+      console.log('[obs · DMI] wind_speed features:', wR.features?.length,
+                  '| wind_gust features:', gR?.features?.length ?? 'err',
+                  '| wind_dir features:', dR?.features?.length ?? 'err');
+      const merged = _dmiMergeObs(
+        wR.features || [],
+        (gR && gR.features) || [],
+        (dR && dR.features) || [],
+      );
+      if (merged.length > 0) {
+        station   = candidate;
+        windResp  = wR;
+        gustResp  = gR;
+        dirResp   = dR;
+        obs       = merged;
+        console.log('[obs · DMI] selected station:', station.name, '— obs count:', obs.length);
+        break;
+      }
+      console.log('[obs · DMI] station', candidate.name, 'has no wind data — trying next');
+    }
 
-    const obs = _dmiMergeObs(
-      windResp.features,
-      (gustResp && gustResp.features) || [],
-      (dirResp  && dirResp.features)  || [],
-    );
+    if (!station) {
+      console.log('[obs · DMI] no station with wind data found within bbox');
+      window.DMI_OBS_STATUS = { state: 'no-station', msg: 'No wind data nearby' };
+      if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
+      return;
+    }
 
     // Compute the latest snapshot for the nearest station's arrow marker.
     const latestObs = [...obs].reverse().find(o => o.wind != null && isFinite(o.wind));
