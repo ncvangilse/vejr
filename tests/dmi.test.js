@@ -322,11 +322,14 @@ describe('loadDmiObservations', () => {
   it('status msg uses "name · dist km" format without obs count', async () => {
     const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
     const windFC    = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
+    // Use eager-capture pattern: capture payload BEFORE incrementing so concurrent
+    // Promise.all fetches don't overwrite the index before json() is called.
+    const payloads = [stationFC, windFC, { features: [] }, { features: [] }];
     let fetchCount = 0;
     ctx.fetch = () => {
+      const payload = payloads[fetchCount] || { features: [] };
       fetchCount++;
-      const payloads = [stationFC, windFC, { features: [] }, { features: [] }];
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(payloads[fetchCount - 1] || { features: [] }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
     };
     await loadDmiObservations(55.67, 12.57, 'DK');
     const msg = ctx.window.DMI_OBS_STATUS.msg;
@@ -392,7 +395,7 @@ describe('loadDmiObservations', () => {
     const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
     const windFC    = makeObsFC([{ param: 'wind_speed', value: 7.2, time: '2024-01-01T12:00:00Z' }]);
     const dirFC     = makeObsFC([{ param: 'wind_dir',   value: 225, time: '2024-01-01T12:00:00Z' }]);
-    // payloads[0]=station, [1]=wind_speed, [2]=gust(empty), [3]=wind_dir
+    // payloads[0]=station, [1]=wind_speed, [2]=gust(empty), [3]=dir
     const payloads  = [stationFC, windFC, { features: [] }, dirFC];
     let fetchCount  = 0;
     ctx.fetch = () => {
@@ -408,6 +411,29 @@ describe('loadDmiObservations', () => {
     expect(nearest.latest).toBeTruthy();
     expect(nearest.latest.wind).toBe(7.2);
     expect(nearest.latest.dir).toBe(225);
+  });
+
+  it('sets state=no-station when all stations have wind obs data absent', async () => {
+    // With the fallback logic, if every station in bbox returns empty wind obs,
+    // no station is selected and state must be no-station (not ok).
+    const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
+    let fetchCount = 0;
+    ctx.fetch = () => {
+      const payload = fetchCount === 0 ? stationFC : { features: [] };  // eager capture
+      fetchCount++;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
+    };
+
+    await loadDmiObservations(55.67, 12.57, 'DK');
+
+    // Nearest station Kastrup was found but had no wind data → state=no-station
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('no-station');
+    expect(ctx.window.DMI_OBS).toBeNull();
+    // DMI_STATIONS is still populated (stations were found, just had no obs)
+    const nearest = ctx.window.DMI_STATIONS.find(s => s.id === '06180');
+    expect(nearest).toBeTruthy();
+    // station.latest is NOT set when no obs found (station was never selected)
+    expect(nearest.latest).toBeUndefined();
   });
 
   it('pre-caches station.obsHistory on nearest station after successful load', async () => {
@@ -432,21 +458,35 @@ describe('loadDmiObservations', () => {
     expect(nearest.obsHistory.length).toBe(2);
   });
 
-  it('sets station.latest.wind=null when obs is empty for nearest station', async () => {
-    const stationFC = makeStationFC([{ id: '06180', name: 'Kastrup', lat: 55.63, lon: 12.65 }]);
-    let fetchCount = 0;
-    ctx.fetch = () => {
-      const payload = fetchCount === 0 ? stationFC : { features: [] };  // eager capture
-      fetchCount++;
+  it('falls back to next-closest station when nearest has no wind data (regression: Vindebæk→Systofte)', async () => {
+    // Regression: geographically nearest station may be online but have no recent
+    // obs. The loader must skip it and use the next closest station with actual data.
+    const stationFC = makeStationFC([
+      { id: 'ST_NEAR',  name: 'NearStation',  lat: 55.10, lon: 12.10 },  // closer, no data
+      { id: 'ST_FAR',   name: 'FarStation',   lat: 55.50, lon: 12.50 },  // farther, has data
+    ]);
+    const farWindFC = makeObsFC([{ param: 'wind_speed', value: 7.0, time: '2024-06-01T12:00:00Z' }]);
+    ctx.fetch = (url) => {
+      let payload;
+      if (url.includes('/station/')) {
+        payload = stationFC;
+      } else if (url.includes('ST_NEAR')) {
+        payload = { features: [] };   // nearest station: no wind data
+      } else if (url.includes('ST_FAR') && url.includes('wind_speed')) {
+        payload = farWindFC;          // second station: has wind data
+      } else {
+        payload = { features: [] };
+      }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
     };
 
-    await loadDmiObservations(55.67, 12.57, 'DK');
+    await loadDmiObservations(55.0, 12.0, 'DK');
 
-    const nearest = ctx.window.DMI_STATIONS.find(s => s.id === '06180');
-    expect(nearest.latest).toBeTruthy();
-    expect(nearest.latest.wind).toBeNull();
-    expect(nearest.latest.dir).toBeNull();
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('ok');
+    expect(ctx.window.DMI_OBS).not.toBeNull();
+    // Must have selected the farther station because it has wind data
+    expect(ctx.window.DMI_OBS.stationName).toBe('FarStation');
+    expect(ctx.window.DMI_OBS.obs.length).toBeGreaterThan(0);
   });
 
   // ── Batching / rate-limit tests ─────────────────────────────────────────────
@@ -486,10 +526,19 @@ describe('loadDmiObservations', () => {
       { id: '06096', name: 'Roskilde', lat: 55.58, lon: 12.13 },  // non-nearest 1
       { id: '06041', name: 'Thyborøn', lat: 56.70, lon:  8.22 },  // non-nearest 2
     ]);
+    const kastrupWindFC = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
     const urls = [];
     ctx.fetch = (url) => {
       urls.push(url);
-      const payload = url.includes('/station/') ? stationFC : { features: [] };
+      let payload;
+      if (url.includes('/station/')) {
+        payload = stationFC;
+      } else if (url.includes('stationId=06180') && url.includes('wind_speed')) {
+        // Nearest station has wind data so it gets selected
+        payload = kastrupWindFC;
+      } else {
+        payload = { features: [] };
+      }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
     };
 
@@ -548,8 +597,17 @@ describe('loadDmiObservations', () => {
       { id: '06041', name: 'Thyborøn', lat: 56.70, lon:  8.22 },
       { id: '06022', name: 'Tønder',   lat: 54.93, lon:  8.85 },
     ]);
+    const kastrupWindFC = makeObsFC([{ param: 'wind_speed', value: 5.2, time: '2024-01-01T10:00:00Z' }]);
     ctx.fetch = (url) => {
-      const payload = url.includes('/station/') ? stationFC : { features: [] };
+      let payload;
+      if (url.includes('/station/')) {
+        payload = stationFC;
+      } else if (url.includes('stationId=06180') && url.includes('wind_speed')) {
+        // Nearest station has wind data so it gets selected and non-nearest batch runs
+        payload = kastrupWindFC;
+      } else {
+        payload = { features: [] };
+      }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
     };
     let refreshCount = 0;
