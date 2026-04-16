@@ -5,7 +5,7 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { height: 100%; overflow-x: hidden; }
+html { height: 100%; overflow-x: hidden; overscroll-behavior-x: none; }
 body {
   background: #c8d0d8;
   font-family: 'IBM Plex Sans', sans-serif;
@@ -803,24 +803,13 @@ body.inverted-colors #app-footer { filter: invert(1); }
   }
   .chart-canvas-wrap::-webkit-scrollbar { display: none; }
 
-  /* Footer: wrap into two rows so shore-status has room to breathe */
+  /* Footer: build number is a dev detail — hide it in portrait to give
+     shore-status and the credits button room to breathe */
   #app-footer {
-    flex-wrap: wrap;
-    gap: 6px 12px;
     /* Extra bottom clearance for the iOS home indicator */
     padding-bottom: max(14px, calc(env(safe-area-inset-bottom) + 6px));
   }
-  #app-footer #shore-status {
-    flex: 0 0 100%; /* own row */
-  }
-  /* build-number + credits-btn share the second row */
-  #app-footer #build-number {
-    flex: 1;
-    align-self: center;
-  }
-  #app-footer #credits-btn {
-    min-width: 110px;
-  }
+  #app-footer #build-number { display: none; }
 }
 
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
