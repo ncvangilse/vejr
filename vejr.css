@@ -803,13 +803,18 @@ body.inverted-colors #app-footer { filter: invert(1); }
   }
   .chart-canvas-wrap::-webkit-scrollbar { display: none; }
 
-  /* Footer: build number is a dev detail — hide it in portrait to give
-     shore-status and the credits button room to breathe */
+  /* Footer portrait: row 1 = shore-status + credits-btn, row 2 = build-number */
   #app-footer {
-    /* Extra bottom clearance for the iOS home indicator */
+    flex-wrap: wrap;
     padding-bottom: max(14px, calc(env(safe-area-inset-bottom) + 6px));
   }
-  #app-footer #build-number { display: none; }
+  /* Push build-number after the credits-btn using order, then force it
+     onto its own row with flex-basis:100% */
+  #app-footer #build-number {
+    order: 1;
+    flex: 0 0 100%;
+    white-space: normal; /* allow wrapping if placeholder is unreplaced */
+  }
 }
 
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
