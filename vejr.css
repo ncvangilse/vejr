@@ -803,17 +803,20 @@ body.inverted-colors #app-footer { filter: invert(1); }
   }
   .chart-canvas-wrap::-webkit-scrollbar { display: none; }
 
-  /* Footer portrait: row 1 = shore-status + credits-btn, row 2 = build-number */
+  /* Footer portrait: grid with shore-status+credits on row 1, build-number below */
   #app-footer {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
     padding-bottom: max(14px, calc(env(safe-area-inset-bottom) + 6px));
   }
-  /* Push build-number after the credits-btn using order, then force it
-     onto its own row with flex-basis:100% */
-  #app-footer #build-number {
-    order: 1;
-    flex: 0 0 100%;
-    white-space: normal; /* allow wrapping if placeholder is unreplaced */
+  #app-footer #shore-status  { grid-column: 1; grid-row: 1; }
+  #app-footer #credits-btn   { grid-column: 2; grid-row: 1; }
+  #app-footer #build-number  {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    white-space: normal;
+    margin-top: 4px;
   }
 }
 
