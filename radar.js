@@ -48,10 +48,44 @@
       radarMap.panBy([-dx, -dy], { animate: false });
     }
     function onEnd() { dragging = false; }
-    mapEl.addEventListener('touchstart',  e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-    mapEl.addEventListener('touchmove',   e => { e.preventDefault(); onMove(e.touches[0].clientX,  e.touches[0].clientY); }, { passive: false });
+
+    // Show a brief "use two fingers to pan" hint when a single finger touches the map.
+    let hintTimeout = null;
+    const hintEl = document.createElement('div');
+    hintEl.id = 'radar-pan-hint';
+    hintEl.textContent = 'Use two fingers to pan';
+    mapEl.appendChild(hintEl);
+    function showHint() {
+      clearTimeout(hintTimeout);
+      hintEl.classList.add('visible');
+      hintTimeout = setTimeout(() => hintEl.classList.remove('visible'), 1200);
+    }
+
+    // Touch: one finger scrolls the page; two fingers pan the map.
+    mapEl.addEventListener('touchstart', e => {
+      if (isMarkerTarget(e)) return;
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const x = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        onStart(x, y);
+      } else if (e.touches.length === 1) {
+        showHint();
+      }
+    }, { passive: false });
+    mapEl.addEventListener('touchmove', e => {
+      if (dragging && e.touches.length === 2) {
+        e.preventDefault();
+        const x = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        onMove(x, y);
+      }
+      // Single finger: no preventDefault — let the page scroll naturally.
+    }, { passive: false });
     mapEl.addEventListener('touchend',    onEnd);
     mapEl.addEventListener('touchcancel', onEnd);
+
+    // Mouse: single click-drag still pans (desktop behaviour unchanged).
     mapEl.addEventListener('mousedown',   e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.clientX, e.clientY); });
     window.addEventListener('mousemove',  e => onMove(e.clientX, e.clientY));
     window.addEventListener('mouseup',    onEnd);
