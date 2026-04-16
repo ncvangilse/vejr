@@ -2,12 +2,10 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { height: 100%; }
+html { height: 100%; overflow-x: hidden; overscroll-behavior-x: none; }
 body {
   background: #c8d0d8;
   font-family: 'IBM Plex Sans', sans-serif;
@@ -15,6 +13,7 @@ body {
   color: #111;
   min-height: 100vh;
   height: 100%;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -189,8 +188,6 @@ canvas.main-canvas {
   box-shadow: 2px 3px 8px rgba(0,0,0,0.22);
   display: none;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
 }
 #radar-header {
   background: #d8dfe8;
@@ -222,6 +219,10 @@ canvas.main-canvas {
   min-height: 320px;
   background: #e8e0d8;
   position: relative;
+  /* isolation:isolate creates a stacking context that contains Leaflet's
+     internal z-indices (leaflet-top/bottom at 1000) without assigning a
+     specific z-index in the root stacking context. */
+  isolation: isolate;
 }
 #radar-loading {
   position: absolute;
@@ -305,6 +306,158 @@ canvas.main-canvas {
   flex-shrink: 0;
 }
 #kite-cfg-btn:hover { background: #225a38; }
+
+/* ── App footer ── */
+#app-footer {
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-top: 12px;
+  background: #d8dfe8;
+  border: 1px solid #a8b0b8;
+  box-shadow: 2px 3px 8px rgba(0,0,0,0.22);
+}
+#app-footer #shore-status {
+  flex: 1;
+  font-size: 10px;
+  color: #667;
+  font-family: 'IBM Plex Mono', monospace;
+  min-width: 0;
+}
+#app-footer #build-number {
+  font-size: 9px;
+  color: #889;
+  letter-spacing: 0.5px;
+  font-family: 'IBM Plex Mono', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Credits button (in footer) ── */
+#credits-btn {
+  padding: 7px 16px;
+  background: #2a3a50;
+  color: #8ab4d4;
+  border: 1px solid #4a6a8a;
+  border-radius: 4px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 36px;
+}
+#credits-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
+
+/* ── Credits modal ── */
+#credits-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  background: rgba(0,0,0,0.55);
+  align-items: center;
+  justify-content: center;
+}
+#credits-modal-overlay.open { display: flex; }
+#credits-modal {
+  background: #1e2a38;
+  border: 1px solid #3a5a7a;
+  border-radius: 6px;
+  padding: 18px 22px 16px;
+  min-width: 280px;
+  max-width: 420px;
+  width: 92vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  color: #e0eaf4;
+  font-family: 'IBM Plex Sans', sans-serif;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+}
+#credits-modal h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #8ab4d4;
+  letter-spacing: 0.4px;
+  margin-bottom: 14px;
+}
+.credits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.credits-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #253545;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto auto;
+  column-gap: 10px;
+}
+.credits-item:last-child { border-bottom: none; }
+.credits-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c8dff0;
+  grid-column: 1;
+  grid-row: 1;
+}
+.credits-desc {
+  font-size: 11px;
+  color: #7a9ab8;
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 2px;
+}
+.credits-license {
+  font-size: 10px;
+  color: #556a7a;
+  font-family: 'IBM Plex Mono', monospace;
+  grid-column: 1 / span 2;
+  grid-row: 3;
+  margin-top: 4px;
+}
+.credits-link {
+  font-size: 11px;
+  color: #5a9ac8;
+  text-decoration: none;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  white-space: nowrap;
+}
+.credits-link:hover { color: #8ac4f0; text-decoration: underline; }
+.credits-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.credits-actions button {
+  padding: 7px 18px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+  background: #2a3a4a;
+  color: #8ab4d4;
+  border: none;
+}
+.credits-actions button:hover { background: #334455; }
+
+/* Credits modal inverted-colors pre-invert */
+body.inverted-colors #credits-modal-overlay { filter: invert(1); }
+body.inverted-colors #credits-btn {
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
+}
+body.inverted-colors #credits-btn:hover { background: #c5b59f; }
+body.inverted-colors #app-footer { filter: invert(1); }
 
 /* ── Kite config modal ── */
 #kite-modal-overlay {
@@ -649,6 +802,22 @@ canvas.main-canvas {
     -ms-overflow-style: none;
   }
   .chart-canvas-wrap::-webkit-scrollbar { display: none; }
+
+  /* Footer portrait: grid with shore-status+credits on row 1, build-number below */
+  #app-footer {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    padding-bottom: max(14px, calc(env(safe-area-inset-bottom) + 6px));
+  }
+  #app-footer #shore-status  { grid-column: 1; grid-row: 1; }
+  #app-footer #credits-btn   { grid-column: 2; grid-row: 1; }
+  #app-footer #build-number  {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    white-space: normal;
+    margin-top: 4px;
+  }
 }
 
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
