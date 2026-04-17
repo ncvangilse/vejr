@@ -632,6 +632,7 @@
         ? Object.entries(ninjo).filter(([, e]) => e.values?.WindSpeed10m != null)
         : [];
       ninjoActive = ninjoEntries.length > 0;
+      window.ninjoActive = ninjoActive;
 
       // ── Trafikkort (background, non-interactive) ─────────────────────────
       _lastWindGeo = geo;   // cache for dark-mode colour rebuild

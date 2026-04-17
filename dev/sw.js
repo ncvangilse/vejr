@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.04.17-100-nchvg-clickable_points-5';
+const CACHE_NAME = 'vejr-2026.04.17-101-nchvg-clickable_points-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
