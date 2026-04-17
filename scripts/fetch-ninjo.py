@@ -349,6 +349,106 @@ class FetchNinjo(hass.Hass):
             self.log(f'ERROR fetching {name}: {e}', level='ERROR')
             return None
 
+    # ── Parsing helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_ninjo_df(ninjo_raw):
+        """Raw NinJo dict → tidy DataFrame (key / t / wind / gust / dir)."""
+        df = pd.DataFrame.from_dict(ninjo_raw, orient='index')
+        vals = pd.json_normalize(df['values'].tolist())
+        vals.index = df.index
+        df = df.drop(columns=['values']).join(vals)
+        df = df[df['WindSpeed10m'].notna()].copy()
+        df['key']  = 'ninjo:' + df.index.astype(str)
+        df['t']    = df['time'].apply(_parse_ninjo_time_ms)
+        df['wind'] = df['WindSpeed10m'].astype(float).round(2)
+        gust = df.get('WindGustLast10Min', pd.Series(float('nan'), index=df.index))
+        if 'WindGust10m' in df.columns:
+            gust = gust.fillna(df['WindGust10m'])
+        df['gust'] = gust.astype(float).round(2)
+        df['dir']  = (df['WindDirection10m'].astype(float).round(1)
+                      if 'WindDirection10m' in df.columns else float('nan'))
+        return df
+
+    @staticmethod
+    def _parse_trafikk_df(trafikk_raw, now_ms):
+        """Raw Trafikkort GeoJSON → tidy DataFrame (key / t / wind / dir / lat / lon)."""
+        fdf = pd.json_normalize(trafikk_raw.get('features', []))
+        fdf = fdf[
+            fdf['properties.windSpeed'].notna() &
+            fdf['properties.featureId'].notna()
+        ].copy()
+        fdf['key']  = 'trafikkort:' + fdf['properties.featureId'].astype(str)
+        fdf['t']    = now_ms
+        fdf['wind'] = fdf['properties.windSpeed'].astype(float)
+        fdf['dir']  = fdf['properties.windDirection'].map(DIR_DEG)
+        fdf['lat']  = fdf['geometry.coordinates'].apply(
+            lambda c: c[1] if isinstance(c, list) and len(c) >= 2 else None)
+        fdf['lon']  = fdf['geometry.coordinates'].apply(
+            lambda c: c[0] if isinstance(c, list) and len(c) >= 2 else None)
+        return fdf
+
+    def _upsert_obs(self, new_df, cutoff):
+        """Merge new_df (key/t/wind/…) into obs_history: concat → dedup → prune."""
+        for key, grp in new_df.groupby('key'):
+            info = self.obs_history.get(key)
+            if info is None:
+                continue
+            existing = (pd.DataFrame(info['obs'])
+                        if info['obs'] else pd.DataFrame(columns=['t']))
+            combined = pd.concat([existing, grp.drop(columns='key')], ignore_index=True)
+            if key.startswith('trafikkort:'):
+                combined['_t_min'] = combined['t'] // 60_000
+                combined = (combined.drop_duplicates(subset=['_t_min'], keep='first')
+                                    .drop(columns='_t_min'))
+            else:
+                combined = combined.drop_duplicates(subset=['t'], keep='last')
+            combined = (combined[combined['t'] >= cutoff]
+                        .sort_values('t').reset_index(drop=True)
+                        .dropna(axis=1, how='all'))
+            info['obs'] = [{k: v for k, v in rec.items() if pd.notna(v)}
+                           for rec in combined.to_dict('records')]
+
+    def _compute_bias(self):
+        """
+        Compute forecast bias (mean forecast − obs) for every station over the
+        7-day rolling window.  Updates obs_history[key]['bias'] in-place.
+        Returns the number of stations that received a bias value.
+        """
+        all_diffs = []
+        for key, fh_entry in self.fcst_history.items():
+            for day in fh_entry.get('days', {}).values():
+                fcst = day.get('forecast',   [])
+                obs  = day.get('obs_hourly', [])
+                if not fcst or not obs:
+                    continue
+                df_f = pd.DataFrame(fcst)[['h', 'wind']].rename(columns={'wind': 'f_wind'})
+                df_o = pd.DataFrame(obs) [['h', 'wind']].rename(columns={'wind': 'o_wind'})
+                merged = df_f.merge(df_o, on='h').dropna(subset=['f_wind', 'o_wind'])
+                if merged.empty:
+                    continue
+                merged['key'] = key
+                all_diffs.append(merged[['key', 'f_wind', 'o_wind']])
+
+        stats = {}
+        if all_diffs:
+            combined = pd.concat(all_diffs, ignore_index=True)
+            combined['diff'] = combined['f_wind'] - combined['o_wind']
+            agg = combined.groupby('key')['diff'].agg(['mean', 'count'])
+            stats = agg[agg['count'] >= 6].to_dict('index')
+
+        n_bias = 0
+        for key in self.obs_history:
+            if key in stats:
+                self.obs_history[key]['bias'] = {
+                    'wind': round(float(stats[key]['mean']), 2),
+                    'n':    int(stats[key]['count']),
+                }
+                n_bias += 1
+            else:
+                self.obs_history[key].pop('bias', None)
+        return n_bias
+
     # ── Observation ingestion (every 10 min) ───────────────────────────────────
 
     async def _ingest_obs(self):
@@ -363,7 +463,6 @@ class FetchNinjo(hass.Hass):
             async with aiohttp.ClientSession() as session:
                 if self.obs_history is None:
                     await self._load_state(session)
-
                 sha_map = await self._get_sha_map(session, gh_headers)
 
                 ninjo_raw, trafikk_raw = await asyncio.gather(
@@ -373,113 +472,34 @@ class FetchNinjo(hass.Hass):
 
                 now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
                 cutoff = now_ms - OBS_WINDOW_H * 3600 * 1000
+                frames = []
 
-                new_frames = []   # new-obs DataFrames from both sources
-
-                # ── NinJo stations ─────────────────────────────────────────────
                 if ninjo_raw:
-                    df = pd.DataFrame.from_dict(ninjo_raw, orient='index')
-                    vals = pd.json_normalize(df['values'].tolist())
-                    vals.index = df.index
-                    df = df.drop(columns=['values']).join(vals)
-                    df = df[df['WindSpeed10m'].notna()].copy()
-
-                    df['key']  = 'ninjo:' + df.index.astype(str)
-                    df['t']    = df['time'].apply(_parse_ninjo_time_ms)
-                    df['wind'] = df['WindSpeed10m'].astype(float).round(2)
-
-                    # gust: prefer WindGustLast10Min, fallback to WindGust10m
-                    gust = df.get('WindGustLast10Min',
-                                  pd.Series(float('nan'), index=df.index))
-                    if 'WindGust10m' in df.columns:
-                        gust = gust.fillna(df['WindGust10m'])
-                    df['gust'] = gust.astype(float).round(2)
-
-                    df['dir'] = (df['WindDirection10m'].astype(float).round(1)
-                                 if 'WindDirection10m' in df.columns
-                                 else float('nan'))
-
-                    # Upsert station metadata (name/lat/lon may change over time)
+                    df = self._parse_ninjo_df(ninjo_raw)
                     for sid, row in df.iterrows():
                         key = row['key']
                         self.obs_history.setdefault(key, {
-                            'name':   row.get('name', sid),
-                            'lat':    row.get('latitude'),
-                            'lon':    row.get('longitude'),
-                            'source': 'ninjo',
-                            'obs':    [],
+                            'name': row.get('name', sid), 'lat': row.get('latitude'),
+                            'lon':  row.get('longitude'), 'source': 'ninjo', 'obs': [],
                         })
                         if pd.notna(row.get('name', float('nan'))):
                             self.obs_history[key]['name'] = row['name']
-
-                    new_frames.append(df[['key', 't', 'wind', 'gust', 'dir']])
+                    frames.append(df[['key', 't', 'wind', 'gust', 'dir']])
                     self.log(f'{ts}  NinJo: {len(df)} stations with wind data')
 
-                # ── Trafikkort features ────────────────────────────────────────
                 if trafikk_raw:
-                    fdf = pd.json_normalize(trafikk_raw.get('features', []))
-                    fdf = fdf[
-                        fdf['properties.windSpeed'].notna() &
-                        fdf['properties.featureId'].notna()
-                    ].copy()
-
-                    fdf['key']  = 'trafikkort:' + fdf['properties.featureId'].astype(str)
-                    fdf['t']    = now_ms
-                    fdf['wind'] = fdf['properties.windSpeed'].astype(float)
-                    fdf['dir']  = fdf['properties.windDirection'].map(DIR_DEG)
-                    fdf['lat']  = fdf['geometry.coordinates'].apply(
-                        lambda c: c[1] if isinstance(c, list) and len(c) >= 2 else None)
-                    fdf['lon']  = fdf['geometry.coordinates'].apply(
-                        lambda c: c[0] if isinstance(c, list) and len(c) >= 2 else None)
-
+                    fdf = self._parse_trafikk_df(trafikk_raw, now_ms)
                     for _, row in fdf.iterrows():
                         self.obs_history.setdefault(row['key'], {
-                            'name':   f"Trafikkort {row['properties.featureId']}",
-                            'lat':    row['lat'],
-                            'lon':    row['lon'],
-                            'source': 'trafikkort',
-                            'obs':    [],
+                            'name': f"Trafikkort {row['properties.featureId']}",
+                            'lat':  row['lat'], 'lon': row['lon'],
+                            'source': 'trafikkort', 'obs': [],
                         })
-
-                    new_frames.append(fdf[['key', 't', 'wind', 'dir']])
+                    frames.append(fdf[['key', 't', 'wind', 'dir']])
                     self.log(f'{ts}  Trafikkort: {len(fdf)} features')
 
-                # ── Merge new obs into history, dedup & prune (all sources) ────
-                if new_frames:
-                    new_df = pd.concat(new_frames, ignore_index=True)
-
-                    for key, grp in new_df.groupby('key'):
-                        info = self.obs_history.get(key)
-                        if info is None:
-                            continue
-
-                        existing = (pd.DataFrame(info['obs'])
-                                    if info['obs']
-                                    else pd.DataFrame(columns=['t']))
-                        combined = pd.concat(
-                            [existing, grp.drop(columns='key')],
-                            ignore_index=True,
-                        )
-
-                        if key.startswith('trafikkort:'):
-                            # Deduplicate within a 60-second bucket
-                            combined['_t_min'] = combined['t'] // 60_000
-                            combined = (combined
-                                        .drop_duplicates(subset=['_t_min'], keep='first')
-                                        .drop(columns='_t_min'))
-                        else:
-                            # NinJo: exact timestamp dedup
-                            combined = combined.drop_duplicates(subset=['t'], keep='last')
-
-                        combined = (combined[combined['t'] >= cutoff]
-                                    .sort_values('t')
-                                    .reset_index(drop=True)
-                                    .dropna(axis=1, how='all'))
-
-                        info['obs'] = [
-                            {k: v for k, v in rec.items() if pd.notna(v)}
-                            for rec in combined.to_dict('records')
-                        ]
+                if frames:
+                    self._upsert_obs(pd.concat(frames, ignore_index=True), cutoff)
 
                 await self._push_gz(
                     session, gh_headers, sha_map,
@@ -499,148 +519,86 @@ class FetchNinjo(hass.Hass):
             }
 
             async with aiohttp.ClientSession() as session:
-                if self.obs_history is None:
+                if self.obs_history is None or self.fcst_history is None:
                     await self._load_state(session)
-                if self.fcst_history is None:
-                    await self._load_state(session)
-
                 sha_map = await self._get_sha_map(session, gh_headers)
 
                 yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
                 cutoff_str    = (datetime.now(timezone.utc) - timedelta(days=FCST_WINDOW_D)).strftime('%Y-%m-%d')
 
-                stations = [
-                    (key, info)
-                    for key, info in self.obs_history.items()
-                    if info.get('lat') is not None and info.get('lon') is not None
-                ]
+                stations = [(key, info) for key, info in self.obs_history.items()
+                            if info.get('lat') is not None and info.get('lon') is not None]
                 self.log(f'{ts}  Forecast ingest: {len(stations)} stations')
 
-                # ── Fetch Open-Meteo forecasts in batches ──────────────────────
+                # ── Fetch Open-Meteo in batches and bucket by date ─────────────
                 for batch_start in range(0, len(stations), FORECAST_BATCH):
                     batch = stations[batch_start:batch_start + FORECAST_BATCH]
-                    lats  = ','.join(str(info['lat']) for _, info in batch)
-                    lons  = ','.join(str(info['lon']) for _, info in batch)
-                    url   = (
-                        f'{OPEN_METEO}?latitude={lats}&longitude={lons}'
-                        f'&hourly=windspeed_10m,winddirection_10m'
-                        f'&forecast_days=2&timezone=UTC&windspeed_unit=ms'
-                    )
+                    lats  = ','.join(str(i['lat']) for _, i in batch)
+                    lons  = ','.join(str(i['lon']) for _, i in batch)
+                    url   = (f'{OPEN_METEO}?latitude={lats}&longitude={lons}'
+                             f'&hourly=windspeed_10m,winddirection_10m'
+                             f'&forecast_days=2&timezone=UTC&windspeed_unit=ms')
                     try:
-                        async with session.get(
-                            url, timeout=aiohttp.ClientTimeout(total=90)
-                        ) as r:
+                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=90)) as r:
                             r.raise_for_status()
-                            result = await r.json(content_type=None)
+                            results = await r.json(content_type=None)
                     except Exception as e:
-                        self.log(
-                            f'ERROR fetching forecasts batch {batch_start}: {e}',
-                            level='ERROR',
-                        )
+                        self.log(f'ERROR fetching forecasts batch {batch_start}: {e}', level='ERROR')
                         await asyncio.sleep(3)
                         continue
 
-                    # Open-Meteo returns a list for multiple coords, single dict for one
-                    results = result if isinstance(result, list) else [result]
+                    results = results if isinstance(results, list) else [results]
 
-                    for i, (key, _info) in enumerate(batch):
+                    for i, (key, _) in enumerate(batch):
                         if i >= len(results):
                             break
                         hourly = results[i].get('hourly', {})
                         times  = hourly.get('time', [])
-                        speeds = hourly.get('windspeed_10m', [])
-                        dirs   = hourly.get('winddirection_10m', [])
-
                         if not times:
                             continue
 
-                        # Parse all hourly rows at once with pandas
-                        df_f = pd.DataFrame({'time': times, 'wind': speeds, 'dir': dirs})
+                        df_f = pd.DataFrame({
+                            'time': times,
+                            'wind': hourly.get('windspeed_10m',    []),
+                            'dir':  hourly.get('winddirection_10m', []),
+                        })
                         df_f['date'] = df_f['time'].str[:10]
                         df_f['h']    = df_f['time'].str[11:13].astype(int)
                         df_f = df_f[df_f['date'] >= cutoff_str][['date', 'h', 'wind', 'dir']]
                         df_f['wind'] = pd.to_numeric(df_f['wind'], errors='coerce').round(2)
                         df_f['dir']  = pd.to_numeric(df_f['dir'],  errors='coerce').round(1)
 
-                        self.fcst_history.setdefault(key, {'days': {}})
-                        days = self.fcst_history[key]['days']
-
+                        days = self.fcst_history.setdefault(key, {'days': {}})['days']
                         for date, grp in df_f.groupby('date'):
-                            clean   = grp[['h', 'wind', 'dir']].dropna(subset=['wind'])
-                            records = [
+                            clean = grp[['h', 'wind', 'dir']].dropna(subset=['wind'])
+                            days.setdefault(date, {'forecast': [], 'obs_hourly': []})
+                            days[date]['forecast'] = [
                                 {k: v for k, v in rec.items() if pd.notna(v)}
                                 for rec in clean.to_dict('records')
                             ]
-                            days.setdefault(date, {'forecast': [], 'obs_hourly': []})
-                            days[date]['forecast'] = records
 
-                    # Polite pause between batches
                     if batch_start + FORECAST_BATCH < len(stations):
                         await asyncio.sleep(1)
 
-                # ── Resample yesterday's obs → hourly and attach ───────────────
+                # ── Attach yesterday's hourly obs, prune, compute bias ──────────
                 for key, info in self.obs_history.items():
-                    if key not in self.fcst_history:
-                        self.fcst_history[key] = {'days': {}}
-                    days = self.fcst_history[key]['days']
-                    if yesterday_str not in days:
-                        days[yesterday_str] = {'forecast': [], 'obs_hourly': []}
+                    days = self.fcst_history.setdefault(key, {'days': {}})['days']
+                    days.setdefault(yesterday_str, {'forecast': [], 'obs_hourly': []})
                     days[yesterday_str]['obs_hourly'] = _resample_hourly(
-                        info.get('obs', []), yesterday_str,
-                    )
+                        info.get('obs', []), yesterday_str)
 
-                # ── Prune days outside the 7-day rolling window ────────────────
                 for key in self.fcst_history:
                     self.fcst_history[key]['days'] = {
-                        d: v
-                        for d, v in self.fcst_history[key]['days'].items()
+                        d: v for d, v in self.fcst_history[key]['days'].items()
                         if d >= cutoff_str
                     }
 
-                # ── Compute per-station bias and embed into obs-history ─────────
-                # bias = mean(forecast_wind − obs_hourly_wind) over all paired hours
-                # in the rolling 7-day window.  Requires ≥ 6 paired hours.
-                # Stored as obs_history[key]['bias'] = {'wind': float, 'n': int}
-                # so the frontend can read it from obs-history.json.gz directly.
-                n_bias = 0
-                for key, fh_entry in self.fcst_history.items():
-                    rows = []
-                    for day in fh_entry.get('days', {}).values():
-                        fcst = day.get('forecast',   [])
-                        obs  = day.get('obs_hourly', [])
-                        if not fcst or not obs:
-                            continue
-                        df_f = pd.DataFrame(fcst)[['h', 'wind']].rename(columns={'wind': 'f_wind'})
-                        df_o = pd.DataFrame(obs)[['h', 'wind']].rename(columns={'wind': 'o_wind'})
-                        merged = df_f.merge(df_o, on='h').dropna(subset=['f_wind', 'o_wind'])
-                        merged['diff'] = merged['f_wind'] - merged['o_wind']
-                        rows.append(merged[['diff']])
+                n_bias = self._compute_bias()
+                self.log(f'{ts}  Forecast history: {len(self.fcst_history)} stations · bias for {n_bias}')
 
-                    if key in self.obs_history:
-                        if rows:
-                            combined = pd.concat(rows, ignore_index=True)
-                            n = len(combined)
-                            if n >= 6:
-                                self.obs_history[key]['bias'] = {
-                                    'wind': round(float(combined['diff'].mean()), 2),
-                                    'n':    n,
-                                }
-                                n_bias += 1
-                            else:
-                                self.obs_history[key].pop('bias', None)
-                        else:
-                            self.obs_history[key].pop('bias', None)
-
-                self.log(f'{ts}  Forecast history: {len(self.fcst_history)} stations · bias computed for {n_bias}')
-                # forecast-history is kept in memory for next day's resampling
-                # but is NOT pushed to gh-pages — bias lives in obs-history.json.gz.
-
-                # Push updated obs-history (now containing fresh bias values)
                 await self._push_gz(
                     session, gh_headers, sha_map,
                     'obs-history.json.gz', self.obs_history, ts,
                 )
-                # Persist both dicts locally so a crash/restart doesn't lose
-                # the 7-day forecast history (which is never on gh-pages).
                 self._save_local('obs_history')
                 self._save_local('fcst_history')
