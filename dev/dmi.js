@@ -333,10 +333,23 @@ async function loadDmiObservations(lat, lon, countryCode) {
 
 /* ── Fetch and cache the last-24h observation history for a station ──
    Used by the radar map popup to display a scrollable history table.
-   Caches result on station.obsHistory to avoid repeated API calls.
+   Checks window.OBS_HISTORY first (pre-built rolling history from RPi) —
+   this avoids live API calls for NinJo stations that are already in the file.
+   Falls back to the live DMI API when the station is absent.
+   Caches result on station.obsHistory to avoid repeated calls.
    Public: exposed as window.dmiLoadStationHistory for radar.js. ── */
 window.dmiLoadStationHistory = async function (station) {
   if (station.obsHistory != null) return station.obsHistory;
+
+  // Try pre-built obs-history (window.OBS_HISTORY populated by radar.js fetchObsHistory)
+  const obsKey = `ninjo:${station.id}`;
+  const prebuilt = window.OBS_HISTORY?.[obsKey];
+  if (prebuilt && prebuilt.obs && prebuilt.obs.length) {
+    station.obsHistory = prebuilt.obs;
+    return station.obsHistory;
+  }
+
+  // Fall back to live DMI API
   const now     = new Date();
   const fromIso = new Date(now.getTime() - 24 * 3600 * 1000).toISOString().slice(0, 19) + 'Z';
   const toIso   = now.toISOString().slice(0, 19) + 'Z';
