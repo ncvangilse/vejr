@@ -465,20 +465,7 @@
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
-  // ── NinJo station IDs confirmed to have wind_speed history in the DMI
-  //    open-data obs API (opendataapi.dmi.dk/v2/metObs).
-  //    All other NinJo stations (wind farms, harbour sensors, etc.) are
-  //    rendered non-interactively like Trafikkort arrows.
-  //    Last verified: 2026-04-15 via inspect_ninjo.py cross-reference.
-  const NINJO_HAS_HISTORY = new Set([
-    '06019','06030','06032','06039','06041','06049','06056','06060',
-    '06065','06068','06070','06072','06073','06079','06080','06081',
-    '06082','06096','06102','06104','06108','06110','06116','06118',
-    '06119','06120','06123','06124','06126','06134','06135','06136',
-    '06138','06141','06147','06149','06151','06154','06156','06159',
-    '06168','06169','06170','06174','06180','06181','06183','06188',
-    '06190','06193','06197',
-  ]);
+
 
   // ── Wind station overlay ──────────────────────────────────────────────
   const WIND_DIRECT = 'https://storage.googleapis.com/trafikkort-data/geojson/wind-speeds.point.json';
@@ -638,40 +625,20 @@
       console.log(`[map · Trafikkort] ${geo ? (geo.features||[]).length : 0} features`);
       if (geo) _addGeoMarkersToLayer(geo, trafikinfoLayer);
 
-      // ── NinJo stations ───────────────────────────────────────────────────
-      // Stations in NINJO_HAS_HISTORY are confirmed DMI obs API stations:
-      // interactive, dark-outline style, popup with 24h history.
-      // All other NinJo stations (wind farms, harbour sensors, etc.) are
-      // rendered non-interactively like Trafikkort arrows: no popup, no outline.
+      // ── NinJo stations — all interactive with popup + 24h history ──────────
       if (ninjoEntries.length > 0) {
-        const ninjoWithHist    = ninjoEntries.filter(([id]) => NINJO_HAS_HISTORY.has(id)).length;
-        const ninjoWithoutHist = ninjoEntries.length - ninjoWithHist;
-        console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data (${ninjoWithHist} interactive / ${ninjoWithoutHist} non-interactive)`);
+        console.log(`[map · NinJo] ${ninjoEntries.length} stations with wind data (all interactive)`);
         for (const [id, entry] of ninjoEntries) {
-          const spd     = entry.values.WindSpeed10m;
-          const deg     = entry.values.WindDirection10m ?? null;
-          const gust    = entry.values.WindGustLast10Min ?? null;
-          const inv     = _inv();
-          const rawCol  = windColor(spd);
-          const col     = inv ? _preInvRgb(rawCol) : rawCol;
-          const hasHist = NINJO_HAS_HISTORY.has(id);  // confirmed in DMI obs API
+          const spd    = entry.values.WindSpeed10m;
+          const deg    = entry.values.WindDirection10m ?? null;
+          const gust   = entry.values.WindGustLast10Min ?? null;
+          const inv    = _inv();
+          const rawCol = windColor(spd);
+          const col    = inv ? _preInvRgb(rawCol) : rawCol;
 
           const svgPart = deg != null ? _dmiArrowSvg(deg, col, inv) : _dmiCircleSvg(col, inv);
 
-          if (!hasHist) {
-            // ── Non-interactive (Trafikkort-style) ──────────────────────────
-            const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
-            const icon = L.divIcon({
-              className: '', html: iconHtml,
-              iconSize: [24, 38], iconAnchor: [12, 12],
-            });
-            L.marker([entry.latitude, entry.longitude], { icon, interactive: false })
-              .addTo(dmiLayer);
-            continue;
-          }
-
-          // ── Interactive (DMI met-station with history) ───────────────────
-          const iconHtml = `<div class="ws-wrap ws-ninjo">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
+          const iconHtml = `<div class="ws-wrap">${svgPart}<div class="ws-speed" style="color:${col}">${spd.toFixed(1)}</div></div>`;
           const icon = L.divIcon({
             className: '', html: iconHtml,
             iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
