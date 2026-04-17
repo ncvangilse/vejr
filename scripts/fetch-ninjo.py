@@ -2,38 +2,31 @@
 """
 AppDaemon app — rolling observation history + daily forecast collection.
 
-Pushes two gzip-compressed JSON files to gh-pages:
+Pushes one gzip-compressed JSON file to gh-pages:
 
   obs-history.json.gz  (every 10 min)
     Rolling 24-hour window of 10-min wind observations for every NinJo and
-    Trafikkort station in Denmark.
+    Trafikkort station in Denmark.  Updated with forecast bias once per day.
     Schema:
       {
         "ninjo:<stationId>": {
           "name": "...", "lat": 55.6, "lon": 12.6, "source": "ninjo",
-          "obs": [{"t": <unix_ms>, "wind": 5.1, "gust": 7.2, "dir": 270}, ...]
+          "obs":  [{"t": <unix_ms>, "wind": 5.1, "gust": 7.2, "dir": 270}, ...],
+          "bias": {"wind": 1.3, "n": 84}   ← added daily, absent until day 1
         },
         "trafikkort:<featureId>": {
           "name": "Trafikkort 1018", "lat": ..., "lon": ..., "source": "trafikkort",
-          "obs": [{"t": <unix_ms>, "wind": 3.0, "dir": 135}, ...]
+          "obs":  [{"t": <unix_ms>, "wind": 3.0, "dir": 135}, ...]
         }
       }
 
-  forecast-history.json.gz  (daily at 00:05 UTC)
-    7-day rolling window of hourly forecast + observed wind pairs per station.
-    Schema:
-      {
-        "ninjo:06060": {
-          "days": {
-            "2026-04-17": {
-              "forecast":   [{"h": 0, "wind": 6.2, "dir": 265}, ...],
-              "obs_hourly": [{"h": 0, "wind": 5.8, "dir": 268}, ...]
-            }
-          }
-        }
-      }
-    obs_hourly = previous day's 10-min obs resampled to hourly averages
-    (arithmetic mean wind, max gust, circular mean direction).
+Local state (never pushed to gh-pages):
+  obs-history-local.json.gz   — written next to this file after every obs push
+  fcst-history-local.json.gz  — written after every daily forecast ingest
+
+  Both files are restored on startup (disk → gh-pages fallback → empty dict),
+  so a crash or AppDaemon restart loses at most one 10-min obs cycle and never
+  loses the 7-day forecast window needed for bias computation.
 
 Installation (Home Assistant AppDaemon add-on — a0d7b954):
   All paths are under /root/addon_configs/a0d7b954_appdaemon/
@@ -67,6 +60,7 @@ import gzip
 import json
 import math
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 import aiohttp
 import appdaemon.plugins.hass.hassapi as hass
@@ -88,6 +82,15 @@ FORECAST_BATCH = 50
 
 # Raw base URL for bootstrapping state on startup
 RAW_BASE = 'https://raw.githubusercontent.com/ncvangilse/vejr/gh-pages'
+
+# Local state files — persisted next to the app file so crashes / restarts
+# don't lose accumulated history.  fcst-history is never pushed to gh-pages
+# so local persistence is the only way to survive a restart.
+_APP_DIR   = Path(__file__).parent
+STATE_FILES = {
+    'obs_history':  _APP_DIR / 'obs-history-local.json.gz',
+    'fcst_history': _APP_DIR / 'fcst-history-local.json.gz',
+}
 
 # Cardinal direction → degrees (matches radar.js DIR_DEG)
 DIR_DEG = {
@@ -239,31 +242,85 @@ class FetchNinjo(hass.Hass):
                 self.log(f'ERROR pushing {filename}: {e}', level='ERROR')
                 return
 
-    # ── State bootstrap ────────────────────────────────────────────────────────
+    # ── State persistence (local disk) ────────────────────────────────────────
+
+    def _save_local(self, attr):
+        """Persist one history dict to disk as gzip-compressed JSON (atomic write)."""
+        path = STATE_FILES[attr]
+        data = getattr(self, attr)
+        if data is None:
+            return
+        try:
+            tmp = path.with_suffix('.tmp')
+            tmp.write_bytes(
+                gzip.compress(
+                    json.dumps(data, separators=(',', ':')).encode('utf-8'),
+                    compresslevel=6,
+                )
+            )
+            tmp.replace(path)   # atomic on POSIX
+        except Exception as e:
+            self.log(f'WARNING: could not save {path.name}: {e}', level='WARNING')
+
+    def _load_local(self, attr):
+        """Try to restore a history dict from the local gzip file. Returns True on success."""
+        path = STATE_FILES[attr]
+        if not path.exists():
+            return False
+        try:
+            loaded = json.loads(gzip.decompress(path.read_bytes()))
+            setattr(self, attr, loaded)
+            self.log(f'Restored {path.name} from disk: {len(loaded)} stations')
+            return True
+        except Exception as e:
+            self.log(f'WARNING: could not read {path.name}: {e} — will re-bootstrap',
+                     level='WARNING')
+            return False
+
+    # ── State bootstrap (remote fallback) ─────────────────────────────────────
 
     async def _load_state(self, session):
-        """Download and decompress existing history files from gh-pages."""
+        """
+        Populate obs_history and fcst_history.
+        Priority:
+          1. Local disk (fast, always preferred — survives crashes with no network)
+          2. gh-pages raw URL for obs-history (first deploy / disk wiped)
+          3. Empty dict (fresh start)
+        fcst_history is never on gh-pages, so local disk or empty are the only options.
+        """
         for attr, filename in [
             ('obs_history',  'obs-history.json.gz'),
-            ('fcst_history', 'forecast-history.json.gz'),
+            ('fcst_history', None),   # not on gh-pages
         ]:
-            url = f'{RAW_BASE}/{filename}'
-            try:
-                async with session.get(
-                    url, timeout=aiohttp.ClientTimeout(total=30)
-                ) as r:
-                    if r.status == 200:
-                        raw    = await r.read()
-                        loaded = json.loads(gzip.decompress(raw))
-                        setattr(self, attr, loaded)
-                        self.log(f'Loaded {filename}: {len(loaded)} stations')
-                    else:
-                        setattr(self, attr, {})
-                        self.log(f'{filename} not found (HTTP {r.status}) — starting fresh')
-            except Exception as e:
-                setattr(self, attr, {})
-                self.log(f'Could not load {filename}: {e} — starting fresh',
-                         level='WARNING')
+            if getattr(self, attr) is not None:
+                continue   # already loaded (shouldn't happen, but be safe)
+
+            # 1. Local disk
+            if self._load_local(attr):
+                continue
+
+            # 2. gh-pages remote (obs-history only)
+            if filename:
+                url = f'{RAW_BASE}/{filename}'
+                try:
+                    async with session.get(
+                        url, timeout=aiohttp.ClientTimeout(total=30)
+                    ) as r:
+                        if r.status == 200:
+                            raw    = await r.read()
+                            loaded = json.loads(gzip.decompress(raw))
+                            setattr(self, attr, loaded)
+                            self.log(f'Bootstrapped {filename} from gh-pages: {len(loaded)} stations')
+                            self._save_local(attr)   # write to disk immediately
+                            continue
+                        self.log(f'{filename} not on gh-pages (HTTP {r.status}) — starting fresh')
+                except Exception as e:
+                    self.log(f'Could not fetch {filename} from gh-pages: {e}',
+                             level='WARNING')
+
+            # 3. Fresh start
+            setattr(self, attr, {})
+            self.log(f'{attr} initialised as empty dict')
 
     # ── Generic JSON fetch ─────────────────────────────────────────────────────
 
@@ -396,6 +453,7 @@ class FetchNinjo(hass.Hass):
                     session, gh_headers, sha_map,
                     'obs-history.json.gz', self.obs_history, ts,
                 )
+                self._save_local('obs_history')
 
     # ── Forecast ingestion (daily at 00:05 UTC) ────────────────────────────────
 
@@ -412,7 +470,7 @@ class FetchNinjo(hass.Hass):
                 if self.obs_history is None:
                     await self._load_state(session)
                 if self.fcst_history is None:
-                    self.fcst_history = {}
+                    await self._load_state(session)
 
                 sha_map = await self._get_sha_map(session, gh_headers)
 
@@ -509,8 +567,44 @@ class FetchNinjo(hass.Hass):
                         if d >= cutoff_str
                     }
 
+                # ── Compute per-station bias and embed into obs-history ─────────
+                # bias = mean(forecast_wind − obs_hourly_wind) over all paired hours
+                # in the rolling 7-day window.  Requires ≥ 6 paired hours.
+                # Stored as obs_history[key]['bias'] = {'wind': float, 'n': int}
+                # so the frontend can read it from obs-history.json.gz directly.
+                n_bias = 0
+                for key, fh_entry in self.fcst_history.items():
+                    total, n = 0.0, 0
+                    for day in fh_entry.get('days', {}).values():
+                        fcst = day.get('forecast',   [])
+                        obs  = day.get('obs_hourly', [])
+                        if not fcst or not obs:
+                            continue
+                        obs_map = {o['h']: o['wind'] for o in obs if o.get('wind') is not None}
+                        for f in fcst:
+                            if f.get('wind') is not None and f['h'] in obs_map:
+                                total += f['wind'] - obs_map[f['h']]
+                                n += 1
+                    if key in self.obs_history:
+                        if n >= 6:
+                            self.obs_history[key]['bias'] = {
+                                'wind': round(total / n, 2),
+                                'n':    n,
+                            }
+                            n_bias += 1
+                        else:
+                            self.obs_history[key].pop('bias', None)
+
+                self.log(f'{ts}  Forecast history: {len(self.fcst_history)} stations · bias computed for {n_bias}')
+                # forecast-history is kept in memory for next day's resampling
+                # but is NOT pushed to gh-pages — bias lives in obs-history.json.gz.
+
+                # Push updated obs-history (now containing fresh bias values)
                 await self._push_gz(
                     session, gh_headers, sha_map,
-                    'forecast-history.json.gz', self.fcst_history, ts,
+                    'obs-history.json.gz', self.obs_history, ts,
                 )
-                self.log(f'{ts}  Forecast history: {len(self.fcst_history)} stations · pushed')
+                # Persist both dicts locally so a crash/restart doesn't lose
+                # the 7-day forecast history (which is never on gh-pages).
+                self._save_local('obs_history')
+                self._save_local('fcst_history')

@@ -483,7 +483,6 @@
   // ── Wind/history data sources ─────────────────────────────────────────
   // RPi pushes rolling-window compressed JSON files to gh-pages every 10 min.
   const OBS_HISTORY_URL  = './obs-history.json.gz';
-  const FCST_HISTORY_URL = './forecast-history.json.gz';
 
   let trafikinfoLayer   = null;
   let dmiLayer          = null;
@@ -492,7 +491,6 @@
   let ninjoActive       = false;  // true when obs-history has NinJo entries
   let dmiMarker         = null;   // DMI nearest-station arrow marker (lives inside dmiLayer)
   let dmiAllMarkers     = [];     // All other DMI station dot-markers (lives inside dmiLayer)
-  let _forecastHistoryCache = null;   // lazily loaded forecast-history for bias display
 
   // True when the body has the 'inverted-colors' class set by app.js.
   const _inv = () => document.body.classList.contains('inverted-colors');
@@ -531,55 +529,13 @@
   }
 
   /**
-   * Lazily load forecast-history.json.gz once per page session.
-   * Returns the parsed dict or null. Caches in _forecastHistoryCache.
-   */
-  async function _loadForecastHistory() {
-    if (_forecastHistoryCache !== null) return _forecastHistoryCache;
-    try {
-      const r = await fetch(FCST_HISTORY_URL, { cache: 'no-store' });
-      if (!r.ok) { _forecastHistoryCache = {}; return {}; }
-      let data;
-      if (typeof DecompressionStream !== 'undefined') {
-        const ds   = new DecompressionStream('gzip');
-        const text = await new Response(r.body.pipeThrough(ds)).text();
-        data = JSON.parse(text);
-      } else {
-        data = await r.json();
-      }
-      _forecastHistoryCache = data;
-      return data;
-    } catch (_) {
-      _forecastHistoryCache = {};
-      return {};
-    }
-  }
-
-  /**
-   * Compute mean forecast bias (forecast - obs) in m/s over all paired
-   * hourly slots in the last 7 days for a given station key.
-   * Returns { bias: number, n: number } or null when insufficient data.
+   * Read pre-computed forecast bias for a station key from window.OBS_HISTORY.
+   * Returns { bias: number, n: number } or null when absent / insufficient data.
    */
   function _stationBias(key) {
-    const fh = _forecastHistoryCache;
-    if (!fh || !fh[key]) return null;
-    const days = fh[key].days || {};
-    let sum = 0, n = 0;
-    for (const day of Object.values(days)) {
-      const fcst = day.forecast   || [];
-      const obs  = day.obs_hourly || [];
-      if (!fcst.length || !obs.length) continue;
-      const obsMap = {};
-      for (const o of obs) obsMap[o.h] = o.wind;
-      for (const f of fcst) {
-        if (f.wind != null && obsMap[f.h] != null) {
-          sum += f.wind - obsMap[f.h];
-          n++;
-        }
-      }
-    }
-    if (n < 6) return null;   // require at least 6 paired hours
-    return { bias: sum / n, n };
+    const b = window.OBS_HISTORY?.[key]?.bias;
+    if (!b || b.n == null || b.wind == null) return null;
+    return { bias: b.wind, n: b.n };
   }
 
   const DIR_DEG = {
@@ -670,8 +626,6 @@
         ninjoActive = false;
         console.log('[map] obs-history unavailable');
       } else {
-        // Pre-load forecast history in the background so bias is ready when popups open.
-        _loadForecastHistory().catch(() => null);
 
         const entries = Object.entries(obsHistory);
         const ninjoCount = entries.filter(([k]) => k.startsWith('ninjo:')).length;
@@ -745,13 +699,12 @@
               histEl.dataset.loaded = '1';
               marker.getPopup()?.update();
             }
-            // Inject bias row once forecast history is loaded
+            // Inject bias row — available synchronously from obs-history
             const biasEl = popupEl.querySelector('.dmi-bias-row');
             if (biasEl && biasEl.dataset.loaded !== '1') {
               biasEl.dataset.loaded = '1';
-              _loadForecastHistory().then(() => {
-                const b = _stationBias(sObj.obsKey);
-                if (!b) { biasEl.style.display = 'none'; return; }
+              const b = _stationBias(sObj.obsKey);
+              if (b) {
                 const sign    = b.bias >= 0 ? '+' : '';
                 const absB    = Math.abs(b.bias);
                 const biasCol = absB > 2 ? '#e06020' : absB > 1 ? '#e0a020' : '#8899aa';
@@ -759,8 +712,9 @@
                   `<span style="color:#aaa;font-size:10px">Model bias&nbsp;</span>` +
                   `<span style="color:${biasCol};font-size:10px;font-weight:600">${sign}${b.bias.toFixed(1)}&nbsp;m/s</span>` +
                   `<span style="color:#aaa;font-size:10px">&nbsp;·&nbsp;${b.n}h</span>`;
-                marker.getPopup()?.update();
-              }).catch(() => null);
+              } else {
+                biasEl.style.display = 'none';
+              }
             }
           });
 
@@ -1167,10 +1121,8 @@
         const biasEl = popupEl.querySelector('.dmi-bias-row');
         if (biasEl && biasEl.dataset.loaded !== '1') {
           biasEl.dataset.loaded = '1';
-          const obsKey = `ninjo:${s.id}`;
-          _loadForecastHistory().then(() => {
-            const b = _stationBias(obsKey);
-            if (!b) { biasEl.style.display = 'none'; return; }
+          const b = _stationBias(`ninjo:${s.id}`);
+          if (b) {
             const sign    = b.bias >= 0 ? '+' : '';
             const absB    = Math.abs(b.bias);
             const biasCol = absB > 2 ? '#e06020' : absB > 1 ? '#e0a020' : '#8899aa';
@@ -1178,8 +1130,9 @@
               `<span style="color:#aaa;font-size:10px">Model bias&nbsp;</span>` +
               `<span style="color:${biasCol};font-size:10px;font-weight:600">${sign}${b.bias.toFixed(1)}&nbsp;m/s</span>` +
               `<span style="color:#aaa;font-size:10px">&nbsp;·&nbsp;${b.n}h</span>`;
-            marker.getPopup()?.update();
-          }).catch(() => null);
+          } else {
+            biasEl.style.display = 'none';
+          }
         }
       });
 
