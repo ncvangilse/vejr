@@ -191,6 +191,16 @@ async function loadDmiObservations(lat, lon, countryCode) {
     if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
 
     const result = await _dmiFindStation(lat, lon);
+
+    // NinJo snapshot (ninjo-stations.json) covers the same stations with fresher
+    // data — no point fetching from the open DMI API on top of that.
+    if (window.ninjoActive) {
+      console.log('[obs · DMI] NinJo is active — skipping DMI obs fetch');
+      window.DMI_OBS_STATUS = { state: 'idle', msg: '' };
+      if (window.updateDmiObsStatusUI) window.updateDmiObsStatusUI();
+      return;
+    }
+
     const allStations = result.all;
 
     // Store ALL active stations so the radar map can show them immediately,
