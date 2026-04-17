@@ -481,8 +481,13 @@
   ]);
 
   // ── Wind/history data sources ─────────────────────────────────────────
-  // RPi pushes rolling-window compressed JSON files to gh-pages every 10 min.
-  const OBS_HISTORY_URL  = './obs-history.json.gz';
+  // RPi pushes obs-history.json.gz to the gh-pages root only.
+  // Use an absolute URL so both prod (/vejr/) and dev (/vejr/dev/) always
+  // resolve to the same root-level file instead of a per-branch relative path.
+  const OBS_HISTORY_URL = (() => {
+    const root = location.href.replace(/\/(dev\/)?[^/]*$/, '/');
+    return root + 'obs-history.json.gz';
+  })();
 
   let trafikinfoLayer   = null;
   let dmiLayer          = null;
