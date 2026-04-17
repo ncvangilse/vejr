@@ -569,7 +569,7 @@
     const inv = _inv();
     (geo.features || []).forEach(f => {
       const [lon, lat] = f.geometry.coordinates;
-      const { windSpeed, windDirection } = f.properties;
+      const { windSpeed, windDirection, windDirectionDanish } = f.properties;
       const spd    = parseFloat(windSpeed) || 0;
       const deg    = DIR_DEG[windDirection] ?? 0;
       const rawCol = windColor(spd);
@@ -594,7 +594,20 @@
         iconSize: [24, 38], iconAnchor: [12, 12], popupAnchor: [0, -14],
       });
 
-      L.marker([lat, lon], { icon, interactive: false })
+      const dirLabel = windDirectionDanish
+        ? `${windDirection} – ${windDirectionDanish}`
+        : windDirection;
+      const popupEl = document.createElement('div');
+      popupEl.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:140px');
+      popupEl.innerHTML =
+        `<div style="color:#999;font-size:11px;margin-bottom:4px">Trafikkort</div>` +
+        `<div style="margin:3px 0">` +
+          `<span style="font-size:15px;font-weight:700;color:${col}">${spd}&nbsp;m/s</span>` +
+        `</div>` +
+        `<div style="color:#666;font-size:11px">Fra&nbsp;<b>${dirLabel}</b>&nbsp;(${deg}°)</div>`;
+
+      L.marker([lat, lon], { icon, interactive: true, zIndexOffset: 100 })
+        .bindPopup(popupEl, { maxWidth: 250, minWidth: 160 })
         .addTo(layer);
     });
   }
