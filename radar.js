@@ -740,7 +740,9 @@
       `</svg>`;
   }
 
-  /** Build the initial popup DOM element for a DMI station marker. */
+  /** Build the initial popup DOM element for a DMI station marker.
+   *  If s.obsHistory is already available the chart is rendered immediately;
+   *  otherwise the popupopen handler will lazy-load it on first open. */
   function _buildDmiPopupEl(s, isNearest) {
     const latest = s.latest;
     const col    = latest && latest.wind != null ? windColor(latest.wind) : '#50bed7';
@@ -776,6 +778,14 @@
       `<div class="dmi-hist-container" style="margin-top:6px;border-top:1px solid #e8e8e8;padding-top:5px">` +
         `<span style="color:#bbb;font-size:11px">Loading 24h history…</span>` +
       `</div>`;
+
+    // Pre-render immediately when history is already cached (nearest station).
+    if (s.obsHistory != null) {
+      const histEl = el.querySelector('.dmi-hist-container');
+      _renderDmiHistory(histEl, s.obsHistory);
+      histEl.dataset.loaded = '1';
+    }
+
     return el;
   }
 
