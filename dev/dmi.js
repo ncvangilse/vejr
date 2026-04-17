@@ -79,6 +79,8 @@ async function _dmiObs(stationId, paramId, fromIso, toIso) {
     + `&datetime=${encodeURIComponent(fromIso + '/' + toIso)}`
     + `&limit=10000`;
   const r = await fetch(url);
+  // 400 means the parameter is not available for this station — treat as empty.
+  if (r.status === 400) return { features: [] };
   if (!r.ok) throw new Error(`dmi-obs-${r.status}`);
   return r.json();
 }
@@ -94,6 +96,7 @@ async function _dmiObsMultiParam(stationId, paramIds, fromIso, toIso) {
     + `&datetime=${encodeURIComponent(fromIso + '/' + toIso)}`
     + `&limit=10000`;
   const r = await fetch(url);
+  if (r.status === 400) return { features: [] };
   if (!r.ok) throw new Error(`dmi-obs-${r.status}`);
   return r.json();
 }

@@ -220,7 +220,7 @@
       opacity, tileSize: 256, maxNativeZoom: RADAR_NATIVE_MAX_ZOOM, maxZoom: 18,
       keepBuffer: 0, updateWhenIdle: true,
     });
-    console.log(`[radar] makeLayer z≤${RADAR_NATIVE_MAX_ZOOM} — ${frameUrl(frame).replace('{z}/{x}/{y}','...')}`);
+    // console.log(`[radar] makeLayer z≤${RADAR_NATIVE_MAX_ZOOM} — ${frameUrl(frame).replace('{z}/{x}/{y}','...')}`);
     let pending = 0, errors = 0, probeUrl = null;
     l.on('tileloadstart', (e) => {
       pending++;
