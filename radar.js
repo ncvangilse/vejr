@@ -967,6 +967,7 @@
   }
 
   // Rebuild wind-station markers whenever inverted-colours mode is toggled.
+  window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () => {
     if (!radarMap) return;
     refreshWindStations();
   });
