@@ -35,7 +35,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `api.js` | Weather/ensemble/geocoding API calls + ensemble percentile math |
 | `config.js` | Constants, kite settings, URL↔localStorage sync |
 | `charts.js` | Canvas drawing: temp, precip, wind, cloud, kite highlights |
-| `dmi.js` | DMI FriData observation API: nearest station lookup, wind obs fetch, chart overlay |
+| ~~`dmi.js`~~ | **Removed** — replaced by obs-history.json.gz; file is now an empty stub |
 | `shore.js` | Land/sea pixel analysis for kitesurfing (Terrascope WMS / ESA WorldCover) |
 | `radar.js` | RainViewer radar map (Leaflet, frame animation, tile rate limiting) |
 | `weather-icons.js` | WMO code → canvas icon renderer |
@@ -61,8 +61,8 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Ensemble bands** — temperature/wind show p10–p90 shaded confidence regions
 - **Kite config** — URL params + localStorage bidirectional sync (shareable links + iOS Home Screen survival)
 - **Land/sea threshold** — `SHORE_SEA_THRESH` (default 0.75) is a `let` in shore.js, initialised from `KITE_CFG.seaThresh` (config.js loads first). Persisted as `kite_sea_thresh` URL param. Exposed via `window.setShoreSeaThresh` / `window.getShoreSeaThresh`. The kite dialog has a range slider (10–100 %, step 5) that previews the threshold live on the compass and commits it on Apply.
-- **DMI observations** — `dmi.js` fetches real wind measurements from the nearest DMI automatic weather station (within ~50 km). Only activates for DK/GL/FO. Uses the keyless open-data endpoint `https://opendataapi.dmi.dk/v2/metObs` — no registration needed. Observations (10-min intervals, past 48 h) fetch `wind_speed`, `wind_gust_always_10min`, and `wind_dir` in parallel; all three are merged by timestamp into `{t, wind, gust, dir}` entries stored on `window.DMI_OBS`. Status shown in the header as "📡 Obs: StationName · N km". Non-fatal: silently skipped outside Denmark or when the API is unavailable.
-- **Radar map wind stations** — `radar.js` fetches `obs-history.json.gz` (RPi-uploaded, same-origin) via `fetchObsHistory()` using `DecompressionStream('gzip')`. Stations prefixed `ninjo:` with IDs in `NINJO_HAS_HISTORY` get interactive popups with a 24h mini-chart and a forecast bias row; other NinJo and all `trafikkort:` stations get non-interactive arrows. Forecast bias (mean forecast − obs over 7 days of hourly pairs) is **pre-computed by the RPi** and embedded as `station.bias = { wind, n }` directly in `obs-history.json.gz` — no separate forecast-history file is fetched by the browser. `ninjo-stations.json` and `wind-speeds.json` are no longer pushed.
+- **DMI observations** — `dmi.js` is an empty stub; the DMI open-data API is no longer called. All wind observation history comes from `obs-history.json.gz` (pushed every 10 min by the RPi). Every marker on the radar map (both NinJo and Trafikkort) is fully interactive: clicking opens a popup with the station name, latest wind/gust/direction, model bias (if available), and a 24 h canvas mini-chart rendered directly from `obs-history.json.gz`. No DMI API key or network call is needed.
+- **Radar map wind stations** — `radar.js` fetches `obs-history.json.gz` (RPi-uploaded, same-origin) via `fetchObsHistory()` using `DecompressionStream('gzip')`. All stations (NinJo and Trafikkort) get fully interactive markers with a popup containing a 24 h canvas mini-chart and a forecast bias row. Bias is pre-computed by the RPi and embedded as `station.bias = { wind, n }` in `obs-history.json.gz`. `ninjo-stations.json` and `wind-speeds.json` are no longer pushed.
 - **Land/sea analysis** — single Terrascope WMS `GetMap` request (512×512 PNG) for a ~12 km bbox; pixel RGB matched against ESA WorldCover official class colours (class 80 water = rgb(0,100,200), class 90 wetland = rgb(0,150,160)); no new library required
 - **iOS inverted colors** — canvas pixels pre-inverted in JS to survive OS double-inversion
 - **Service Worker strategy** — network-only for all API calls, network-first for app files, cache-first for static assets
@@ -86,5 +86,5 @@ Tests use a VM-based loader (`tests/helpers/loader.js`) that concatenates source
 | `tests/app.test.js` | Load pipeline, render, kite settings |
 | `tests/api.test.js` | Ensemble percentile calculations |
 | `tests/config.test.js` | Kite config parsing, URL sync |
-| `tests/dmi.test.js` | DMI key storage, haversine, station finder, obs merge, `_dmiSplitByParam`, `_dmiObsMultiParam`, load flow, batching/rate-limit, progressive marker refresh |
+| ~~`tests/dmi.test.js`~~ | DMI API removed — file now contains a single no-op stub test |
 | `tests/shore.test.js` | WMS URL builder, pixel classifier, coordinate mapping, mask computation |
