@@ -449,8 +449,9 @@
   }
 
   // ── Radar height fitting ──────────────────────────────────────────────
-  // Expand #radar-map so that the footer sits just below the visible area
-  // when the user has scrolled the radar section to the top of the viewport.
+  // Size #radar-map so the footer sits just below the fold when the page
+  // is at scroll position 0 — i.e. the radar section fills whatever
+  // vertical space remains below the forecast charts.
   function _fitRadarHeight() {
     const section    = document.getElementById('radar-section');
     const mapEl      = document.getElementById('radar-map');
@@ -459,9 +460,13 @@
     if (!section || section.style.display === 'none') return;
     const headerH   = headerEl   ? headerEl.offsetHeight   : 34;
     const controlsH = controlsEl ? controlsEl.offsetHeight : 34;
-    // 12px = section margin-top; 2px = top + bottom section border
-    const overhead  = 12 + 2 + headerH + controlsH;
-    mapEl.style.minHeight = Math.max(320, window.innerHeight - overhead) + 'px';
+    // section.offsetTop = distance from document top to section border-box.
+    // footer has margin-top: 12px.  We want footer-top = window.innerHeight
+    // (just below fold) when scrollY = 0, so:
+    //   section.offsetTop + sectionHeight + 12 = window.innerHeight
+    //   mapHeight = window.innerHeight - section.offsetTop - 12 - headerH - controlsH - 2 (borders)
+    const mapH = window.innerHeight - section.offsetTop - 12 - headerH - controlsH - 2;
+    mapEl.style.minHeight = Math.max(320, mapH) + 'px';
   }
 
   // ── Resize / orientation ──────────────────────────────────────────────
