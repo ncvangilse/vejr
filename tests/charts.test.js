@@ -171,6 +171,57 @@ describe('windColorStr', () => {
   });
 });
 
+// ── SHORE_MASK must not override KITE_CFG.dirs ──────────────────────────────
+
+describe('isKiteOptimal – SHORE_MASK does not gate bearings already in dirs', () => {
+  it('returns true for a "land" bearing when it is explicitly in KITE_CFG.dirs', () => {
+    // SHORE_MASK marks bearing 0 as 0% sea (pure land), but user has 0 in dirs.
+    const mask = new Float32Array(36); // all zeros → 0% sea for every bearing
+    const ctx = loadChartLogic({
+      kiteCfg: { min: 0, max: 15, dirs: [0, 90, 180, 270], daylight: false },
+      shoreMask: mask,
+    });
+    expect(ctx.isKiteOptimal(8, 0,   '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(8, 90,  '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(8, 180, '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(8, 270, '2024-06-15T12:00')).toBe(true);
+  });
+
+  it('returns true for all 36 bearings with SHORE_MASK fully populated as land', () => {
+    const mask = new Float32Array(36); // all 0% sea
+    const ctx = loadChartLogic({
+      kiteCfg: { min: 0, max: 15, dirs: ALL_DIRS, daylight: false },
+      shoreMask: mask,
+    });
+    for (let deg = 0; deg < 360; deg += 10) {
+      expect(ctx.isKiteOptimal(5, deg, '2024-06-15T12:00')).toBe(true);
+    }
+  });
+
+  it('still returns false for a bearing not in KITE_CFG.dirs regardless of SHORE_MASK', () => {
+    const mask = new Float32Array(36).fill(1); // all 100% sea
+    const ctx = loadChartLogic({
+      kiteCfg: { min: 0, max: 15, dirs: [90, 270], daylight: false },
+      shoreMask: mask,
+    });
+    expect(ctx.isKiteOptimal(8, 0,   '2024-06-15T12:00')).toBe(false);
+    expect(ctx.isKiteOptimal(8, 180, '2024-06-15T12:00')).toBe(false);
+  });
+});
+
+describe('isKiteDirOnly – SHORE_MASK does not gate bearings already in dirs', () => {
+  it('returns true for "land" bearings that are in KITE_CFG.dirs', () => {
+    const mask = new Float32Array(36); // all 0% sea
+    const ctx = loadChartLogic({
+      kiteCfg: { min: 0, max: 15, dirs: ALL_DIRS, daylight: false },
+      shoreMask: mask,
+    });
+    for (let deg = 0; deg < 360; deg += 10) {
+      expect(ctx.isKiteDirOnly(deg, '2024-06-15T12:00')).toBe(true);
+    }
+  });
+});
+
 // ── all-directions + night mode + range 0–10 (regression for falsy-zero bug) ─
 
 const ALL_DIRS = Array.from({ length: 36 }, (_, i) => i * 10);
