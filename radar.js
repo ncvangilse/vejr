@@ -11,6 +11,14 @@ function _parseNominatimPlace(d) {
          || (d.display_name ? d.display_name.split(',')[0] : null) || null;
 }
 
+/** Returns true when d has a usable local address finer than municipality. */
+function _nominatimHasLocalDetail(d) {
+  if (!d || !d.address) return false;
+  const a = d.address;
+  return !!(a.neighbourhood || a.suburb || a.hamlet || a.village
+            || a.town || a.city_district || a.city);
+}
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -707,16 +715,25 @@ function _parseNominatimPlace(d) {
               const nameEl = popupEl.querySelector('.stn-name');
               if (nameEl && nameEl.dataset.geocoded !== '1') {
                 nameEl.dataset.geocoded = '1';
-                fetch(
-                  `https://nominatim.openstreetmap.org/reverse?lat=${sObj.lat}&lon=${sObj.lon}&format=json&addressdetails=1`,
-                  { headers: { 'Accept-Language': 'da' } }
-                ).then(r => r.ok ? r.json() : null).then(d => {
-                  const place = _parseNominatimPlace(d);
-                  if (place) {
-                    nameEl.textContent = place;
-                    marker.getPopup()?.update();
-                  }
-                }).catch(() => {});
+                const _nomFetch = (lat, lon, zoom) => {
+                  const z = zoom ? `&zoom=${zoom}` : '';
+                  return fetch(
+                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1${z}`,
+                    { headers: { 'Accept-Language': 'da' } }
+                  ).then(r => r.ok ? r.json() : null);
+                };
+                _nomFetch(sObj.lat, sObj.lon)
+                  .then(d => _nominatimHasLocalDetail(d)
+                    ? _parseNominatimPlace(d)
+                    : _nomFetch(sObj.lat, sObj.lon, 14)
+                        .then(d2 => _parseNominatimPlace(d2) || _parseNominatimPlace(d))
+                  )
+                  .then(place => {
+                    if (place) {
+                      nameEl.textContent = place;
+                      marker.getPopup()?.update();
+                    }
+                  }).catch(() => {});
               }
             }
             // Inject bias row — available synchronously from obs-history

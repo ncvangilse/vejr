@@ -4,7 +4,7 @@ import { loadScripts } from './helpers/loader.js';
 // radar.js is an IIFE that requires Leaflet (L). Without it the IIFE returns
 // early, but module-level helpers defined before the IIFE are still available.
 const ctx = loadScripts('radar.js');
-const { _parseNominatimPlace } = ctx;
+const { _parseNominatimPlace, _nominatimHasLocalDetail } = ctx;
 
 describe('_parseNominatimPlace', () => {
   it('returns null for null input', () => {
@@ -67,5 +67,35 @@ describe('_parseNominatimPlace', () => {
   it('handles missing address key gracefully', () => {
     const d = { display_name: 'Somewhere, Denmark' };
     expect(_parseNominatimPlace(d)).toBe('Somewhere');
+  });
+});
+
+describe('_nominatimHasLocalDetail', () => {
+  it('returns false for null', () => {
+    expect(_nominatimHasLocalDetail(null)).toBe(false);
+  });
+
+  it('returns false when only municipality is present', () => {
+    expect(_nominatimHasLocalDetail({ address: { municipality: 'Vordingborg Kommune' } })).toBe(false);
+  });
+
+  it('returns false when address is missing entirely', () => {
+    expect(_nominatimHasLocalDetail({ display_name: 'Somewhere' })).toBe(false);
+  });
+
+  it('returns true when city is present', () => {
+    expect(_nominatimHasLocalDetail({ address: { city: 'Copenhagen', municipality: 'Copenhagen Kommune' } })).toBe(true);
+  });
+
+  it('returns true when village is present', () => {
+    expect(_nominatimHasLocalDetail({ address: { village: 'Dragør', municipality: 'Tårnby Kommune' } })).toBe(true);
+  });
+
+  it('returns true when neighbourhood is present', () => {
+    expect(_nominatimHasLocalDetail({ address: { neighbourhood: 'Vesterbro' } })).toBe(true);
+  });
+
+  it('returns true when hamlet is present', () => {
+    expect(_nominatimHasLocalDetail({ address: { hamlet: 'Lille Skensved' } })).toBe(true);
   });
 });
