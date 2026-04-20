@@ -419,6 +419,7 @@
 
       _seenTiles.clear();
       document.getElementById('radar-section').style.display = 'flex';
+      _fitRadarHeight();
 
       // initMap must run after the section is visible so Leaflet can
       // measure the container dimensions correctly on first init.
@@ -447,10 +448,27 @@
     }
   }
 
+  // ── Radar height fitting ──────────────────────────────────────────────
+  // Expand #radar-map so that the footer sits just below the visible area
+  // when the user has scrolled the radar section to the top of the viewport.
+  function _fitRadarHeight() {
+    const section    = document.getElementById('radar-section');
+    const mapEl      = document.getElementById('radar-map');
+    const headerEl   = document.getElementById('radar-header');
+    const controlsEl = document.getElementById('radar-controls');
+    if (!section || section.style.display === 'none') return;
+    const headerH   = headerEl   ? headerEl.offsetHeight   : 34;
+    const controlsH = controlsEl ? controlsEl.offsetHeight : 34;
+    // 12px = section margin-top; 2px = top + bottom section border
+    const overhead  = 12 + 2 + headerH + controlsH;
+    mapEl.style.minHeight = Math.max(320, window.innerHeight - overhead) + 'px';
+  }
+
   // ── Resize / orientation ──────────────────────────────────────────────
   function onOrientationChange() {
+    _fitRadarHeight();
     if (!radarMap) return;
-    setTimeout(() => radarMap.invalidateSize(), 300);
+    setTimeout(() => { _fitRadarHeight(); radarMap.invalidateSize(); }, 300);
   }
   window.addEventListener('resize', onOrientationChange);
   screen.orientation?.addEventListener('change', onOrientationChange);

@@ -834,13 +834,6 @@ body.inverted-colors #app-footer { filter: invert(1); }
   }
 }
 
-/* ── Landscape (mobile): expand radar section to fill viewport so the footer
-      is just below the fold and reachable by scrolling ── */
-@media (orientation: landscape) and (max-height: 600px) {
-  #radar-section {
-    min-height: calc(100dvh - 12px); /* 12px = section's own margin-top */
-  }
-}
 
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
       @media (inverted-colors) does not reliably fire in WKWebView) ── */
