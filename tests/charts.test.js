@@ -171,6 +171,93 @@ describe('windColorStr', () => {
   });
 });
 
+// ── all-directions + night mode + range 0–10 (regression for falsy-zero bug) ─
+
+const ALL_DIRS = Array.from({ length: 36 }, (_, i) => i * 10);
+
+describe('isKiteOptimal – all directions, kite-at-night, range 0–10', () => {
+  let ctx;
+  beforeEach(() => {
+    ctx = loadChartLogic({
+      kiteCfg: { min: 0, max: 10, dirs: ALL_DIRS, daylight: false },
+    });
+  });
+
+  it('returns true for minimum edge speed (0 m/s) with any direction', () => {
+    expect(ctx.isKiteOptimal(0, 90,  '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(0, 0,   '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(0, 270, '2024-06-15T12:00')).toBe(true);
+  });
+
+  it('returns true for mid-range speed (5 m/s) with any direction', () => {
+    expect(ctx.isKiteOptimal(5, 0,   '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(5, 90,  '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(5, 180, '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(5, 270, '2024-06-15T12:00')).toBe(true);
+    expect(ctx.isKiteOptimal(5, 350, '2024-06-15T12:00')).toBe(true);
+  });
+
+  it('returns true for maximum edge speed (10 m/s) with any direction', () => {
+    expect(ctx.isKiteOptimal(10, 90, '2024-06-15T12:00')).toBe(true);
+  });
+
+  it('returns false for speed just above maximum (11 m/s)', () => {
+    expect(ctx.isKiteOptimal(11, 90, '2024-06-15T12:00')).toBe(false);
+  });
+
+  it('returns true at night when kite-at-night is active (daylight=false)', () => {
+    expect(ctx.isKiteOptimal(5, 90, '2024-06-15T02:00')).toBe(true);
+    expect(ctx.isKiteOptimal(5, 90, '2024-06-15T23:00')).toBe(true);
+  });
+
+  it('highlights every compass bearing — no direction is excluded', () => {
+    for (let deg = 0; deg < 360; deg += 10) {
+      expect(ctx.isKiteOptimal(5, deg, '2024-06-15T12:00')).toBe(true);
+    }
+  });
+});
+
+describe('isKiteDirOnly – all directions, kite-at-night', () => {
+  let ctx;
+  beforeEach(() => {
+    ctx = loadChartLogic({
+      kiteCfg: { min: 0, max: 10, dirs: ALL_DIRS, daylight: false },
+    });
+  });
+
+  it('returns true for every 10° bearing in daylight', () => {
+    for (let deg = 0; deg < 360; deg += 10) {
+      expect(ctx.isKiteDirOnly(deg, '2024-06-15T12:00')).toBe(true);
+    }
+  });
+
+  it('returns true at night when daylight=false (night mode on)', () => {
+    expect(ctx.isKiteDirOnly(0,   '2024-06-15T02:00')).toBe(true);
+    expect(ctx.isKiteDirOnly(90,  '2024-06-15T02:00')).toBe(true);
+    expect(ctx.isKiteDirOnly(270, '2024-06-15T23:00')).toBe(true);
+  });
+
+  it('returns false at night when daylight=true (night mode off)', () => {
+    const dayCtx = loadChartLogic({
+      kiteCfg: { min: 0, max: 10, dirs: ALL_DIRS, daylight: true },
+    });
+    expect(dayCtx.isKiteDirOnly(90,  '2024-06-15T02:00')).toBe(false);
+    expect(dayCtx.isKiteDirOnly(270, '2024-06-15T23:00')).toBe(false);
+  });
+
+  it('direction row is highlighted for all bearings whenever isKiteOptimal is true', () => {
+    const cases = [0, 5, 10].flatMap(speed =>
+      ALL_DIRS.map(deg => [speed, deg])
+    );
+    for (const [speed, deg] of cases) {
+      const t = '2024-06-15T12:00';
+      if (ctx.isKiteOptimal(speed, deg, t)) {
+        expect(ctx.isKiteDirOnly(deg, t)).toBe(true);
+      }
+    }
+  });
+});
+
 // ── isKiteDirOnly vs isKiteOptimal relationship ──────────────────────────────
 
 describe('isKiteDirOnly is a superset of isKiteOptimal', () => {
