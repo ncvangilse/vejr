@@ -419,6 +419,7 @@
 
       _seenTiles.clear();
       document.getElementById('radar-section').style.display = 'flex';
+      _fitRadarHeight();
 
       // initMap must run after the section is visible so Leaflet can
       // measure the container dimensions correctly on first init.
@@ -447,10 +448,32 @@
     }
   }
 
+  // ── Radar height fitting ──────────────────────────────────────────────
+  // Size #radar-map so the footer sits just below the fold when the page
+  // is at scroll position 0 — i.e. the radar section fills whatever
+  // vertical space remains below the forecast charts.
+  function _fitRadarHeight() {
+    const section    = document.getElementById('radar-section');
+    const mapEl      = document.getElementById('radar-map');
+    const headerEl   = document.getElementById('radar-header');
+    const controlsEl = document.getElementById('radar-controls');
+    if (!section || section.style.display === 'none') return;
+    const headerH   = headerEl   ? headerEl.offsetHeight   : 34;
+    const controlsH = controlsEl ? controlsEl.offsetHeight : 34;
+    // section.offsetTop = distance from document top to section border-box.
+    // footer has margin-top: 12px.  We want footer-top = window.innerHeight
+    // (just below fold) when scrollY = 0, so:
+    //   section.offsetTop + sectionHeight + 12 = window.innerHeight
+    //   mapHeight = window.innerHeight - section.offsetTop - 12 - headerH - controlsH - 2 (borders)
+    const mapH = window.innerHeight - section.offsetTop - 12 - headerH - controlsH - 2;
+    mapEl.style.minHeight = Math.max(320, mapH) + 'px';
+  }
+
   // ── Resize / orientation ──────────────────────────────────────────────
   function onOrientationChange() {
+    _fitRadarHeight();
     if (!radarMap) return;
-    setTimeout(() => radarMap.invalidateSize(), 300);
+    setTimeout(() => { _fitRadarHeight(); radarMap.invalidateSize(); }, 300);
   }
   window.addEventListener('resize', onOrientationChange);
   screen.orientation?.addEventListener('change', onOrientationChange);
