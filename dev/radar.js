@@ -691,7 +691,7 @@ function _nominatimHasLocalDetail(d) {
             name:       station.name,
             lat:        station.lat,
             lon:        station.lon,
-            source:     isNinjo ? 'NinJo' : 'Trafikkort',
+            source:     isNinjo ? 'DMI' : 'Trafikkort',
             obsTime,
             obsHistory: station.obs,
             latest:     { wind: latest.wind, gust: latest.gust ?? null, dir: latest.dir ?? null, time: latest.t },
@@ -815,9 +815,10 @@ function _nominatimHasLocalDetail(d) {
           : '');
     }
     const timeStr = s.obsTime
-      ? s.obsTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? s.obsTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
       : '';
-    const metaHtml = `${s.source}${timeStr ? `&nbsp;·&nbsp;obs&nbsp;${timeStr}` : ''}`;
+    const sourceUrl = s.source === 'DMI' ? 'https://www.dmi.dk/vejrdata/maalinger' : 'https://trafikkort.vejdirektoratet.dk';
+    const metaHtml = `<a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="color:#999;text-decoration:none">${s.source}</a>${timeStr ? `&nbsp;·&nbsp;obs&nbsp;${timeStr}` : ''}`;
     const el = document.createElement('div');
     el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:280px');
     el.innerHTML =
