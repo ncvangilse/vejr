@@ -834,6 +834,7 @@ body.inverted-colors #app-footer { filter: invert(1); }
   }
 }
 
+
 /* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
       @media (inverted-colors) does not reliably fire in WKWebView) ── */
 
