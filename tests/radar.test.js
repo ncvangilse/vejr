@@ -15,19 +15,39 @@ describe('_parseNominatimPlace', () => {
     expect(_parseNominatimPlace(undefined)).toBeNull();
   });
 
-  it('prefers city over town/village', () => {
-    const d = { address: { city: 'Copenhagen', town: 'Rødovre', village: 'Hvidovre' } };
-    expect(_parseNominatimPlace(d)).toBe('Copenhagen');
+  it('prefers neighbourhood over larger areas', () => {
+    const d = { address: { neighbourhood: 'Vesterbro', suburb: 'Indre By', city: 'Copenhagen' } };
+    expect(_parseNominatimPlace(d)).toBe('Vesterbro');
   });
 
-  it('falls back to town when no city', () => {
-    const d = { address: { town: 'Roskilde', village: 'Lejre' } };
+  it('prefers suburb over hamlet/village when no neighbourhood', () => {
+    const d = { address: { suburb: 'Sundbyøster', village: 'Dragør', city: 'Copenhagen' } };
+    expect(_parseNominatimPlace(d)).toBe('Sundbyøster');
+  });
+
+  it('prefers hamlet over village', () => {
+    const d = { address: { hamlet: 'Lille Skensved', village: 'Skensved' } };
+    expect(_parseNominatimPlace(d)).toBe('Lille Skensved');
+  });
+
+  it('prefers village over town', () => {
+    const d = { address: { village: 'Dragør', town: 'Tårnby' } };
+    expect(_parseNominatimPlace(d)).toBe('Dragør');
+  });
+
+  it('prefers town over city_district/city', () => {
+    const d = { address: { town: 'Roskilde', city: 'Copenhagen' } };
     expect(_parseNominatimPlace(d)).toBe('Roskilde');
   });
 
-  it('falls back to village when no city/town', () => {
-    const d = { address: { village: 'Dragør' } };
-    expect(_parseNominatimPlace(d)).toBe('Dragør');
+  it('falls back to city_district before city', () => {
+    const d = { address: { city_district: 'Østerbro', city: 'Copenhagen' } };
+    expect(_parseNominatimPlace(d)).toBe('Østerbro');
+  });
+
+  it('falls back to city when no smaller area available', () => {
+    const d = { address: { city: 'Copenhagen' } };
+    expect(_parseNominatimPlace(d)).toBe('Copenhagen');
   });
 
   it('falls back to municipality when no city/town/village', () => {

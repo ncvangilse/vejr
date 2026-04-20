@@ -2,11 +2,12 @@
    RAINVIEWER RADAR
 ══════════════════════════════════════════════════ */
 
-/** Extract a human-readable place name from a Nominatim reverse-geocode response. */
+/** Extract the most local place name from a Nominatim reverse-geocode response. */
 function _parseNominatimPlace(d) {
   if (!d) return null;
   const a = d.address || {};
-  return a.city || a.town || a.village || a.municipality
+  return a.neighbourhood || a.suburb || a.hamlet || a.village
+         || a.town || a.city_district || a.city || a.municipality
          || (d.display_name ? d.display_name.split(',')[0] : null) || null;
 }
 
