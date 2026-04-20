@@ -1189,9 +1189,11 @@ function renderShoreDebug() {
     if (seaThreshLabel)  seaThreshLabel.textContent = pct + '%';
   }
   function readDialogConfig() {
+    const parsedMin = parseFloat(minInput.value);
+    const parsedMax = parseFloat(maxInput.value);
     return {
-      min:       parseFloat(minInput.value) || KITE_DEFAULTS.min,
-      max:       parseFloat(maxInput.value) || KITE_DEFAULTS.max,
+      min:       isNaN(parsedMin) ? KITE_DEFAULTS.min : parsedMin,
+      max:       isNaN(parsedMax) ? KITE_DEFAULTS.max : parsedMax,
       dirs:      activeBearings.length ? activeBearings.slice() : KITE_DEFAULTS.dirs,
       daylight:  !daylightInput.checked,
       seaThresh: seaThreshSlider ? parseInt(seaThreshSlider.value) / 100 : KITE_DEFAULTS.seaThresh,

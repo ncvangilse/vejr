@@ -409,15 +409,12 @@ function isKiteOptimal(speed, deg, timeStr) {
   if (KITE_CFG.daylight && isNight(timeStr)) return false;
   if (!isKiteDir(deg)) return false;
   if (speed < KITE_CFG.min || speed > KITE_CFG.max) return false;
-  // If shore analysis is available, require the wind to come from the sea
-  if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
   return true;
 }
-/** Direction (and daylight/shore) match but speed may be outside the kite window. */
+/** Direction and daylight match but speed may be outside the kite window. */
 function isKiteDirOnly(deg, timeStr) {
   if (KITE_CFG.daylight && isNight(timeStr)) return false;
   if (!isKiteDir(deg)) return false;
-  if (window.SHORE_MASK && !isSeaBearing(deg)) return false;
   return true;
 }
 
