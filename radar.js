@@ -19,6 +19,12 @@ function _nominatimHasLocalDetail(d) {
             || a.town || a.city_district || a.city);
 }
 
+// RPi pushes obs-history.json.gz directly to the gh-pages branch.
+// Read from raw.githubusercontent.com so Pages source can be "GitHub Actions"
+// without losing live RPi data updates (RPi still pushes to gh-pages).
+const OBS_HISTORY_URL = 'https://raw.githubusercontent.com/ncvangilse/vejr/gh-pages/obs-history.json.gz';
+window.OBS_HISTORY_URL = OBS_HISTORY_URL;
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -507,15 +513,6 @@ function _nominatimHasLocalDetail(d) {
 
   // All stations in obs-history.json.gz now have full 24h history available.
   // Every marker is rendered interactively with a history popup.
-
-  // ── Wind/history data sources ─────────────────────────────────────────
-  // RPi pushes obs-history.json.gz to the gh-pages root only.
-  // Use an absolute URL so both prod (/vejr/) and dev (/vejr/dev/) always
-  // resolve to the same root-level file instead of a per-branch relative path.
-  const OBS_HISTORY_URL = (() => {
-    const root = location.href.replace(/\/(dev\/)?[^/]*$/, '/');
-    return root + 'obs-history.json.gz';
-  })();
 
   let trafikinfoLayer   = null;
   let dmiLayer          = null;
