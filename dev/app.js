@@ -175,8 +175,6 @@ async function load(cityName, model) {
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
     updateShoreStatusUI();
-    // DMI observations (fire-and-forget; re-renders when done)
-    loadDmiObservations(loc.latitude, loc.longitude, loc.country_code).catch(() => null);
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
@@ -1462,10 +1460,6 @@ async function loadAtCoords(lat, lon, model) {
       }
     }
     updateShoreStatusUI();
-    // DMI observations (fire-and-forget; re-renders when done)
-    if (reverseCountryCode) {
-      loadDmiObservations(lat, lon, reverseCountryCode).catch(() => null);
-    }
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display          = 'none';
