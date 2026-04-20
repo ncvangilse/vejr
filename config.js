@@ -35,8 +35,8 @@ function parseKiteParams() {
                      || p.has('kite_at_night') || p.has('kite_sea_thresh');
 
   if (hasUrlParams) {
-    if (p.has('kite_min'))  cfg.min  = parseFloat(p.get('kite_min'))  || cfg.min;
-    if (p.has('kite_max'))  cfg.max  = parseFloat(p.get('kite_max'))  || cfg.max;
+    if (p.has('kite_min')) { const v = parseFloat(p.get('kite_min')); if (!isNaN(v)) cfg.min = v; }
+    if (p.has('kite_max')) { const v = parseFloat(p.get('kite_max')); if (!isNaN(v)) cfg.max = v; }
     if (p.has('kite_dirs')) cfg.dirs = p.get('kite_dirs').split(',').map(Number).filter(v => !isNaN(v)).map(snapBearing);
     if (p.has('kite_at_night')) cfg.daylight = p.get('kite_at_night') !== '0' ? false : true;
     if (p.has('kite_sea_thresh')) {

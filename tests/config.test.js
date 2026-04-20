@@ -109,4 +109,40 @@ describe('kite settings – localStorage persistence (iOS Home Screen fix)', () 
     expect(cfg.dirs).toEqual([90, 270]);
     expect(cfg.daylight).toBe(true);
   });
+
+  it('parseKiteParams accepts kite_min=0 without falling back to default', () => {
+    // Regression: parseFloat('0') is falsy — must use isNaN guard, not || fallback
+    const ctx = loadScripts('config.js');
+    ctx.window.location.search = '?kite_min=0&kite_max=10';
+    const cfg = ctx.parseKiteParams();
+    expect(cfg.min).toBe(0);
+    expect(cfg.max).toBe(10);
+  });
+
+  it('parseKiteParams accepts kite_max=0 without falling back to default', () => {
+    const ctx = loadScripts('config.js');
+    ctx.window.location.search = '?kite_max=0';
+    const cfg = ctx.parseKiteParams();
+    expect(cfg.max).toBe(0);
+  });
+
+  it('parseKiteParams with kite_min=0 in localStorage restores zero correctly', () => {
+    const ctx = loadScripts('config.js');
+    ctx.localStorage.setItem('vejr_kite_cfg', JSON.stringify({ min: 0, max: 10, dirs: [90], daylight: false }));
+    const cfg = ctx.parseKiteParams();
+    expect(cfg.min).toBe(0);
+    expect(cfg.max).toBe(10);
+  });
+
+  it('parseKiteParams with all 36 bearings in kite_dirs preserves every bearing', () => {
+    const allDirs = Array.from({ length: 36 }, (_, i) => i * 10);
+    const ctx = loadScripts('config.js');
+    ctx.window.location.search = '?kite_dirs=' + allDirs.join(',') + '&kite_at_night=1';
+    const cfg = ctx.parseKiteParams();
+    expect(cfg.dirs).toHaveLength(36);
+    expect(cfg.dirs).toContain(0);
+    expect(cfg.dirs).toContain(180);
+    expect(cfg.dirs).toContain(350);
+    expect(cfg.daylight).toBe(false);
+  });
 });
