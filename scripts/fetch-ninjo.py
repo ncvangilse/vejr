@@ -60,6 +60,7 @@ import gzip
 import json
 import math
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import aiohttp
@@ -104,12 +105,14 @@ DIR_DEG = {
 
 # ── Pure helpers ───────────────────────────────────────────────────────────────
 
+_COPENHAGEN = ZoneInfo('Europe/Copenhagen')
+
 def _parse_ninjo_time_ms(s):
-    """'20260414103000' → Unix timestamp in milliseconds (UTC)."""
+    """'20260414103000' (local Copenhagen time) → Unix timestamp in milliseconds (UTC)."""
     dt = datetime(
         int(s[0:4]), int(s[4:6]),  int(s[6:8]),
         int(s[8:10]), int(s[10:12]), int(s[12:14]),
-        tzinfo=timezone.utc,
+        tzinfo=_COPENHAGEN,
     )
     return int(dt.timestamp() * 1000)
 
