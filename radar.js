@@ -1,6 +1,15 @@
 /* ══════════════════════════════════════════════════
    RAINVIEWER RADAR
 ══════════════════════════════════════════════════ */
+
+/** Extract a human-readable place name from a Nominatim reverse-geocode response. */
+function _parseNominatimPlace(d) {
+  if (!d) return null;
+  const a = d.address || {};
+  return a.city || a.town || a.village || a.municipality
+         || (d.display_name ? d.display_name.split(',')[0] : null) || null;
+}
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -692,6 +701,23 @@
               histEl.dataset.loaded = '1';
               marker.getPopup()?.update();
             }
+            // Reverse-geocode Trafikkort station name on first open
+            if (!isNinjo) {
+              const nameEl = popupEl.querySelector('.stn-name');
+              if (nameEl && nameEl.dataset.geocoded !== '1') {
+                nameEl.dataset.geocoded = '1';
+                fetch(
+                  `https://nominatim.openstreetmap.org/reverse?lat=${sObj.lat}&lon=${sObj.lon}&format=json&addressdetails=1`,
+                  { headers: { 'Accept-Language': 'da' } }
+                ).then(r => r.ok ? r.json() : null).then(d => {
+                  const place = _parseNominatimPlace(d);
+                  if (place) {
+                    nameEl.textContent = place;
+                    marker.getPopup()?.update();
+                  }
+                }).catch(() => {});
+              }
+            }
             // Inject bias row — available synchronously from obs-history
             const biasEl = popupEl.querySelector('.dmi-bias-row');
             if (biasEl && biasEl.dataset.loaded !== '1') {
@@ -777,7 +803,7 @@
     const el = document.createElement('div');
     el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:280px');
     el.innerHTML =
-      `<div style="font-size:13px;font-weight:700">${s.name}</div>` +
+      `<div class="stn-name" style="font-size:13px;font-weight:700">${s.name}</div>` +
       `<div style="color:#999;font-size:11px;margin-bottom:4px">${metaHtml}</div>` +
       windHtml +
       `<div class="dmi-bias-row" style="margin:2px 0;min-height:14px"></div>` +
