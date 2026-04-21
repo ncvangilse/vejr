@@ -188,10 +188,10 @@ describe('_buildProposeNameUrl', () => {
     expect(params.get('current-name')).toBe('Trafikkort 2047');
   });
 
-  it('pre-fills the proposed-name field with the geocoded display name', () => {
+  it('does not pre-fill the proposed-name field', () => {
     const url = _buildProposeNameUrl({ key: 'trafikkort:2047', name: 'Amager Strand' });
     const params = new URL(url).searchParams;
-    expect(params.get('proposed-name')).toBe('Amager Strand');
+    expect(params.get('proposed-name')).toBeNull();
   });
 
   it('pre-fills the station-key field with the station key', () => {
