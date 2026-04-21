@@ -794,8 +794,24 @@ window.updateDmiObsStatusUI = updateDmiObsStatusUI;
    Find the closest station in OBS_HISTORY to the given
    lat/lon, populate window.DMI_OBS, and re-render.
 ══════════════════════════════════════════════════ */
+function _setObsStationHeader(name) {
+  const el = document.getElementById('obs-station-name');
+  if (!el) return;
+  if (name) {
+    el.textContent = `📡 ${name}`;
+    el.style.display = '';
+  } else {
+    el.textContent = '';
+    el.style.display = 'none';
+  }
+}
+
 async function loadNearestObsStation(lat, lon) {
   window.DMI_OBS_STATUS = { state: 'loading', msg: 'loading…' };
+  // Clear stale station highlight and header immediately so the old info
+  // doesn't linger while the new lookup is in-flight.
+  _setObsStationHeader(null);
+  if (window.highlightNearestStation) window.highlightNearestStation(null, null);
   updateDmiObsStatusUI();
   try {
     let obsHistory = window.OBS_HISTORY;
@@ -839,20 +855,27 @@ async function loadNearestObsStation(lat, lon) {
     if (!bestStation || bestDist > 100) {
       window.DMI_OBS        = null;
       window.DMI_OBS_STATUS = { state: 'no-station', msg: '' };
+      if (window.highlightNearestStation) window.highlightNearestStation(null, null);
+      _setObsStationHeader(null);
     } else {
+      const name = bestStation.name || bestKey;
       window.DMI_OBS = {
         obs:         bestStation.obs,
-        stationName: bestStation.name || bestKey,
+        stationName: name,
         distKm:      bestDist.toFixed(1),
       };
       window.DMI_OBS_STATUS = {
         state: 'ok',
-        msg: `${bestStation.name || bestKey} · ${bestDist.toFixed(1)} km`,
+        msg: `${name} · ${bestDist.toFixed(1)} km`,
       };
+      if (window.highlightNearestStation) window.highlightNearestStation(bestStation.lat, bestStation.lon);
+      _setObsStationHeader(name);
     }
   } catch (e) {
     window.DMI_OBS        = null;
     window.DMI_OBS_STATUS = { state: 'error', msg: e.message || 'failed' };
+    if (window.highlightNearestStation) window.highlightNearestStation(null, null);
+    _setObsStationHeader(null);
   }
   updateDmiObsStatusUI();
   if (lastData) renderDisplay(lastData);
@@ -1535,6 +1558,7 @@ async function loadAtCoords(lat, lon, model) {
       }
     }
     updateShoreStatusUI();
+    loadNearestObsStation(lat, lon).catch(() => null);
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display          = 'none';
