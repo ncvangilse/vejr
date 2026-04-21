@@ -71,8 +71,7 @@ function _buildProposeNameUrl(s) {
     '?template=station-name.yml' +
     `&title=${encodeURIComponent(title)}` +
     `&station-key=${encodeURIComponent(s.key)}` +
-    `&current-name=${encodeURIComponent(s.name)}` +
-    `&proposed-name=${encodeURIComponent(s.name)}`
+    `&current-name=${encodeURIComponent(s.name)}`
   );
 }
 
