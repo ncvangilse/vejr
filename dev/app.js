@@ -4,6 +4,7 @@
 var lastData        = null;
 var lastRenderedData = null; // the sliced data passed to the most recent renderAll call
 let lastShoreCoords = null;  // { lat, lon } of the last loaded city
+let lastObsCoords   = null;  // { lat, lon } last used for nearest station lookup
 
 function syncInvertedColorsClass() {
   const on = window.matchMedia('(inverted-colors: inverted)').matches;
@@ -807,6 +808,7 @@ function _setObsStationHeader(name) {
 }
 
 async function loadNearestObsStation(lat, lon) {
+  lastObsCoords = { lat, lon };
   window.DMI_OBS_STATUS = { state: 'loading', msg: 'loading…' };
   // Clear stale station highlight and header immediately so the old info
   // doesn't linger while the new lookup is in-flight.
@@ -844,10 +846,17 @@ async function loadNearestObsStation(lat, lon) {
       return 2 * R * Math.asin(Math.sqrt(a));
     }
 
+    const vis = window.getObsLayerVisibility
+      ? window.getObsLayerVisibility()
+      : { dmi: true, trafikkort: true };
+
     let bestKey = null, bestStation = null, bestDist = Infinity;
     for (const [key, station] of Object.entries(obsHistory)) {
       if (!station.obs || !station.obs.length) continue;
       if (station.lat == null || station.lon == null) continue;
+      const isDmi = key.startsWith('ninjo:');
+      if (isDmi && !vis.dmi) continue;
+      if (!isDmi && !vis.trafikkort) continue;
       const dist = haversine(lat, lon, station.lat, station.lon);
       if (dist < bestDist) { bestDist = dist; bestKey = key; bestStation = station; }
     }
@@ -1625,6 +1634,11 @@ window.matchMedia('(inverted-colors: inverted)').addEventListener('change', () =
 if (window.setRadarDragCallback) {
   window.setRadarDragCallback((lat, lon) => {
     loadAtCoords(lat, lon, getModel());
+  });
+}
+if (window.setObsToggleCallback) {
+  window.setObsToggleCallback(() => {
+    if (lastObsCoords) loadNearestObsStation(lastObsCoords.lat, lastObsCoords.lon).catch(() => null);
   });
 }
 

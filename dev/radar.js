@@ -511,6 +511,10 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
+  let obsToggleCallback = null;
+  window.setObsToggleCallback  = function (cb) { obsToggleCallback = cb; };
+  window.getObsLayerVisibility = function () { return { dmi: dmiVisible, trafikkort: trafikinfoVisible }; };
+
   /**
    * Place (or move) a highlight ring on the radar map at the given coordinates.
    * Pass null/null to remove the ring without adding a new one.
@@ -1066,6 +1070,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       trafikinfoBtn.addEventListener('click', () => {
         trafikinfoVisible = !trafikinfoVisible;
         trafikinfoBtn.classList.toggle('active', trafikinfoVisible);
+        if (obsToggleCallback) obsToggleCallback();
         if (!radarMap) return;
         if (trafikinfoVisible) {
           if (trafikinfoLayer) trafikinfoLayer.addTo(radarMap);
@@ -1081,6 +1086,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       dmiBtn.addEventListener('click', () => {
         dmiVisible = !dmiVisible;
         dmiBtn.classList.toggle('active', dmiVisible);
+        if (obsToggleCallback) obsToggleCallback();
         if (!radarMap) return;
         if (dmiVisible) {
           if (dmiLayer) dmiLayer.addTo(radarMap);
