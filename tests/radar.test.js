@@ -1,16 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadScripts } from './helpers/loader.js';
 
 // radar.js is an IIFE that requires Leaflet (L). Without it the IIFE returns
 // early, but module-level helpers defined before the IIFE are still available.
 const ctx = loadScripts('radar.js');
-const { _parseNominatimPlace, _nominatimHasLocalDetail, _clampMenuPos } = ctx;
+const { _parseNominatimPlace, _nominatimHasLocalDetail, _clampMenuPos, _buildProposeNameUrl } = ctx;
 
 describe('OBS_HISTORY_URL', () => {
   it('points to raw.githubusercontent.com data branch', () => {
     expect(ctx.window.OBS_HISTORY_URL).toBe(
       'https://raw.githubusercontent.com/ncvangilse/vejr/data/obs-history.json.gz',
     );
+  });
+});
+
+describe('STATION_NAMES_URL', () => {
+  it('points to station-names.json in the app root', () => {
+    expect(ctx.window.STATION_NAMES_URL).toBe('station-names.json');
   });
 });
 
@@ -157,5 +163,86 @@ describe('window.fetchObsHistory exposure', () => {
     // the export line is present by checking the URL constant is set instead.
     // (Full IIFE behaviour requires Leaflet, which is not available in Node.)
     expect(ctx.window.OBS_HISTORY_URL).toBeDefined();
+  });
+});
+
+describe('_buildProposeNameUrl', () => {
+  it('returns a GitHub new-issue URL', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:1018', name: 'Trafikkort 1018' });
+    expect(url).toContain('https://github.com/ncvangilse/vejr/issues/new');
+  });
+
+  it('includes the station-name label', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:1018', name: 'Trafikkort 1018' });
+    expect(url).toContain('labels=station-name');
+  });
+
+  it('encodes the station key in the title', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:1018', name: 'Trafikkort 1018' });
+    expect(url).toContain(encodeURIComponent('trafikkort:1018'));
+  });
+
+  it('encodes the current name in the body', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:2047', name: 'Trafikkort 2047' });
+    expect(url).toContain(encodeURIComponent('Trafikkort 2047'));
+  });
+
+  it('body contains the station key', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:99', name: 'Some Name' });
+    const params = new URL(url).searchParams;
+    expect(params.get('body')).toContain('trafikkort:99');
+  });
+
+  it('body contains placeholder for proposed name', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:1', name: 'X' });
+    const params = new URL(url).searchParams;
+    expect(params.get('body')).toContain('[your suggestion here]');
+  });
+});
+
+describe('fetchStationNames', () => {
+  let origFetch;
+
+  beforeEach(() => { origFetch = ctx.fetch; });
+  afterEach(() => { ctx.fetch = origFetch; });
+
+  it('returns parsed JSON on success', async () => {
+    ctx.fetch = () => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ 'trafikkort:1018': 'Amager Strand' }),
+    });
+    const result = await ctx.window.fetchStationNames();
+    expect(result).toEqual({ 'trafikkort:1018': 'Amager Strand' });
+  });
+
+  it('returns {} on 404', async () => {
+    ctx.fetch = () => Promise.resolve({ ok: false, status: 404 });
+    const result = await ctx.window.fetchStationNames();
+    expect(result).toEqual({});
+  });
+
+  it('returns {} on network error', async () => {
+    ctx.fetch = () => Promise.reject(new Error('network'));
+    const result = await ctx.window.fetchStationNames();
+    expect(result).toEqual({});
+  });
+
+  it('returns {} on malformed JSON', async () => {
+    ctx.fetch = () => Promise.resolve({
+      ok: true,
+      json: () => Promise.reject(new SyntaxError('bad json')),
+    });
+    const result = await ctx.window.fetchStationNames();
+    expect(result).toEqual({});
+  });
+
+  it('fetches from STATION_NAMES_URL', async () => {
+    let capturedUrl;
+    ctx.fetch = (url) => {
+      capturedUrl = url;
+      return Promise.resolve({ ok: false });
+    };
+    await ctx.window.fetchStationNames();
+    expect(capturedUrl).toBe('station-names.json');
   });
 });

@@ -1,0 +1,36 @@
+name: Propose station name
+description: Suggest a better display name for a Trafikkort weather station
+title: "Station name: "
+labels: ["station-name"]
+body:
+  - type: input
+    id: station-key
+    attributes:
+      label: Station key
+      description: The station key (pre-filled by the app link, e.g. trafikkort:1018)
+      placeholder: "trafikkort:1018"
+    validations:
+      required: true
+  - type: input
+    id: proposed-name
+    attributes:
+      label: Proposed name
+      description: The name you want displayed (Danish preferred)
+      placeholder: "Amager Strand"
+    validations:
+      required: true
+  - type: input
+    id: current-name
+    attributes:
+      label: Current display name
+      description: What the station currently shows (helps the owner verify)
+      placeholder: "Trafikkort 1018"
+    validations:
+      required: false
+  - type: textarea
+    id: reason
+    attributes:
+      label: Reason (optional)
+      description: Why this name is better (local knowledge, official sign, etc.)
+    validations:
+      required: false

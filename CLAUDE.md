@@ -43,7 +43,9 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `manifest.json` | PWA manifest |
 | `tests/` | Vitest test files + VM loader helper |
 | `scripts/fetch-ninjo.py` | AppDaemon app (Home Assistant RPi): builds rolling `obs-history.json.gz` (every 10 min) and `forecast-history.json.gz` (daily) → gzip-compresses and pushes to gh-pages |
+| `station-names.json` | Curated Trafikkort station name overrides; keyed by `"trafikkort:<id>"` |
 | `.github/workflows/` | `deploy-prod.yml` (auto on main push), `deploy-test.yml` (non-main branches) |
+| `.github/ISSUE_TEMPLATE/station-name.yml` | Structured GitHub issue form for proposing Trafikkort station names |
 
 ### Data Flow
 
@@ -63,6 +65,7 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 - **Land/sea threshold** — `SHORE_SEA_THRESH` (default 0.75) is a `let` in shore.js, initialised from `KITE_CFG.seaThresh` (config.js loads first). Persisted as `kite_sea_thresh` URL param. Exposed via `window.setShoreSeaThresh` / `window.getShoreSeaThresh`. The kite dialog has a range slider (10–100 %, step 5) that previews the threshold live on the compass and commits it on Apply.
 - **DMI observations** — `dmi.js` is an empty stub; the DMI open-data API is no longer called. All wind observation history comes from `obs-history.json.gz` (pushed every 10 min by the RPi). Every marker on the radar map (both NinJo and Trafikkort) is fully interactive: clicking opens a popup with the station name, latest wind/gust/direction, model bias (if available), and a 24 h canvas mini-chart rendered directly from `obs-history.json.gz`. No DMI API key or network call is needed.
 - **Radar map wind stations** — `radar.js` fetches `obs-history.json.gz` (RPi-uploaded, same-origin) via `fetchObsHistory()` using `DecompressionStream('gzip')`. All stations (NinJo and Trafikkort) get fully interactive markers with a popup containing a 24 h canvas mini-chart and a forecast bias row. Bias is pre-computed by the RPi and embedded as `station.bias = { wind, n }` in `obs-history.json.gz`. `ninjo-stations.json` and `wind-speeds.json` are no longer pushed.
+- **Trafikkort name overrides** — `station-names.json` in the repo root maps station keys (`"trafikkort:<id>"`) to curated display names, fetched in parallel with `obs-history.json.gz`. When an override exists it supersedes Nominatim reverse-geocoding. Users can propose names via a ✏ pencil link in the popup (opens a pre-filled GitHub issue); the owner accepts by adding the entry to `station-names.json` via commit/PR.
 - **Land/sea analysis** — single Terrascope WMS `GetMap` request (512×512 PNG) for a ~12 km bbox; pixel RGB matched against ESA WorldCover official class colours (class 80 water = rgb(0,100,200), class 90 wetland = rgb(0,150,160)); no new library required
 - **iOS inverted colors** — canvas pixels pre-inverted in JS to survive OS double-inversion
 - **Service Worker strategy** — network-only for all API calls, network-first for app files, cache-first for static assets
@@ -88,3 +91,4 @@ Tests use a VM-based loader (`tests/helpers/loader.js`) that concatenates source
 | `tests/config.test.js` | Kite config parsing, URL sync |
 | ~~`tests/dmi.test.js`~~ | DMI API removed — file now contains a single no-op stub test |
 | `tests/shore.test.js` | WMS URL builder, pixel classifier, coordinate mapping, mask computation |
+| `tests/radar.test.js` | Nominatim name parsing, station name URL builder, `fetchStationNames` |
