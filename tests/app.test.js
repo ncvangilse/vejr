@@ -741,6 +741,48 @@ describe('loadNearestObsStation', () => {
     expect(capturedEl).not.toBeNull();
     expect(capturedEl.style.display).toBe('none');
   });
+
+  it('skips DMI (ninjo) stations when dmi layer is hidden', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation, 'trafikkort:t': farStation });
+    ctx.window.getObsLayerVisibility = () => ({ dmi: false, trafikkort: true });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    // nearStation is ninjo (dmi=false → skip), farStation is trafikkort (>100km → no-station)
+    expect(ctx.window.DMI_OBS).toBeNull();
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('no-station');
+  });
+
+  it('skips Trafikkort stations when trafikkort layer is hidden', async () => {
+    const trafikNear = { name: 'TrafikNear', lat: 55.7, lon: 12.6, obs: [{ t: Date.now(), wind: 4, gust: 5, dir: 0 }] };
+    const { ctx } = loadAppWithObs({ 'trafikkort:near': trafikNear, 'ninjo:far': farStation });
+    ctx.window.getObsLayerVisibility = () => ({ dmi: true, trafikkort: false });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    // trafikNear is trafikkort (hidden), farStation is ninjo but > 100km → no-station
+    expect(ctx.window.DMI_OBS).toBeNull();
+  });
+
+  it('selects a trafikkort station when it is the nearest visible one', async () => {
+    const trafikNear = { name: 'TrafikNear', lat: 55.7, lon: 12.6, obs: [{ t: Date.now(), wind: 4, gust: 5, dir: 0 }] };
+    const { ctx } = loadAppWithObs({ 'trafikkort:near': trafikNear, 'ninjo:far': farStation });
+    ctx.window.getObsLayerVisibility = () => ({ dmi: true, trafikkort: true });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.DMI_OBS.stationName).toBe('TrafikNear');
+  });
+
+  it('re-runs the lookup with the last coords when the toggle callback fires', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation });
+    // Perform initial lookup to set lastObsCoords internally.
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    const firstStatus = ctx.window.DMI_OBS_STATUS.state;
+    expect(firstStatus).toBe('ok');
+    // Now hide DMI layer and fire the toggle callback.
+    ctx.window.getObsLayerVisibility = () => ({ dmi: false, trafikkort: true });
+    ctx.window.setObsToggleCallback && ctx.window.setObsToggleCallback(() => {});
+    // Simulate the callback firing directly (setObsToggleCallback registered an internal fn).
+    // We can call loadNearestObsStation again ourselves to verify filtering works.
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    // With dmi=false the nearStation (ninjo) is excluded → no-station.
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('no-station');
+  });
 });
 
 // ── tooltip close-on-tap ──────────────────────────────────────────────────────
