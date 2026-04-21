@@ -6,6 +6,14 @@ import { loadScripts } from './helpers/loader.js';
 const ctx = loadScripts('radar.js');
 const { _parseNominatimPlace, _nominatimHasLocalDetail } = ctx;
 
+describe('OBS_HISTORY_URL', () => {
+  it('points to raw.githubusercontent.com gh-pages branch', () => {
+    expect(ctx.window.OBS_HISTORY_URL).toBe(
+      'https://raw.githubusercontent.com/ncvangilse/vejr/gh-pages/obs-history.json.gz',
+    );
+  });
+});
+
 describe('_parseNominatimPlace', () => {
   it('returns null for null input', () => {
     expect(_parseNominatimPlace(null)).toBeNull();

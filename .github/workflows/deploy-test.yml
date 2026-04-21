@@ -1,4 +1,4 @@
-name: Build & Deploy (Test)
+name: Test (non-main branches)
 run-name: "[build ${{ github.run_number }}] ${{ github.event.head_commit.message }}"
 
 on:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: pages-dev
@@ -31,39 +31,3 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate build number
-        id: build
-        run: |
-          BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/-/g')
-          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}-${BRANCH}
-          echo "number=$BUILD" >> $GITHUB_OUTPUT
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Inject build number and dev manifest paths
-        run: |
-          BUILD=${{ steps.build.outputs.number }}
-          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
-          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
-          sed -i 's|/vejr/|/vejr/dev/|g' manifest.json
-          sed -i "s|'./wind-speeds.json'|'../wind-speeds.json'|g" radar.js
-          sed -i "s|'./ninjo-stations.json'|'../ninjo-stations.json'|g" radar.js
-
-      # wind-speeds.json and ninjo-stations.json are served from the parent
-      # directory (../), so the dev app shares the same files as production.
-      # No need to fetch them here.
-
-      - name: Deploy to GitHub Pages (test)
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .
-          destination_dir: dev
-          keep_files: true
-          exclude_assets: '.github,tests,package.json,CLAUDE.md'

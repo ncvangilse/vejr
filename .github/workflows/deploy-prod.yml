@@ -6,7 +6,9 @@ on:
     branches: ['main']
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages-main
@@ -34,33 +36,30 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Generate build number
-        id: build
-        run: |
-          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
-          echo "number=$BUILD" >> $GITHUB_OUTPUT
-
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Inject build number
         run: |
-          BUILD=${{ steps.build.outputs.number }}
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
 
-      - name: Fetch NinJo station data
-        run: |
-          curl -fsSL \
-            'https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9' \
-            -o ninjo-stations.json \
-            || echo '{}' > ninjo-stations.json
+      - name: Remove non-app files before upload
+        run: rm -rf tests scripts node_modules
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .
-          keep_files: true
-          exclude_assets: '.github,tests,package.json,CLAUDE.md'
+        id: deployment
+        uses: actions/deploy-pages@v4
