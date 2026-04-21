@@ -90,8 +90,8 @@ RAW_BASE = 'https://raw.githubusercontent.com/ncvangilse/vejr/data'
 # so local persistence is the only way to survive a restart.
 _APP_DIR   = Path(__file__).parent
 STATE_FILES = {
-    'obs_history':  _APP_DIR / 'obs-history-local.json.gz',
-    'fcst_history': _APP_DIR / 'fcst-history-local.json.gz',
+    'obs_history':  _APP_DIR / 'obs-history-local.json',
+    'fcst_history': _APP_DIR / 'fcst-history-local.json',
 }
 
 # Cardinal direction → degrees (matches radar.js DIR_DEG)
@@ -260,30 +260,28 @@ class FetchNinjo(hass.Hass):
     # ── State persistence (local disk) ────────────────────────────────────────
 
     def _save_local(self, attr):
-        """Persist one history dict to disk as gzip-compressed JSON (atomic write)."""
+        """Persist one history dict to disk as plain JSON (atomic write)."""
         path = STATE_FILES[attr]
         data = getattr(self, attr)
         if data is None:
             return
         try:
             tmp = path.with_suffix('.tmp')
-            tmp.write_bytes(
-                gzip.compress(
-                    json.dumps(data, separators=(',', ':')).encode('utf-8'),
-                    compresslevel=6,
-                )
+            tmp.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding='utf-8',
             )
             tmp.replace(path)   # atomic on POSIX
         except Exception as e:
             self.log(f'WARNING: could not save {path.name}: {e}', level='WARNING')
 
     def _load_local(self, attr):
-        """Try to restore a history dict from the local gzip file. Returns True on success."""
+        """Try to restore a history dict from the local JSON file. Returns True on success."""
         path = STATE_FILES[attr]
         if not path.exists():
             return False
         try:
-            loaded = json.loads(gzip.decompress(path.read_bytes()))
+            loaded = json.loads(path.read_text(encoding='utf-8'))
             setattr(self, attr, loaded)
             self.log(f'Restored {path.name} from disk: {len(loaded)} stations')
             return True
