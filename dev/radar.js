@@ -891,6 +891,9 @@ function _buildProposeNameUrl(s) {
                       if (place) {
                         const textEl = nameEl.querySelector('.stn-name-text') || nameEl;
                         textEl.textContent = place;
+                        sObj.name = place;
+                        const proposeEl = nameEl.querySelector('.stn-name-propose');
+                        if (proposeEl) proposeEl.href = _buildProposeNameUrl(sObj);
                         marker.getPopup()?.update();
                       }
                     }).catch(() => {});
