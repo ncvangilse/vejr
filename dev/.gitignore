@@ -1,6 +1,10 @@
 # JS dependencies
 node_modules/
 
+# Python bytecode
+__pycache__/
+*.pyc
+
 wind-speeds.json
 
 # Test output artefacts
