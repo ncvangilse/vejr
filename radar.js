@@ -66,15 +66,12 @@ window.fetchStationNames = fetchStationNames;
  */
 function _buildProposeNameUrl(s) {
   const title = `Station name: ${s.key}`;
-  const body =
-    `**Station key:** ${s.key}\n` +
-    `**Proposed name:** [your suggestion here]\n` +
-    `**Current display name:** ${s.name}`;
   return (
     'https://github.com/ncvangilse/vejr/issues/new' +
-    '?labels=station-name' +
+    '?template=station-name.yml' +
     `&title=${encodeURIComponent(title)}` +
-    `&body=${encodeURIComponent(body)}`
+    `&station-key=${encodeURIComponent(s.key)}` +
+    `&current-name=${encodeURIComponent(s.name)}`
   );
 }
 
