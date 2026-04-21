@@ -128,8 +128,11 @@
   <div id="radar-header">
     <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – precipitation</span>
     <span id="radar-tile-counter" title="Tile requests today (max ~1000)">0 / 1000 tiles</span>
-    <button id="radar-trafikinfo-toggle" class="radar-overlay-toggle active" title="Toggle Trafikkort wind station overlay">Trafikinfo</button>
-    <button id="radar-dmi-toggle" class="radar-overlay-toggle active" title="Toggle DMI observation overlay">DMI obs</button>
+    <div class="radar-stations-group">
+      <span class="radar-stations-label">Stations</span>
+      <button id="radar-trafikinfo-toggle" class="radar-overlay-toggle active" title="Toggle Trafikkort wind station overlay">Trafikinfo</button>
+      <button id="radar-dmi-toggle" class="radar-overlay-toggle active" title="Toggle DMI observation overlay">DMI obs</button>
+    </div>
     <span id="radar-source-label">RainViewer</span>
   </div>
   <div id="radar-map">
