@@ -634,11 +634,14 @@ describe('inverted-colors change listener', () => {
 
 function loadAppWithObs(obsHistory) {
   const renderCalls = [];
+  const highlightCalls = [];
   const { ctx } = loadApp({ renderAllSpy: (d) => renderCalls.push(d) });
   // Pre-populate OBS_HISTORY and lastData so loadNearestObsStation can skip fetch.
   ctx.window.OBS_HISTORY = obsHistory;
   ctx.lastData = makeData((7 * 24) / 3, 7 * 24);
-  return { ctx, renderCalls };
+  // Spy for map highlight
+  ctx.window.highlightNearestStation = (lat, lon) => highlightCalls.push({ lat, lon });
+  return { ctx, renderCalls, highlightCalls };
 }
 
 describe('loadNearestObsStation', () => {
@@ -689,6 +692,54 @@ describe('loadNearestObsStation', () => {
     const { ctx, renderCalls } = loadAppWithObs({ 'ninjo:near': nearStation });
     await ctx.loadNearestObsStation(55.68, 12.57);
     expect(renderCalls.length).toBeGreaterThan(0);
+  });
+
+  it('calls highlightNearestStation with station coords when a station is found', async () => {
+    const { ctx, highlightCalls } = loadAppWithObs({ 'ninjo:near': nearStation });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    const found = highlightCalls.find(c => c.lat != null);
+    expect(found).toBeDefined();
+    expect(found.lat).toBeCloseTo(nearStation.lat, 1);
+    expect(found.lon).toBeCloseTo(nearStation.lon, 1);
+  });
+
+  it('calls highlightNearestStation(null, null) when no station within range', async () => {
+    const { ctx, highlightCalls } = loadAppWithObs({ 'ninjo:far': farStation });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    const last = highlightCalls.at(-1);
+    expect(last).toBeDefined();
+    expect(last.lat).toBeNull();
+    expect(last.lon).toBeNull();
+  });
+
+  it('populates obs-station-name element when a station is found', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation });
+    // The default getElementById stub returns makeEl() which has textContent and style.
+    let capturedEl = null;
+    const origGet = ctx.document.getElementById.bind(ctx.document);
+    ctx.document.getElementById = (id) => {
+      const el = origGet(id);
+      if (id === 'obs-station-name') capturedEl = el;
+      return el;
+    };
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(capturedEl).not.toBeNull();
+    expect(capturedEl.textContent).toContain('Near');
+    expect(capturedEl.style.display).not.toBe('none');
+  });
+
+  it('hides obs-station-name when no station is found', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:far': farStation });
+    let capturedEl = null;
+    const origGet = ctx.document.getElementById.bind(ctx.document);
+    ctx.document.getElementById = (id) => {
+      const el = origGet(id);
+      if (id === 'obs-station-name') capturedEl = el;
+      return el;
+    };
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(capturedEl).not.toBeNull();
+    expect(capturedEl.style.display).toBe('none');
   });
 });
 
