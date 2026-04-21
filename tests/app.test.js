@@ -136,6 +136,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     drawShoreCompass:   null,
     analyseShore:       () => {},
     drawShoreDebug:     () => {},
+    fetchStationNames:  async () => ({}),
   });
 
   vm.runInContext(APP_SRC, ctx);
@@ -726,6 +727,22 @@ describe('loadNearestObsStation', () => {
     expect(capturedEl).not.toBeNull();
     expect(capturedEl.textContent).toContain('Near');
     expect(capturedEl.style.display).not.toBe('none');
+  });
+
+  it('applies station-names.json override in header and DMI_OBS.stationName', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation });
+    ctx.window.STATION_NAMES = null;
+    ctx.window.fetchStationNames = async () => ({ 'ninjo:near': 'Custom Override Name' });
+    let capturedEl = null;
+    const origGet = ctx.document.getElementById.bind(ctx.document);
+    ctx.document.getElementById = (id) => {
+      const el = origGet(id);
+      if (id === 'obs-station-name') capturedEl = el;
+      return el;
+    };
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(capturedEl.textContent).toContain('Custom Override Name');
+    expect(ctx.window.DMI_OBS.stationName).toBe('Custom Override Name');
   });
 
   it('hides obs-station-name when no station is found', async () => {
