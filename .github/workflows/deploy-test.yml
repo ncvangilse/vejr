@@ -41,7 +41,8 @@ jobs:
 
       - name: Inject build number
         run: |
-          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
+          BRANCH=$(echo "${{ github.ref_name }}" | tr '/' '-')
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}-$BRANCH
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
 
