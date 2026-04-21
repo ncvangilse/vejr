@@ -502,6 +502,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
   screen.orientation?.addEventListener('change', onOrientationChange);
 
   window.loadRadar = loadRadar;
+  window.fetchObsHistory = fetchObsHistory;
 
   /**
    * Register a callback that fires whenever the user drags the location
@@ -510,6 +511,31 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
 
+  let obsToggleCallback = null;
+  window.setObsToggleCallback  = function (cb) { obsToggleCallback = cb; };
+  window.getObsLayerVisibility = function () { return { dmi: dmiVisible, trafikkort: trafikinfoVisible }; };
+
+  /**
+   * Place (or move) a highlight ring on the radar map at the given coordinates.
+   * Pass null/null to remove the ring without adding a new one.
+   * Color matches the yellow obs dots drawn on the wind forecast chart.
+   */
+  window.highlightNearestStation = function(lat, lon) {
+    if (!radarMap) return;
+    if (nearestStationRing) { radarMap.removeLayer(nearestStationRing); nearestStationRing = null; }
+    if (lat == null || lon == null) return;
+    const yellow = '#ffe040';
+    const col = _inv() ? `rgb(${255-255},${255-224},${255-64})` : yellow;
+    nearestStationRing = L.circleMarker([lat, lon], {
+      radius:      14,
+      color:       col,
+      weight:      2.5,
+      fillOpacity: 0,
+      interactive: false,
+      zIndexOffset: 500,
+    }).addTo(radarMap);
+  };
+
   // All stations in obs-history.json.gz now have full 24h history available.
   // Every marker is rendered interactively with a history popup.
 
@@ -517,6 +543,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
   let dmiLayer          = null;
   let trafikinfoVisible = true;
   let dmiVisible        = true;
+  let nearestStationRing = null;
 
   // True when the body has the 'inverted-colors' class set by app.js.
   const _inv = () => document.body.classList.contains('inverted-colors');
@@ -1043,6 +1070,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       trafikinfoBtn.addEventListener('click', () => {
         trafikinfoVisible = !trafikinfoVisible;
         trafikinfoBtn.classList.toggle('active', trafikinfoVisible);
+        if (obsToggleCallback) obsToggleCallback();
         if (!radarMap) return;
         if (trafikinfoVisible) {
           if (trafikinfoLayer) trafikinfoLayer.addTo(radarMap);
@@ -1058,6 +1086,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       dmiBtn.addEventListener('click', () => {
         dmiVisible = !dmiVisible;
         dmiBtn.classList.toggle('active', dmiVisible);
+        if (obsToggleCallback) obsToggleCallback();
         if (!radarMap) return;
         if (dmiVisible) {
           if (dmiLayer) dmiLayer.addTo(radarMap);
