@@ -1,4 +1,4 @@
-name: Test (non-main branches)
+name: Test & Deploy (dev preview)
 run-name: "[build ${{ github.run_number }}] ${{ github.event.head_commit.message }}"
 
 on:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pages-dev
@@ -31,3 +31,34 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject build number
+        run: |
+          BUILD=$(date -u '+%Y.%m.%d')-${{ github.run_number }}
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
+          sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
+
+      - name: Inject manifest paths
+        run: |
+          sed -i 's|%%MANIFEST_START_URL%%|/dev/vejr.html|g' manifest.json
+          sed -i 's|%%MANIFEST_SCOPE%%|/dev/|g' manifest.json
+
+      - name: Remove non-app files
+        run: |
+          rm -rf tests scripts node_modules .github .idea .vscode
+          rm -f CLAUDE.md README.md package.json package-lock.json vitest.config.js CNAME
+
+      - name: Deploy to GitHub Pages (dev)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: dev
+          keep_files: true

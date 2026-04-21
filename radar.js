@@ -19,10 +19,9 @@ function _nominatimHasLocalDetail(d) {
             || a.town || a.city_district || a.city);
 }
 
-// RPi pushes obs-history.json.gz directly to the gh-pages branch.
-// Read from raw.githubusercontent.com so Pages source can be "GitHub Actions"
-// without losing live RPi data updates (RPi still pushes to gh-pages).
-const OBS_HISTORY_URL = 'https://raw.githubusercontent.com/ncvangilse/vejr/gh-pages/obs-history.json.gz';
+// RPi pushes obs-history.json.gz to the dedicated data branch.
+// Read from raw.githubusercontent.com/data so gh-pages is only touched by CI.
+const OBS_HISTORY_URL = 'https://raw.githubusercontent.com/ncvangilse/vejr/data/obs-history.json.gz';
 window.OBS_HISTORY_URL = OBS_HISTORY_URL;
 
 (function () {

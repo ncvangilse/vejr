@@ -6,9 +6,7 @@ on:
     branches: ['main']
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages-main
@@ -36,9 +34,6 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,17 +44,19 @@ jobs:
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" vejr.html
           sed -i "s/%%BUILD_NUMBER%%/$BUILD/g" sw.js
 
-      - name: Remove non-app files before upload
-        run: rm -rf tests scripts node_modules
+      - name: Inject manifest paths
+        run: |
+          sed -i 's|%%MANIFEST_START_URL%%|/vejr.html|g' manifest.json
+          sed -i 's|%%MANIFEST_SCOPE%%|/|g' manifest.json
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
+      - name: Remove non-app files
+        run: |
+          rm -rf tests scripts node_modules .github .idea .vscode
+          rm -f CLAUDE.md README.md package.json package-lock.json vitest.config.js
 
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true

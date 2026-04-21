@@ -83,10 +83,10 @@ FCST_WINDOW_D = 7    # days of forecast history to keep
 FORECAST_BATCH = 50
 
 # Raw base URL for bootstrapping state on startup
-RAW_BASE = 'https://raw.githubusercontent.com/ncvangilse/vejr/gh-pages'
+RAW_BASE = 'https://raw.githubusercontent.com/ncvangilse/vejr/data'
 
 # Local state files — persisted next to the app file so crashes / restarts
-# don't lose accumulated history.  fcst-history is never pushed to gh-pages
+# don't lose accumulated history.  fcst-history is never pushed to the data branch
 # so local persistence is the only way to survive a restart.
 _APP_DIR   = Path(__file__).parent
 STATE_FILES = {
@@ -183,7 +183,7 @@ def _resample_hourly(obs, date_str):
 class FetchNinjo(hass.Hass):
 
     REPO   = 'ncvangilse/vejr'
-    BRANCH = 'gh-pages'
+    BRANCH = 'data'
 
     def initialize(self):
         self.token        = self.args['github_token']
