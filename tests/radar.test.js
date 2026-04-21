@@ -4,7 +4,7 @@ import { loadScripts } from './helpers/loader.js';
 // radar.js is an IIFE that requires Leaflet (L). Without it the IIFE returns
 // early, but module-level helpers defined before the IIFE are still available.
 const ctx = loadScripts('radar.js');
-const { _parseNominatimPlace, _nominatimHasLocalDetail } = ctx;
+const { _parseNominatimPlace, _nominatimHasLocalDetail, _clampMenuPos } = ctx;
 
 describe('OBS_HISTORY_URL', () => {
   it('points to raw.githubusercontent.com data branch', () => {
@@ -105,6 +105,47 @@ describe('_nominatimHasLocalDetail', () => {
 
   it('returns true when hamlet is present', () => {
     expect(_nominatimHasLocalDetail({ address: { hamlet: 'Lille Skensved' } })).toBe(true);
+  });
+});
+
+describe('_clampMenuPos', () => {
+  it('returns the click point when there is room to the right and below', () => {
+    const { x, y } = _clampMenuPos(100, 100, 1280, 800);
+    expect(x).toBe(100);
+    expect(y).toBe(100);
+  });
+
+  it('flips left when menu would overflow the right viewport edge', () => {
+    // clientX=1200, estW=180 → 1200+180=1380 > 1280, so flip: x = 1200-180 = 1020
+    const { x } = _clampMenuPos(1200, 100, 1280, 800);
+    expect(x).toBe(1020);
+  });
+
+  it('flips up when menu would overflow the bottom viewport edge', () => {
+    // clientY=780, estH=40 → 780+40=820 > 800, so flip: y = 780-40 = 740
+    const { y } = _clampMenuPos(100, 780, 1280, 800);
+    expect(y).toBe(740);
+  });
+
+  it('flips both axes when near the bottom-right corner', () => {
+    const { x, y } = _clampMenuPos(1200, 780, 1280, 800);
+    expect(x).toBe(1020);
+    expect(y).toBe(740);
+  });
+
+  it('respects custom estimated dimensions', () => {
+    // estW=200, estH=60
+    const { x, y } = _clampMenuPos(1100, 760, 1280, 800, 200, 60);
+    // 1100+200=1300 > 1280 → flip x: 1100-200=900
+    expect(x).toBe(900);
+    // 760+60=820 > 800 → flip y: 760-60=700
+    expect(y).toBe(700);
+  });
+
+  it('does not flip when click is exactly at the edge with room for default menu size', () => {
+    // clientX=1100, estW=180 → 1100+180=1280 = vw (not strictly greater) → no flip
+    const { x } = _clampMenuPos(1100, 100, 1280, 800);
+    expect(x).toBe(1100);
   });
 });
 
