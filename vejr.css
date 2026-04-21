@@ -129,6 +129,7 @@ canvas.main-canvas {
   width: 100%;
 }
 #loading { padding: 40px; text-align: center; font-size: 15px; color: #555; }
+#forecast-content.updating { opacity: 0.4; pointer-events: none; transition: opacity 0.15s; }
 #error-msg {
   padding: 20px 24px; color: #900; text-align: center;
   line-height: 1.7; display: none;
