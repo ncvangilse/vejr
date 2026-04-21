@@ -845,6 +845,17 @@ async function loadNearestObsStation(lat, lon) {
     }
     if (!obsHistory) throw new Error('obs-history unavailable');
 
+    let stationNames = window.STATION_NAMES;
+    if (!stationNames) {
+      try {
+        const fetchFn = window.fetchStationNames;
+        stationNames = fetchFn ? await fetchFn() : {};
+      } catch (_) {
+        stationNames = {};
+      }
+      window.STATION_NAMES = stationNames;
+    }
+
     // Haversine distance in km
     const R = 6371;
     const toRad = d => d * Math.PI / 180;
@@ -875,7 +886,7 @@ async function loadNearestObsStation(lat, lon) {
       if (window.highlightNearestStation) window.highlightNearestStation(null, null);
       _setObsStationHeader(null);
     } else {
-      const name = bestStation.name || bestKey;
+      const name = stationNames[bestKey] ?? bestStation.name ?? bestKey;
       window.DMI_OBS = {
         obs:         bestStation.obs,
         stationName: name,
