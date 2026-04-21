@@ -15,8 +15,14 @@ function syncInvertedColorsClass() {
 ══════════════════════════════════════════════════ */
 async function load(cityName, model) {
   model = model || 'best_match';
-  document.getElementById('loading').style.display='block';
-  document.getElementById('forecast-content').style.display='none';
+  const forecastEl = document.getElementById('forecast-content');
+  const isReload = lastData !== null;
+  if (isReload) {
+    forecastEl.classList.add('updating');
+  } else {
+    document.getElementById('loading').style.display='block';
+    forecastEl.style.display='none';
+  }
   document.getElementById('error-msg').style.display='none';
   try {
     window.SHORE_MASK   = null;
@@ -152,7 +158,8 @@ async function load(cityName, model) {
     document.getElementById('updated-text').textContent =
       `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
     document.getElementById('loading').style.display='none';
-    document.getElementById('forecast-content').style.display='block';
+    forecastEl.style.display='block';
+    forecastEl.classList.remove('updating');
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
@@ -181,6 +188,7 @@ async function load(cityName, model) {
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display='none';
+    forecastEl.classList.remove('updating');
     document.getElementById('error-msg').style.display='block';
   }
 }
@@ -837,17 +845,6 @@ async function loadNearestObsStation(lat, lon) {
     }
     if (!obsHistory) throw new Error('obs-history unavailable');
 
-    let stationNames = window.STATION_NAMES;
-    if (!stationNames) {
-      try {
-        const fetchFn = window.fetchStationNames;
-        stationNames = fetchFn ? await fetchFn() : {};
-      } catch (_) {
-        stationNames = {};
-      }
-      window.STATION_NAMES = stationNames;
-    }
-
     // Haversine distance in km
     const R = 6371;
     const toRad = d => d * Math.PI / 180;
@@ -878,7 +875,7 @@ async function loadNearestObsStation(lat, lon) {
       if (window.highlightNearestStation) window.highlightNearestStation(null, null);
       _setObsStationHeader(null);
     } else {
-      const name = stationNames[bestKey] ?? bestStation.name ?? bestKey;
+      const name = bestStation.name || bestKey;
       window.DMI_OBS = {
         obs:         bestStation.obs,
         stationName: name,
@@ -1416,9 +1413,15 @@ function setLoadingMsg(msg) {
  */
 async function loadAtCoords(lat, lon, model) {
   model = model || getModel();
-  document.getElementById('loading').style.display          = 'block';
-  document.getElementById('forecast-content').style.display = 'none';
-  document.getElementById('error-msg').style.display        = 'none';
+  const forecastEl = document.getElementById('forecast-content');
+  const isReload = lastData !== null;
+  if (isReload) {
+    forecastEl.classList.add('updating');
+  } else {
+    document.getElementById('loading').style.display = 'block';
+    forecastEl.style.display = 'none';
+  }
+  document.getElementById('error-msg').style.display = 'none';
   try {
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
@@ -1547,8 +1550,9 @@ async function loadAtCoords(lat, lon, model) {
     const now=new Date();
     document.getElementById('updated-text').textContent =
       `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
-    document.getElementById('loading').style.display          = 'none';
-    document.getElementById('forecast-content').style.display = 'block';
+    document.getElementById('loading').style.display = 'none';
+    forecastEl.style.display = 'block';
+    forecastEl.classList.remove('updating');
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
@@ -1581,8 +1585,9 @@ async function loadAtCoords(lat, lon, model) {
     loadNearestObsStation(lat, lon).catch(() => null);
   } catch(e) {
     console.error(e);
-    document.getElementById('loading').style.display          = 'none';
-    document.getElementById('error-msg').style.display        = 'block';
+    document.getElementById('loading').style.display = 'none';
+    forecastEl.classList.remove('updating');
+    document.getElementById('error-msg').style.display = 'block';
   }
 }
 
