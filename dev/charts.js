@@ -821,13 +821,20 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // Yellow dots  = 10-min mean wind speed from the nearest DMI station.
   // Orange dots  = 10-min gust (wind_gust_always_10min) — faint, drawn first so
   //                the wind dots appear on top.
-  // x-mapping: elapsed hours from times[0] × colW, centred like cx2().
+  // x-mapping: slot-aware position so portrait variable-resolution slots align.
   if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
-    const t0ms = new Date(times[0]).getTime();
+    const displayMs = times.map(t => new Date(t).getTime());
     ctx.save();
     for (const ob of window.DMI_OBS.obs) {
-      const fracH = (ob.t - t0ms) / 3600000;
-      const x = (fracH + 0.5) * colW;
+      // Find which display slot ob.t falls into and compute the fractional offset
+      // within that slot.  For 1-hour uniform slots this reduces to (fracH+0.5)*colW.
+      let j = 0;
+      while (j < displayMs.length - 1 && displayMs[j + 1] <= ob.t) j++;
+      const slotDur = j < displayMs.length - 1
+        ? displayMs[j + 1] - displayMs[j]
+        : (j > 0 ? displayMs[j] - displayMs[j - 1] : 3600000);
+      const slotFrac = (ob.t - displayMs[j]) / slotDur;
+      const x = (j + slotFrac + 0.5) * colW;
       if (x < -8 || x > cssW + 8) continue;
       // gust dot (faint orange — drawn first so wind dot appears on top)
       if (ob.gust != null && isFinite(ob.gust)) {

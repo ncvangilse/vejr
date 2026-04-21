@@ -161,7 +161,7 @@ async function load(cityName, model) {
     };
     // Double rAF ensures layout is complete before measuring canvas width
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      renderDisplay(lastData);
+      renderDisplay(lastData, true);
       // Fetch other-model wind lines in the background; re-render on arrival.
       const capturedData = lastData;
       fetchOtherModelsWind(loc.latitude, loc.longitude, model)
@@ -174,6 +174,8 @@ async function load(cityName, model) {
     }));
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
+    // Find nearest obs station and overlay its wind history on the wind chart.
+    loadNearestObsStation(loc.latitude, loc.longitude).catch(() => null);
     updateShoreStatusUI();
   } catch(e) {
     console.error(e);
@@ -333,47 +335,49 @@ function buildPortraitSeries(s) {
   };
 }
 
-function renderDisplay(d) {
+function renderDisplay(d, scrollToNow = false) {
   const portrait       = window.matchMedia('(orientation: portrait)').matches;
   const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
   syncInvertedColorsClass();
-  // In portrait, start from the current time and show the full remaining forecast
-  // (scrollable). In landscape show the full 7-day window from midnight.
-  let s3 = 0, s1 = 0;
-  if (portrait) {
-    const now = Date.now();
-    const i = d.times.findIndex(t => new Date(t).getTime() >= now);
-    s3 = i >= 0 ? i : 0;
-    // Align the 1h window to the same start time as the 3h window so that
-    // day dividers fall at the same pixel position in the icon row and graphs.
-    const startTime = new Date(d.times[s3]).getTime();
-    const i1 = d.times1h.findIndex(t => new Date(t).getTime() >= startTime);
-    s1 = i1 >= 0 ? i1 : 0;
-  }
-  const n3h = portrait ? d.times.length - s3 : Math.ceil(FORECAST_DAYS * 24 / STEP);
-  const n1h = portrait ? d.times1h.length - s1 : Math.ceil(FORECAST_DAYS * 24 / STEP1H);
+  // In portrait, show the full forecast from the data start (today midnight) so
+  // the user can scroll back to see today's earlier hours. In landscape show the
+  // full 7-day window from data start.
+  const n3h = Math.ceil(FORECAST_DAYS * 24 / STEP);
+  const n1h = Math.ceil(FORECAST_DAYS * 24 / STEP1H);
   const s = {
-    times:    d.times.slice(s3, s3 + n3h),    temps:    d.temps.slice(s3, s3 + n3h),
-    precips:  d.precips.slice(s3, s3 + n3h),  gusts:    d.gusts.slice(s3, s3 + n3h),
-    winds:    d.winds.slice(s3, s3 + n3h),    dirs:     d.dirs.slice(s3, s3 + n3h),
-    codes:    d.codes.slice(s3, s3 + n3h),
-    ensTemp:  slicePercentilesFrom(d.ensTemp,  s3, n3h), ensWind:  slicePercentilesFrom(d.ensWind,  s3, n3h),
-    ensGust:  slicePercentilesFrom(d.ensGust,  s3, n3h), ensPrecip: slicePercentilesFrom(d.ensPrecip, s3, n3h),
-    times1h:  d.times1h.slice(s1, s1 + n1h),  temps1h:  d.temps1h.slice(s1, s1 + n1h),
-    codes1h:  d.codes1h ? d.codes1h.slice(s1, s1 + n1h) : null,
-    precips1h: d.precips1h.slice(s1, s1 + n1h), gusts1h: d.gusts1h.slice(s1, s1 + n1h),
-    winds1h:  d.winds1h.slice(s1, s1 + n1h),
-    dirs1h:   d.dirs1h ? d.dirs1h.slice(s1, s1 + n1h) : null,
-    ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  s1, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  s1, n1h),
-    ensGust1h:  slicePercentilesFrom(d.ensGust1h,  s1, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, s1, n1h),
+    times:    d.times.slice(0, n3h),    temps:    d.temps.slice(0, n3h),
+    precips:  d.precips.slice(0, n3h),  gusts:    d.gusts.slice(0, n3h),
+    winds:    d.winds.slice(0, n3h),    dirs:     d.dirs.slice(0, n3h),
+    codes:    d.codes.slice(0, n3h),
+    ensTemp:  slicePercentilesFrom(d.ensTemp,  0, n3h), ensWind:  slicePercentilesFrom(d.ensWind,  0, n3h),
+    ensGust:  slicePercentilesFrom(d.ensGust,  0, n3h), ensPrecip: slicePercentilesFrom(d.ensPrecip, 0, n3h),
+    times1h:  d.times1h.slice(0, n1h),  temps1h:  d.temps1h.slice(0, n1h),
+    codes1h:  d.codes1h ? d.codes1h.slice(0, n1h) : null,
+    precips1h: d.precips1h.slice(0, n1h), gusts1h: d.gusts1h.slice(0, n1h),
+    winds1h:  d.winds1h.slice(0, n1h),
+    dirs1h:   d.dirs1h ? d.dirs1h.slice(0, n1h) : null,
+    ensTemp1h:  slicePercentilesFrom(d.ensTemp1h,  0, n1h), ensWind1h:  slicePercentilesFrom(d.ensWind1h,  0, n1h),
+    ensGust1h:  slicePercentilesFrom(d.ensGust1h,  0, n1h), ensPrecip1h: slicePercentilesFrom(d.ensPrecip1h, 0, n1h),
     otherModelsWind1h: d.otherModelsWind1h
-      ? d.otherModelsWind1h.map(m => ({ model: m.model, winds1h: m.winds1h.slice(s1, s1 + n1h) }))
+      ? d.otherModelsWind1h.map(m => ({ model: m.model, winds1h: m.winds1h.slice(0, n1h) }))
       : null,
   };
   const colW = portrait ? PORTRAIT_COL_W : null;
   const displayData = portrait ? buildPortraitSeries(s) : s;
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
+  // In portrait, scroll to center the current time in the viewport on initial load.
+  if (portrait && scrollToNow && displayData.xMap1h) {
+    requestAnimationFrame(() => {
+      const nowMs = Date.now();
+      const idx = displayData.times1h.findIndex(t => new Date(t).getTime() >= nowMs);
+      const xNow = idx >= 0 ? displayData.xMap1h[idx] : displayData.xMap1h[displayData.xMap1h.length - 1];
+      const wraps = document.querySelectorAll ? document.querySelectorAll('.chart-canvas-wrap') : [];
+      const visW = wraps[0] ? wraps[0].clientWidth : 0;
+      const target = Math.max(0, xNow - visW / 2);
+      wraps.forEach(w => { w.scrollLeft = target; });
+    });
+  }
   if (invertedColors) {
     ['c-top', 'c-temp', 'c-dir', 'c-wind'].forEach(id => {
       const canvas = document.getElementById(id);
@@ -784,6 +788,75 @@ function updateDmiObsStatusUI() {
   el.style.color  = color;
 }
 window.updateDmiObsStatusUI = updateDmiObsStatusUI;
+
+/* ══════════════════════════════════════════════════
+   NEAREST STATION LOOKUP
+   Find the closest station in OBS_HISTORY to the given
+   lat/lon, populate window.DMI_OBS, and re-render.
+══════════════════════════════════════════════════ */
+async function loadNearestObsStation(lat, lon) {
+  window.DMI_OBS_STATUS = { state: 'loading', msg: 'loading…' };
+  updateDmiObsStatusUI();
+  try {
+    let obsHistory = window.OBS_HISTORY;
+    if (!obsHistory) {
+      const fetchFn = window.fetchObsHistory;
+      if (fetchFn) {
+        obsHistory = await fetchFn();
+      } else {
+        const url = window.OBS_HISTORY_URL;
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (typeof DecompressionStream !== 'undefined') {
+          const ds = new DecompressionStream('gzip');
+          const text = await new Response(r.body.pipeThrough(ds)).text();
+          obsHistory = JSON.parse(text);
+        } else {
+          obsHistory = await r.json();
+        }
+        window.OBS_HISTORY = obsHistory;
+      }
+    }
+    if (!obsHistory) throw new Error('obs-history unavailable');
+
+    // Haversine distance in km
+    const R = 6371;
+    const toRad = d => d * Math.PI / 180;
+    function haversine(lat1, lon1, lat2, lon2) {
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    let bestKey = null, bestStation = null, bestDist = Infinity;
+    for (const [key, station] of Object.entries(obsHistory)) {
+      if (!station.obs || !station.obs.length) continue;
+      if (station.lat == null || station.lon == null) continue;
+      const dist = haversine(lat, lon, station.lat, station.lon);
+      if (dist < bestDist) { bestDist = dist; bestKey = key; bestStation = station; }
+    }
+
+    if (!bestStation || bestDist > 100) {
+      window.DMI_OBS        = null;
+      window.DMI_OBS_STATUS = { state: 'no-station', msg: '' };
+    } else {
+      window.DMI_OBS = {
+        obs:         bestStation.obs,
+        stationName: bestStation.name || bestKey,
+        distKm:      bestDist.toFixed(1),
+      };
+      window.DMI_OBS_STATUS = {
+        state: 'ok',
+        msg: `${bestStation.name || bestKey} · ${bestDist.toFixed(1)} km`,
+      };
+    }
+  } catch (e) {
+    window.DMI_OBS        = null;
+    window.DMI_OBS_STATUS = { state: 'error', msg: e.message || 'failed' };
+  }
+  updateDmiObsStatusUI();
+  if (lastData) renderDisplay(lastData);
+}
 
 /* ══════════════════════════════════════════════════
    SHORE DEBUG PANEL
