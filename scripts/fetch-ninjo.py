@@ -385,6 +385,9 @@ class FetchNinjo(hass.Hass):
         fdf['t']    = now_ms
         fdf['wind'] = fdf['properties.windSpeed'].astype(float)
         fdf['dir']  = fdf['properties.windDirection'].map(DIR_DEG)
+        # Drop stations with missing or unrecognised wind direction — these are
+        # phantom/inactive entries that don't appear on trafikkort.dk either.
+        fdf = fdf[fdf['dir'].notna()].copy()
         fdf['lat']  = fdf['geometry.coordinates'].apply(
             lambda c: c[1] if isinstance(c, list) and len(c) >= 2 else None)
         fdf['lon']  = fdf['geometry.coordinates'].apply(

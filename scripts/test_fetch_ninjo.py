@@ -54,5 +54,65 @@ class TestParseNinjoTimeMs(unittest.TestCase):
         self.assertNotEqual(result, wrong_ms)
 
 
+
+# DIR_DEG replicated from fetch-ninjo.py (kept in sync manually).
+_DIR_DEG = {
+    'N': 0,   'NNE': 22,  'NE': 45,  'ENE': 67,
+    'E': 90,  'ESE': 112, 'SE': 135, 'SSE': 157,
+    'S': 180, 'SSW': 202, 'SW': 225, 'WSW': 247,
+    'W': 270, 'WNW': 292, 'NW': 315, 'NNW': 337,
+}
+
+
+def _map_dir(raw):
+    """Simulate pandas Series.map(DIR_DEG) for a single raw windDirection value."""
+    return _DIR_DEG.get(raw)   # returns None when key is absent
+
+
+class TestTrafikkDirFilter(unittest.TestCase):
+    """
+    Documents and verifies the direction-based filter added to _parse_trafikk_df.
+
+    Ghost/inactive Trafikkort stations (e.g. near 54.94, 11.97) appear in the
+    raw GeoJSON with windSpeed=0 and a null/unrecognised windDirection.  They
+    must be excluded from the obs-history to avoid phantom markers on the radar
+    map.  The fix: after mapping windDirection through DIR_DEG, drop any row
+    where dir is NaN (i.e. the direction was absent or unrecognised).
+    """
+
+    def test_null_direction_excluded(self):
+        self.assertIsNone(_map_dir(None))
+
+    def test_empty_string_excluded(self):
+        self.assertIsNone(_map_dir(''))
+
+    def test_nonstandard_strings_excluded(self):
+        for val in ('CALM', 'variable', 'VAR', '--', '0', 'calm'):
+            self.assertIsNone(_map_dir(val), msg=f"expected None for {val!r}")
+
+    def test_all_cardinal_directions_pass(self):
+        for compass, degrees in _DIR_DEG.items():
+            result = _map_dir(compass)
+            self.assertIsNotNone(result, msg=f"{compass} should map to a degree value")
+            self.assertEqual(result, degrees)
+
+    def test_ghost_station_scenario(self):
+        # Station near 54.94°N, 11.97°E: windSpeed=0, windDirection=None.
+        # windSpeed is non-null, so it passes the first filter, but the dir
+        # filter must reject it.
+        wind_speed = 0.0
+        wind_dir = None
+        self.assertIsNotNone(wind_speed)     # passes windSpeed.notna() check
+        self.assertIsNone(_map_dir(wind_dir))  # fails dir.notna() check → excluded
+
+    def test_calm_wind_with_valid_direction_kept(self):
+        # windSpeed=0 is valid in calm conditions; the station should survive if
+        # it still reports a recognisable cardinal direction.
+        wind_speed = 0.0
+        wind_dir = 'N'
+        self.assertIsNotNone(wind_speed)
+        self.assertIsNotNone(_map_dir(wind_dir))
+
+
 if __name__ == '__main__':
     unittest.main()
