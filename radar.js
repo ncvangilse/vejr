@@ -66,15 +66,12 @@ window.fetchStationNames = fetchStationNames;
  */
 function _buildProposeNameUrl(s) {
   const title = `Station name: ${s.key}`;
-  const body =
-    `**Station key:** ${s.key}\n` +
-    `**Proposed name:** [your suggestion here]\n` +
-    `**Current display name:** ${s.name}`;
   return (
     'https://github.com/ncvangilse/vejr/issues/new' +
-    '?labels=station-name' +
+    '?template=station-name.yml' +
     `&title=${encodeURIComponent(title)}` +
-    `&body=${encodeURIComponent(body)}`
+    `&station-key=${encodeURIComponent(s.key)}` +
+    `&current-name=${encodeURIComponent(s.name)}`
   );
 }
 
@@ -893,6 +890,9 @@ function _buildProposeNameUrl(s) {
                       if (place) {
                         const textEl = nameEl.querySelector('.stn-name-text') || nameEl;
                         textEl.textContent = place;
+                        sObj.name = place;
+                        const proposeEl = nameEl.querySelector('.stn-name-propose');
+                        if (proposeEl) proposeEl.href = _buildProposeNameUrl(sObj);
                         marker.getPopup()?.update();
                       }
                     }).catch(() => {});
