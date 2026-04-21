@@ -2,23 +2,6 @@
    RAINVIEWER RADAR
 ══════════════════════════════════════════════════ */
 
-/**
- * Clamp a context-menu position so it stays inside the viewport.
- * Returns the adjusted { x, y } using fixed coordinates (for position:fixed menus).
- * @param {number} cx - mouse clientX
- * @param {number} cy - mouse clientY
- * @param {number} vw - viewport width  (window.innerWidth)
- * @param {number} vh - viewport height (window.innerHeight)
- * @param {number} [estW=180] - estimated menu width
- * @param {number} [estH=40]  - estimated menu height
- */
-function _clampMenuPos(cx, cy, vw, vh, estW = 180, estH = 40) {
-  return {
-    x: cx + estW > vw ? cx - estW : cx,
-    y: cy + estH > vh ? cy - estH : cy,
-  };
-}
-
 /** Extract the most local place name from a Nominatim reverse-geocode response. */
 function _parseNominatimPlace(d) {
   if (!d) return null;
@@ -40,6 +23,43 @@ function _nominatimHasLocalDetail(d) {
 // Read from raw.githubusercontent.com/data so gh-pages is only touched by CI.
 const OBS_HISTORY_URL = 'https://raw.githubusercontent.com/ncvangilse/vejr/data/obs-history.json.gz';
 window.OBS_HISTORY_URL = OBS_HISTORY_URL;
+
+const STATION_NAMES_URL = 'station-names.json';
+window.STATION_NAMES_URL = STATION_NAMES_URL;
+
+/**
+ * Fetch station-names.json and return a map of station key → curated name.
+ * Returns {} on any failure (missing file, network error, parse error).
+ */
+async function fetchStationNames() {
+  try {
+    const r = await fetch(STATION_NAMES_URL, { cache: 'no-store' });
+    if (!r.ok) return {};
+    return await r.json();
+  } catch (_) {
+    return {};
+  }
+}
+window.fetchStationNames = fetchStationNames;
+
+/**
+ * Build a pre-filled GitHub new-issue URL for proposing a station name.
+ * @param {{ key: string, name: string }} s  station object
+ * @returns {string}
+ */
+function _buildProposeNameUrl(s) {
+  const title = `Station name: ${s.key}`;
+  const body =
+    `**Station key:** ${s.key}\n` +
+    `**Proposed name:** [your suggestion here]\n` +
+    `**Current display name:** ${s.name}`;
+  return (
+    'https://github.com/ncvangilse/vejr/issues/new' +
+    '?labels=station-name' +
+    `&title=${encodeURIComponent(title)}` +
+    `&body=${encodeURIComponent(body)}`
+  );
+}
 
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
@@ -68,57 +88,6 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
   const timeLabel = document.getElementById('radar-time-label');
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
-
-  // ── Desktop right-click context menu ─────────────────────────────────
-  function attachContextMenu(mapEl) {
-    let ctxMenuEl = null;
-    let pendingLatLng = null;
-
-    function buildMenu() {
-      const div = document.createElement('div');
-      div.id = 'radar-ctx-menu';
-      const item = document.createElement('div');
-      item.className = 'radar-ctx-item';
-      item.textContent = 'Set position here';
-      item.addEventListener('click', () => {
-        div.classList.remove('visible');
-        if (pendingLatLng && onMarkerDragEnd) {
-          const { lat, lng } = pendingLatLng;
-          placeLocationMarkers(lat, lng);
-          onMarkerDragEnd(lat, lng);
-        }
-      });
-      div.appendChild(item);
-      document.body.appendChild(div);
-      return div;
-    }
-
-    mapEl.addEventListener('contextmenu', e => {
-      if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-      e.preventDefault();
-      if (!radarMap) return;
-
-      if (!ctxMenuEl) ctxMenuEl = buildMenu();
-
-      const rect = mapEl.getBoundingClientRect();
-      pendingLatLng = radarMap.containerPointToLatLng(
-        [e.clientX - rect.left, e.clientY - rect.top]
-      );
-
-      // Position the menu, flipping toward the inside edge when near viewport boundary
-      const { x, y } = _clampMenuPos(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
-      ctxMenuEl.style.left = x + 'px';
-      ctxMenuEl.style.top  = y + 'px';
-      ctxMenuEl.classList.add('visible');
-    });
-
-    document.addEventListener('click', e => {
-      if (ctxMenuEl && !ctxMenuEl.contains(e.target)) ctxMenuEl.classList.remove('visible');
-    });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && ctxMenuEl) ctxMenuEl.classList.remove('visible');
-    });
-  }
 
   // ── Map drag ──────────────────────────────────────────────────────────
   function attachMapDrag(mapEl) {
@@ -180,32 +149,6 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
     mapEl.addEventListener('mousedown',   e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.clientX, e.clientY); });
     window.addEventListener('mousemove',  e => onMove(e.clientX, e.clientY));
     window.addEventListener('mouseup',    onEnd);
-
-    // Desktop: Ctrl+scroll zooms the map; plain scroll scrolls the page and
-    // shows a transient hint pointing to Ctrl+scroll.
-    const scrollHintEl = document.createElement('div');
-    scrollHintEl.id = 'radar-scroll-hint';
-    scrollHintEl.textContent = 'Use Ctrl + scroll to zoom';
-    mapEl.appendChild(scrollHintEl);
-
-    let scrollHintTimeout = null;
-    function showScrollHint() {
-      clearTimeout(scrollHintTimeout);
-      scrollHintEl.classList.add('visible');
-      scrollHintTimeout = setTimeout(() => scrollHintEl.classList.remove('visible'), 1500);
-    }
-
-    mapEl.addEventListener('wheel', e => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (radarMap) radarMap.setZoom(radarMap.getZoom() + (e.deltaY < 0 ? 1 : -1));
-      } else {
-        // Only show hint on pointer devices (not trackpad-only touch-sim)
-        if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) showScrollHint();
-        // No preventDefault — let the page scroll naturally
-      }
-    }, { passive: false });
   }
 
   // ── Daily tile-request counter (persisted in localStorage) ───────────
@@ -414,7 +357,6 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       radarMap = L.map('radar-map', {
         zoomControl: false, attributionControl: false,
         dragging: false, inertia: false,
-        scrollWheelZoom: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
@@ -422,7 +364,6 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
       attachMapDrag(document.getElementById('radar-map'));
-      attachContextMenu(document.getElementById('radar-map'));
 
       let moveDebounce = null;
       radarMap.on('movestart', () => {
@@ -769,7 +710,10 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
     dmiLayer        = L.layerGroup();
 
     try {
-      const obsHistory = await fetchObsHistory();
+      const [obsHistory, stationNames] = await Promise.all([
+        fetchObsHistory(),
+        fetchStationNames(),
+      ]);
 
       if (!obsHistory) {
         console.log('[map] obs-history unavailable');
@@ -807,13 +751,14 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
           const obsTime = new Date(latest.t);
           const sObj = {
             key,
-            name:       station.name,
-            lat:        station.lat,
-            lon:        station.lon,
-            source:     isNinjo ? 'DMI' : 'Trafikkort',
+            name:         station.name,
+            overrideName: stationNames[key] ?? null,
+            lat:          station.lat,
+            lon:          station.lon,
+            source:       isNinjo ? 'DMI' : 'Trafikkort',
             obsTime,
-            obsHistory: station.obs,
-            latest:     { wind: latest.wind, gust: latest.gust ?? null, dir: latest.dir ?? null, time: latest.t },
+            obsHistory:   station.obs,
+            latest:       { wind: latest.wind, gust: latest.gust ?? null, dir: latest.dir ?? null, time: latest.t },
           };
 
           const popupEl = _buildStationPopupEl(sObj);
@@ -834,25 +779,28 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
               const nameEl = popupEl.querySelector('.stn-name');
               if (nameEl && nameEl.dataset.geocoded !== '1') {
                 nameEl.dataset.geocoded = '1';
-                const _nomFetch = (lat, lon, zoom) => {
-                  const z = zoom ? `&zoom=${zoom}` : '';
-                  return fetch(
-                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1${z}`,
-                    { headers: { 'Accept-Language': 'da' } }
-                  ).then(r => r.ok ? r.json() : null);
-                };
-                _nomFetch(sObj.lat, sObj.lon)
-                  .then(d => _nominatimHasLocalDetail(d)
-                    ? _parseNominatimPlace(d)
-                    : _nomFetch(sObj.lat, sObj.lon, 14)
-                        .then(d2 => _parseNominatimPlace(d2) || _parseNominatimPlace(d))
-                  )
-                  .then(place => {
-                    if (place) {
-                      nameEl.textContent = place;
-                      marker.getPopup()?.update();
-                    }
-                  }).catch(() => {});
+                if (nameEl.dataset.override !== '1') {
+                  const _nomFetch = (lat, lon, zoom) => {
+                    const z = zoom ? `&zoom=${zoom}` : '';
+                    return fetch(
+                      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1${z}`,
+                      { headers: { 'Accept-Language': 'da' } }
+                    ).then(r => r.ok ? r.json() : null);
+                  };
+                  _nomFetch(sObj.lat, sObj.lon)
+                    .then(d => _nominatimHasLocalDetail(d)
+                      ? _parseNominatimPlace(d)
+                      : _nomFetch(sObj.lat, sObj.lon, 14)
+                          .then(d2 => _parseNominatimPlace(d2) || _parseNominatimPlace(d))
+                    )
+                    .then(place => {
+                      if (place) {
+                        const textEl = nameEl.querySelector('.stn-name-text') || nameEl;
+                        textEl.textContent = place;
+                        marker.getPopup()?.update();
+                      }
+                    }).catch(() => {});
+                }
               }
             }
             // Inject bias row — available synchronously from obs-history
@@ -938,10 +886,15 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       : '';
     const sourceUrl = s.source === 'DMI' ? 'https://www.dmi.dk/vejrdata/maalinger' : 'https://trafikkort.vejdirektoratet.dk';
     const metaHtml = `<a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="color:#999;text-decoration:none">${s.source}</a>${timeStr ? `&nbsp;·&nbsp;obs&nbsp;${timeStr}` : ''}`;
+    const displayName  = s.overrideName ?? s.name;
+    const overrideAttr = s.overrideName ? ' data-override="1"' : '';
+    const proposeLink  = (!s.overrideName && s.source === 'Trafikkort')
+      ? ` <a class="stn-name-propose" href="${_buildProposeNameUrl(s)}" target="_blank" rel="noopener noreferrer" title="Propose a better name" style="color:#aaa;text-decoration:none;font-size:11px;font-weight:400;vertical-align:middle">&#x270F;</a>`
+      : '';
     const el = document.createElement('div');
     el.setAttribute('style', 'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:170px;max-width:280px');
     el.innerHTML =
-      `<div class="stn-name" style="font-size:13px;font-weight:700">${s.name}</div>` +
+      `<div class="stn-name" style="font-size:13px;font-weight:700"${overrideAttr}><span class="stn-name-text">${displayName}</span>${proposeLink}</div>` +
       `<div style="color:#999;font-size:11px;margin-bottom:4px">${metaHtml}</div>` +
       windHtml +
       `<div class="dmi-bias-row" style="margin:2px 0;min-height:14px"></div>` +
