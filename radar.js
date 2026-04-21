@@ -2,6 +2,23 @@
    RAINVIEWER RADAR
 ══════════════════════════════════════════════════ */
 
+/**
+ * Clamp a context-menu position so it stays inside the viewport.
+ * Returns the adjusted { x, y } using fixed coordinates (for position:fixed menus).
+ * @param {number} cx - mouse clientX
+ * @param {number} cy - mouse clientY
+ * @param {number} vw - viewport width  (window.innerWidth)
+ * @param {number} vh - viewport height (window.innerHeight)
+ * @param {number} [estW=180] - estimated menu width
+ * @param {number} [estH=40]  - estimated menu height
+ */
+function _clampMenuPos(cx, cy, vw, vh, estW = 180, estH = 40) {
+  return {
+    x: cx + estW > vw ? cx - estW : cx,
+    y: cy + estH > vh ? cy - estH : cy,
+  };
+}
+
 /** Extract the most local place name from a Nominatim reverse-geocode response. */
 function _parseNominatimPlace(d) {
   if (!d) return null;
@@ -51,6 +68,57 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
   const timeLabel = document.getElementById('radar-time-label');
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
+
+  // ── Desktop right-click context menu ─────────────────────────────────
+  function attachContextMenu(mapEl) {
+    let ctxMenuEl = null;
+    let pendingLatLng = null;
+
+    function buildMenu() {
+      const div = document.createElement('div');
+      div.id = 'radar-ctx-menu';
+      const item = document.createElement('div');
+      item.className = 'radar-ctx-item';
+      item.textContent = 'Set position here';
+      item.addEventListener('click', () => {
+        div.classList.remove('visible');
+        if (pendingLatLng && onMarkerDragEnd) {
+          const { lat, lng } = pendingLatLng;
+          placeLocationMarkers(lat, lng);
+          onMarkerDragEnd(lat, lng);
+        }
+      });
+      div.appendChild(item);
+      document.body.appendChild(div);
+      return div;
+    }
+
+    mapEl.addEventListener('contextmenu', e => {
+      if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+      e.preventDefault();
+      if (!radarMap) return;
+
+      if (!ctxMenuEl) ctxMenuEl = buildMenu();
+
+      const rect = mapEl.getBoundingClientRect();
+      pendingLatLng = radarMap.containerPointToLatLng(
+        [e.clientX - rect.left, e.clientY - rect.top]
+      );
+
+      // Position the menu, flipping toward the inside edge when near viewport boundary
+      const { x, y } = _clampMenuPos(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+      ctxMenuEl.style.left = x + 'px';
+      ctxMenuEl.style.top  = y + 'px';
+      ctxMenuEl.classList.add('visible');
+    });
+
+    document.addEventListener('click', e => {
+      if (ctxMenuEl && !ctxMenuEl.contains(e.target)) ctxMenuEl.classList.remove('visible');
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && ctxMenuEl) ctxMenuEl.classList.remove('visible');
+    });
+  }
 
   // ── Map drag ──────────────────────────────────────────────────────────
   function attachMapDrag(mapEl) {
@@ -112,6 +180,32 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
     mapEl.addEventListener('mousedown',   e => { if (isMarkerTarget(e)) return; e.preventDefault(); onStart(e.clientX, e.clientY); });
     window.addEventListener('mousemove',  e => onMove(e.clientX, e.clientY));
     window.addEventListener('mouseup',    onEnd);
+
+    // Desktop: Ctrl+scroll zooms the map; plain scroll scrolls the page and
+    // shows a transient hint pointing to Ctrl+scroll.
+    const scrollHintEl = document.createElement('div');
+    scrollHintEl.id = 'radar-scroll-hint';
+    scrollHintEl.textContent = 'Use Ctrl + scroll to zoom';
+    mapEl.appendChild(scrollHintEl);
+
+    let scrollHintTimeout = null;
+    function showScrollHint() {
+      clearTimeout(scrollHintTimeout);
+      scrollHintEl.classList.add('visible');
+      scrollHintTimeout = setTimeout(() => scrollHintEl.classList.remove('visible'), 1500);
+    }
+
+    mapEl.addEventListener('wheel', e => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (radarMap) radarMap.setZoom(radarMap.getZoom() + (e.deltaY < 0 ? 1 : -1));
+      } else {
+        // Only show hint on pointer devices (not trackpad-only touch-sim)
+        if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) showScrollHint();
+        // No preventDefault — let the page scroll naturally
+      }
+    }, { passive: false });
   }
 
   // ── Daily tile-request counter (persisted in localStorage) ───────────
@@ -320,6 +414,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       radarMap = L.map('radar-map', {
         zoomControl: false, attributionControl: false,
         dragging: false, inertia: false,
+        scrollWheelZoom: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
@@ -327,6 +422,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
       zoomIn.addEventListener('click',  () => radarMap.zoomIn());
       zoomOut.addEventListener('click', () => radarMap.zoomOut());
       attachMapDrag(document.getElementById('radar-map'));
+      attachContextMenu(document.getElementById('radar-map'));
 
       let moveDebounce = null;
       radarMap.on('movestart', () => {
