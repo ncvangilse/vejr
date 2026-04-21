@@ -319,16 +319,17 @@ canvas.main-canvas {
 }
 #radar-play-btn {
   padding: 4px 14px;
-  background: #003c8f;
-  color: #fff;
-  border: none;
+  background: #2a3a50;
+  color: #8ab4d4;
+  border: 1px solid #4a6a8a;
+  border-radius: 3px;
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   letter-spacing: 0.4px;
 }
-#radar-play-btn:hover { background: #0051c4; }
+#radar-play-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
 #radar-slider {
   flex: 1;
   min-width: 80px;
@@ -345,26 +346,28 @@ canvas.main-canvas {
 }
 .radar-zoom-btn {
   padding: 2px 10px;
-  background: #003c8f;
-  color: #fff;
-  border: none;
+  background: #2a3a50;
+  color: #8ab4d4;
+  border: 1px solid #4a6a8a;
+  border-radius: 3px;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   line-height: 1.2;
 }
-.radar-zoom-btn:hover { background: #0051c4; }
+.radar-zoom-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
 
 /* ── Kite config button ── */
 #kite-cfg-btn {
-  padding: 8px 14px;
+  padding: 7px 14px;
   background: #1a4a2e;
   color: #00e8b0;
-  border: 2px solid #00c890;
+  border: 1px solid #00c890;
+  border-radius: 3px;
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   letter-spacing: 0.3px;
   white-space: nowrap;
@@ -403,11 +406,11 @@ canvas.main-canvas {
 
 /* ── Credits button (in footer) ── */
 #credits-btn {
-  padding: 7px 16px;
+  padding: 7px 14px;
   background: #2a3a50;
   color: #8ab4d4;
   border: 1px solid #4a6a8a;
-  border-radius: 4px;
+  border-radius: 3px;
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 13px;
   font-weight: 600;
