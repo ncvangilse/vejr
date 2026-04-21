@@ -304,14 +304,16 @@ describe('renderDisplay slicing', () => {
     expect(calls[0].times.length).toBeGreaterThan(12);
   });
 
-  it('starts from current time, not midnight, in portrait mode', () => {
+  it('starts from data start (midnight) in portrait mode, not clipped to current time', () => {
     const calls = [];
     const { ctx } = loadApp({ portrait: true, renderAllSpy: (d) => calls.push(d) });
     const d = makeData(TOTAL_3H, TOTAL_1H);
     ctx.renderDisplay(d);
-    // First rendered timestamp should be >= now (within one 3h slot)
+    // First rendered timestamp should equal times[0] (midnight / data start) so
+    // the user can scroll left to see today's earlier hours.
     const firstTime = new Date(calls[0].times[0]).getTime();
-    expect(firstTime).toBeGreaterThanOrEqual(Date.now() - 3 * 60 * 60 * 1000);
+    const dataStart = new Date(d.times[0]).getTime();
+    expect(firstTime).toBe(dataStart);
   });
 
   it('slices ensemble percentile arrays to match the rendered time window in portrait mode', () => {
@@ -625,6 +627,68 @@ describe('inverted-colors change listener', () => {
     });
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
     expect(calls[0]).toBe(false);
+  });
+});
+
+// ── loadNearestObsStation ─────────────────────────────────────────────────────
+
+function loadAppWithObs(obsHistory) {
+  const renderCalls = [];
+  const { ctx } = loadApp({ renderAllSpy: (d) => renderCalls.push(d) });
+  // Pre-populate OBS_HISTORY and lastData so loadNearestObsStation can skip fetch.
+  ctx.window.OBS_HISTORY = obsHistory;
+  ctx.lastData = makeData((7 * 24) / 3, 7 * 24);
+  return { ctx, renderCalls };
+}
+
+describe('loadNearestObsStation', () => {
+  const nearStation = { name: 'Near', lat: 55.7, lon: 12.6, obs: [{ t: Date.now(), wind: 5, gust: 7, dir: 90 }] };
+  const farStation  = { name: 'Far',  lat: 60.0, lon: 15.0, obs: [{ t: Date.now(), wind: 3, gust: 4, dir: 180 }] };
+
+  it('selects the closest station and populates DMI_OBS', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation, 'ninjo:far': farStation });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.DMI_OBS).not.toBeNull();
+    expect(ctx.window.DMI_OBS.stationName).toBe('Near');
+    expect(ctx.window.DMI_OBS.obs).toBe(nearStation.obs);
+    expect(parseFloat(ctx.window.DMI_OBS.distKm)).toBeLessThan(5);
+  });
+
+  it('sets DMI_OBS_STATUS to ok when a nearby station is found', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('ok');
+  });
+
+  it('sets DMI_OBS to null and status to no-station when closest station is > 100 km away', async () => {
+    const { ctx } = loadAppWithObs({ 'ninjo:far': farStation });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.DMI_OBS).toBeNull();
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('no-station');
+  });
+
+  it('skips stations with no obs array', async () => {
+    const obs = { 'ninjo:empty': { name: 'Empty', lat: 55.7, lon: 12.6, obs: [] }, 'ninjo:good': nearStation };
+    const { ctx } = loadAppWithObs(obs);
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.DMI_OBS.stationName).toBe('Near');
+  });
+
+  it('sets status to error and DMI_OBS to null when OBS_HISTORY is unavailable', async () => {
+    const { ctx } = loadApp();
+    // No OBS_HISTORY and fetchObsHistory resolves to null.
+    ctx.window.OBS_HISTORY = null;
+    ctx.window.fetchObsHistory = async () => null;
+    ctx.lastData = makeData((7 * 24) / 3, 7 * 24);
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.DMI_OBS).toBeNull();
+    expect(ctx.window.DMI_OBS_STATUS.state).toBe('error');
+  });
+
+  it('triggers a re-render after resolving', async () => {
+    const { ctx, renderCalls } = loadAppWithObs({ 'ninjo:near': nearStation });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(renderCalls.length).toBeGreaterThan(0);
   });
 });
 

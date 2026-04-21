@@ -502,6 +502,7 @@ window.OBS_HISTORY_URL = OBS_HISTORY_URL;
   screen.orientation?.addEventListener('change', onOrientationChange);
 
   window.loadRadar = loadRadar;
+  window.fetchObsHistory = fetchObsHistory;
 
   /**
    * Register a callback that fires whenever the user drags the location
