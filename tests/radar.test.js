@@ -7,9 +7,9 @@ const ctx = loadScripts('radar.js');
 const { _parseNominatimPlace, _nominatimHasLocalDetail } = ctx;
 
 describe('OBS_HISTORY_URL', () => {
-  it('points to raw.githubusercontent.com gh-pages branch', () => {
+  it('points to raw.githubusercontent.com data branch', () => {
     expect(ctx.window.OBS_HISTORY_URL).toBe(
-      'https://raw.githubusercontent.com/ncvangilse/vejr/gh-pages/obs-history.json.gz',
+      'https://raw.githubusercontent.com/ncvangilse/vejr/data/obs-history.json.gz',
     );
   });
 });
