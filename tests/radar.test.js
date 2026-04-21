@@ -172,9 +172,9 @@ describe('_buildProposeNameUrl', () => {
     expect(url).toContain('https://github.com/ncvangilse/vejr/issues/new');
   });
 
-  it('includes the station-name label', () => {
+  it('uses the station-name issue template', () => {
     const url = _buildProposeNameUrl({ key: 'trafikkort:1018', name: 'Trafikkort 1018' });
-    expect(url).toContain('labels=station-name');
+    expect(url).toContain('template=station-name.yml');
   });
 
   it('encodes the station key in the title', () => {
@@ -182,21 +182,28 @@ describe('_buildProposeNameUrl', () => {
     expect(url).toContain(encodeURIComponent('trafikkort:1018'));
   });
 
-  it('encodes the current name in the body', () => {
+  it('pre-fills the current-name field with the display name', () => {
     const url = _buildProposeNameUrl({ key: 'trafikkort:2047', name: 'Trafikkort 2047' });
-    expect(url).toContain(encodeURIComponent('Trafikkort 2047'));
+    const params = new URL(url).searchParams;
+    expect(params.get('current-name')).toBe('Trafikkort 2047');
   });
 
-  it('body contains the station key', () => {
+  it('does not pre-fill the proposed-name field', () => {
+    const url = _buildProposeNameUrl({ key: 'trafikkort:2047', name: 'Amager Strand' });
+    const params = new URL(url).searchParams;
+    expect(params.get('proposed-name')).toBeNull();
+  });
+
+  it('pre-fills the station-key field with the station key', () => {
     const url = _buildProposeNameUrl({ key: 'trafikkort:99', name: 'Some Name' });
     const params = new URL(url).searchParams;
-    expect(params.get('body')).toContain('trafikkort:99');
+    expect(params.get('station-key')).toBe('trafikkort:99');
   });
 
-  it('body contains placeholder for proposed name', () => {
+  it('sets the title to "Station name: <key>"', () => {
     const url = _buildProposeNameUrl({ key: 'trafikkort:1', name: 'X' });
     const params = new URL(url).searchParams;
-    expect(params.get('body')).toContain('[your suggestion here]');
+    expect(params.get('title')).toBe('Station name: trafikkort:1');
   });
 });
 
