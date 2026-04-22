@@ -76,54 +76,23 @@ body {
 #model-dropdown {
   position: relative;
   margin-top: 3px;
+  cursor: pointer;
 }
 #ens-status {
   font-size: 10px;
   color: #778;
-  cursor: pointer;
   user-select: none;
   text-align: right;
-  touch-action: manipulation;
 }
-#ens-status:hover { color: #445; }
-#model-dropdown-list {
-  display: none;
+#model-select {
   position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  background: #fff;
-  border: 1px solid #c0c8d0;
-  border-radius: 4px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.18);
-  z-index: 9999;
-  min-width: 160px;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
-}
-#model-dropdown-list.open { display: block; }
-.model-opt {
-  display: block;
+  inset: 0;
   width: 100%;
-  box-sizing: border-box;
-  padding: 8px 16px;
-  color: #222;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
-  white-space: nowrap;
+  height: 100%;
+  opacity: 0;
   cursor: pointer;
-  user-select: none;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  text-align: left;
-  background: none;
-  border: none;
-  margin: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  line-height: normal;
+  font-size: 16px; /* prevent iOS auto-zoom on focus */
 }
-.model-opt:hover { background: #eef2f8; }
-.model-opt.selected { font-weight: 600; color: #003c8f; }
 
 #forecast-container {
   background: #e4e9ef;
