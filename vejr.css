@@ -242,30 +242,14 @@ canvas.main-canvas {
   display: none;
   flex-direction: column;
 }
-#radar-header {
-  background: #d8dfe8;
-  border-bottom: 1px solid #a8b0b8;
-  padding: 7px 12px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+#radar-obs-controls {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  padding: 6px 10px;
+  background: #d8dfe8;
+  border-top: 1px solid #a8b0b8;
   flex-shrink: 0;
 }
-#radar-header span { font-size: 10px; font-weight: 400; color: #667; }
-#radar-tile-counter {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  color: #334;
-  background: rgba(0,0,0,0.08);
-  padding: 2px 6px;
-  border-radius: 3px;
-  transition: color 0.3s;
-}
-#radar-tile-counter.warn  { color: #c07000; background: rgba(192,112,0,0.12); }
-#radar-tile-counter.limit { color: #cc2200; background: rgba(204,34,0,0.12); font-weight: 700; }
 #radar-map {
   width: 100%;
   flex: 1;
