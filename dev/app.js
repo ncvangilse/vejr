@@ -481,15 +481,16 @@ function renderDisplay(d, scrollToNow = false) {
 
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
-  // Portrait: scroll to center the current time in the viewport on initial load.
-  if (portrait && scrollToNow && displayData.xMap1h) {
+  // Scroll to current time on initial load.
+  // Portrait: center "now" in the viewport. Landscape: left-align at "now" so 7 days ahead fills the screen.
+  if (scrollToNow && displayData.xMap1h) {
     requestAnimationFrame(() => {
       const nowMs = Date.now();
       const idx = displayData.times1h.findIndex(t => new Date(t).getTime() >= nowMs);
       const xNow = idx >= 0 ? displayData.xMap1h[idx] : displayData.xMap1h[displayData.xMap1h.length - 1];
       const wraps = document.querySelectorAll ? document.querySelectorAll('.chart-canvas-wrap') : [];
       const visW = wraps[0] ? wraps[0].clientWidth : 0;
-      const target = Math.max(0, xNow - visW / 2);
+      const target = portrait ? Math.max(0, xNow - visW / 2) : Math.max(0, xNow);
       wraps.forEach(w => { w.scrollLeft = target; });
     });
   }
@@ -1675,6 +1676,7 @@ async function loadAtCoords(lat, lon, model) {
     document.getElementById('loading').style.display = 'none';
     forecastEl.style.display = 'block';
     forecastEl.classList.remove('updating');
+    const isFirstLoad = !isReload;
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
@@ -1683,7 +1685,7 @@ async function loadAtCoords(lat, lon, model) {
       otherModelsWind1h: null,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      renderDisplay(lastData);
+      renderDisplay(lastData, isFirstLoad);
       // Background fetch of other-model wind lines; re-render on arrival.
       const capturedData = lastData;
       fetchOtherModelsWind(lat, lon, model)
