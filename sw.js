@@ -1,11 +1,11 @@
-const CACHE_NAME = 'vejr-2026.04.22-55-5';
+const CACHE_NAME = 'vejr-2026.04.22-56-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
-  'icon-assets/icon-120.png',
-  'icon-assets/icon-152.png',
-  'icon-assets/icon-167.png',
-  'icon-assets/icon-180.png',
+  'icon-assets/icon-120.png?v=2',
+  'icon-assets/icon-152.png?v=2',
+  'icon-assets/icon-167.png?v=2',
+  'icon-assets/icon-180.png?v=2',
   'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap'
 ];
 
