@@ -860,8 +860,6 @@ function _buildProposeNameUrl(s) {
             icon, interactive: true, zIndexOffset: isNinjo ? 200 : 100,
           }).bindPopup(popupEl, { maxWidth: 300, minWidth: 250 });
 
-          popupEl.addEventListener('click', () => marker.closePopup());
-
           marker.on('popupopen', () => {
             const histEl = popupEl.querySelector('.dmi-hist-container');
             if (histEl && histEl.dataset.loaded !== '1') {
