@@ -101,19 +101,13 @@ body {
 }
 #model-dropdown-list.open { display: block; }
 .model-opt {
-  display: block;
-  width: 100%;
   padding: 8px 16px;
-  background: none;
-  border: none;
-  text-align: left;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
   color: #222;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .model-opt:hover { background: #eef2f8; }
 .model-opt.selected { font-weight: 600; color: #003c8f; }

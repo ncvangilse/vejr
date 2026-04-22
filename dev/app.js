@@ -1676,18 +1676,28 @@ document.getElementById('model-select').addEventListener('change', () => {
   function close() { list.classList.remove('open'); }
   function toggle() { list.classList.contains('open') ? close() : open(); }
 
-  trigger.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
-  document.addEventListener('click', () => close());
+  // Use touchstart on trigger so the dropdown opens before any document handler fires.
+  // preventDefault suppresses the subsequent synthetic click (avoids double-toggle).
+  function onTrigger(e) { e.stopPropagation(); e.preventDefault(); toggle(); }
+  trigger.addEventListener('touchstart', onTrigger, { passive: false });
+  trigger.addEventListener('click',      (e) => { e.stopPropagation(); toggle(); });
+
+  // Close on any tap/click outside the dropdown.
+  document.addEventListener('touchstart', () => close());
+  document.addEventListener('click',      () => close());
 
   list.querySelectorAll('.model-opt').forEach(opt => {
-    opt.addEventListener('click', (e) => {
+    function onSelect(e) {
       e.stopPropagation();
+      e.preventDefault(); // suppress synthetic click on touch so it doesn't re-open
       sel.value = opt.dataset.val;
       list.querySelectorAll('.model-opt').forEach(o => o.classList.remove('selected'));
       opt.classList.add('selected');
       close();
       sel.dispatchEvent(new Event('change'));
-    });
+    }
+    opt.addEventListener('touchstart', onSelect, { passive: false });
+    opt.addEventListener('click',      onSelect);
   });
 })();
 let resizeTimer;
