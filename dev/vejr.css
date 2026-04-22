@@ -102,13 +102,20 @@ body {
 }
 #model-dropdown-list.open { display: block; }
 .model-opt {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 16px;
   color: #222;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  text-align: left;
 }
 .model-opt:hover { background: #eef2f8; }
 .model-opt.selected { font-weight: 600; color: #003c8f; }
