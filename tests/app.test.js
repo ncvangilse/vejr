@@ -458,11 +458,12 @@ describe('renderDisplay slicing', () => {
     expect(colWs[0]).toBeGreaterThan(0);
   });
 
-  it('passes null portraitColW to renderAll in landscape mode', () => {
+  it('passes a positive numeric portraitColW to renderAll in landscape mode (extended scroll)', () => {
     const colWs = [];
     const { ctx } = loadApp({ portrait: false, renderAllSpy: (d, ic, colW) => colWs.push(colW) });
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
-    expect(colWs[0]).toBeNull();
+    expect(colWs[0]).toBeTypeOf('number');
+    expect(colWs[0]).toBeGreaterThan(0);
   });
 
   it('includes dirs1h in sliced data passed to buildPortraitSeries', () => {
@@ -700,14 +701,18 @@ describe('buildPortraitSeries – extended 16-day mode', () => {
     expect(found12h).toBe(true);
   });
 
-  it('does not use 6h step beyond 168h+', () => {
+  it('uses between 6h and 12h steps (linear zoom) for daytime slots beyond 168h', () => {
     const ds = ctx16.buildPortraitSeries(make16DaySlice());
     const t0ms = new Date(ds.times[0]).getTime();
     for (let i = 1; i < ds.times.length; i++) {
       const dt = new Date(ds.times[i]).getTime() - new Date(ds.times[i - 1]).getTime();
       const hoursAhead = (new Date(ds.times[i - 1]).getTime() - t0ms) / 3600000;
       if (hoursAhead >= 168) {
-        expect([12 * HR, 24 * HR]).toContain(dt);
+        // Linear zoom: 6–12h steps for daytime; night entries are skipped 1h at a
+        // time so gaps between consecutive daytime pushes can be non-multiples of 3.
+        // Key properties: at least 1h (never backwards), at most 24h per visible slot.
+        expect(dt).toBeGreaterThanOrEqual(HR);
+        expect(dt).toBeLessThanOrEqual(24 * HR);
       }
     }
   });

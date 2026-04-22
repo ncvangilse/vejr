@@ -234,11 +234,11 @@ function computeXMap1h(times1h, displayTimes, portraitColW) {
 
 /**
  * Build a variable-resolution display series for portrait mode.
- * Base resolution decreases with distance from now; nighttime slots are
- * additionally coarsened by 3× (capped at 6h) so nights compress naturally:
+ * Resolution decreases with distance from now; nighttime is compressed:
  *   0–24 h  daytime  → 1h  |  nighttime → 3h
  *   24–48 h daytime  → 3h  |  nighttime → 6h
- *   48 h+            → 6h  (always, day or night)
+ *   48–168 h         → 6h  (always)
+ *   168 h+  daytime only, step increases linearly from 6h→12h (nighttime skipped)
  *
  * For coarse slots the icon/direction is picked from whichever hour in the
  * window is most "daytime" (prefers midday, avoids night).
@@ -263,10 +263,18 @@ function buildPortraitSeries(s) {
     const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
     const h = new Date(s.times1h[i]).getHours();
     const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
-    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : hoursAhead < 168 ? 6 : 12;
-    const step = hoursAhead < 168
-      ? Math.min(6,  night ? baseStep * 3 : baseStep)
-      : Math.min(24, night ? baseStep * 2 : baseStep);
+
+    let step;
+    if (hoursAhead >= 168) {
+      // Extended zone: skip nighttime icons entirely (req #4)
+      if (night) { i += 1; continue; }
+      // Linear zoom: step increases from 6h at day 7 to 12h at day 16
+      const ratio = Math.min(1, (hoursAhead - 168) / 216);
+      step = Math.ceil((6 + 6 * ratio) / 3) * 3; // snaps to 6, 9, or 12
+    } else {
+      const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
+      step = Math.min(6, night ? baseStep * 3 : baseStep);
+    }
 
     // For coarse steps pick the slot in [i, i+step) that is most daytime.
     let best = i;
@@ -340,14 +348,97 @@ function buildPortraitSeries(s) {
   };
 }
 
+/**
+ * Build a display series for landscape mode.
+ * Days 1–7: uniform 3h slots so exactly 7 days fills the viewport at baseColW.
+ * Days 7–16: daytime only (nighttime skipped); step increases linearly from
+ *             6h at day 7 to 12h at day 16 (linear zoom, req #3/#4).
+ * colW is the base column width (= viewportWidth / 56) so days 1–7 fill the
+ * screen and days 8–16 extend beyond, accessible by scrolling.
+ */
+function buildLandscapeSeries(s, colW) {
+  const t0 = new Date(s.times1h[0]).getTime();
+  const times = [], codes = [], dirs = [];
+  const precips = [], winds = [], temps = [], gusts = [];
+  const hasEns = s.ensTemp1h != null;
+  const ensTemp = { p10: [], p50: [], p90: [] };
+  const ensWind = { p10: [], p50: [], p90: [] };
+  const ensGust = { p10: [], p50: [], p90: [] };
+  const ensPrecip = { p10: [], p50: [], p90: [] };
+
+  let i = 0;
+  while (i < s.times1h.length) {
+    const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
+    const h = new Date(s.times1h[i]).getHours();
+    const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
+
+    let step;
+    if (hoursAhead < 168) {
+      step = STEP; // 3h uniform — first 7 days fill viewport exactly
+    } else {
+      // Extended zone: skip nighttime icons (req #4)
+      if (night) { i += 1; continue; }
+      // Linear zoom: step increases from 6h at day 7 to 12h at day 16
+      const ratio = Math.min(1, (hoursAhead - 168) / 216);
+      step = Math.ceil((6 + 6 * ratio) / 3) * 3; // snaps to 6, 9, or 12
+    }
+
+    // For coarse steps pick the slot in [i, i+step) that is most daytime.
+    let best = i;
+    if (step > 1) {
+      let bestScore = -Infinity;
+      const end = Math.min(i + step, s.times1h.length);
+      for (let j = i; j < end; j++) {
+        const hj = new Date(s.times1h[j]).getHours();
+        const nj = typeof isNight === 'function' ? isNight(s.times1h[j]) : (hj < 6 || hj >= 20);
+        const score = (nj ? 0 : 100) - Math.abs(hj - 12);
+        if (score > bestScore) { bestScore = score; best = j; }
+      }
+    }
+
+    times.push(s.times1h[i]);
+    codes.push(s.codes1h ? s.codes1h[best] : null);
+    dirs.push(s.dirs1h ? s.dirs1h[best]
+                       : s.dirs[Math.min(Math.round(best / 3), s.dirs.length - 1)]);
+    precips.push(s.precips1h[best]);
+    winds.push(s.winds1h[best]);
+    temps.push(s.temps1h[best]);
+    gusts.push(s.gusts1h[best]);
+    if (hasEns) {
+      ['p10', 'p50', 'p90'].forEach(k => {
+        ensTemp[k].push(s.ensTemp1h[k][best]);
+        ensWind[k].push(s.ensWind1h[k][best]);
+        ensGust[k].push(s.ensGust1h[k][best]);
+        ensPrecip[k].push(s.ensPrecip1h[k][best]);
+      });
+    }
+
+    i += step;
+  }
+
+  const { xMap1h, xFrac1h, slotIdx1h } = computeXMap1h(s.times1h, times, colW);
+
+  return {
+    times, codes, dirs, temps, precips, gusts, winds,
+    ensTemp:   hasEns ? ensTemp   : null,
+    ensWind:   hasEns ? ensWind   : null,
+    ensGust:   hasEns ? ensGust   : null,
+    ensPrecip: hasEns ? ensPrecip : null,
+    times1h:     s.times1h,   temps1h:   s.temps1h,
+    precips1h:   s.precips1h, gusts1h:   s.gusts1h,
+    winds1h:     s.winds1h,   codes1h:   s.codes1h,
+    dirs1h:      s.dirs1h,
+    ensTemp1h:   s.ensTemp1h, ensWind1h:  s.ensWind1h,
+    ensGust1h:   s.ensGust1h, ensPrecip1h: s.ensPrecip1h,
+    otherModelsWind1h: s.otherModelsWind1h || null,
+    xMap1h, xFrac1h, slotIdx1h,
+  };
+}
+
 function renderDisplay(d, scrollToNow = false) {
   const portrait       = window.matchMedia('(orientation: portrait)').matches;
   const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
   syncInvertedColorsClass();
-  // Portrait always scrolls at variable resolution. Landscape also scrolls when
-  // FORECAST_DAYS > 7 so the extended range is reachable rather than squashed.
-  const scrollable = portrait || FORECAST_DAYS > 7;
-  document.body.classList.toggle('forecast-extended', FORECAST_DAYS > 7);
   const n3h = Math.ceil(FORECAST_DAYS * 24 / STEP);
   const n1h = Math.ceil(FORECAST_DAYS * 24 / STEP1H);
   const s = {
@@ -368,12 +459,24 @@ function renderDisplay(d, scrollToNow = false) {
       ? d.otherModelsWind1h.map(m => ({ model: m.model, winds1h: m.winds1h.slice(0, n1h) }))
       : null,
   };
-  const colW = scrollable ? PORTRAIT_COL_W : null;
-  const displayData = scrollable ? buildPortraitSeries(s) : s;
+
+  let colW, displayData;
+  if (portrait) {
+    colW = PORTRAIT_COL_W;
+    displayData = buildPortraitSeries(s);
+  } else {
+    // Landscape: 7 days fills the viewport; days 8–16 are accessible by scrolling.
+    // Compute colW from the canvas wrap width (excludes y-axis columns).
+    const wrap = document.querySelector ? document.querySelector('.chart-canvas-wrap') : null;
+    const viewW = (wrap && wrap.clientWidth > 0) ? wrap.clientWidth : (window.innerWidth || 800);
+    colW = viewW / (7 * 24 / STEP);
+    displayData = buildLandscapeSeries(s, colW);
+  }
+
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
-  // Scroll to center the current time in the viewport on initial load.
-  if (scrollable && scrollToNow && displayData.xMap1h) {
+  // Portrait: scroll to center the current time in the viewport on initial load.
+  if (portrait && scrollToNow && displayData.xMap1h) {
     requestAnimationFrame(() => {
       const nowMs = Date.now();
       const idx = displayData.times1h.findIndex(t => new Date(t).getTime() >= nowMs);
@@ -1712,20 +1815,6 @@ document.getElementById('model-select').addEventListener('change', () => {
             || localStorage.getItem('vejr_city') || '';
   if (city) loadAndSync(city, getModel());
 });
-(function initForecastRangeBtn() {
-  const btn = document.getElementById('forecast-range-btn');
-  btn.textContent = FORECAST_DAYS + 'd';
-  btn.classList.toggle('active', FORECAST_DAYS > 7);
-  btn.addEventListener('click', () => {
-    const next = FORECAST_DAYS === 7 ? FORECAST_DAYS_EXTENDED : 7;
-    setForecastDays(next);
-    btn.textContent = next + 'd';
-    btn.classList.toggle('active', next > 7);
-    const city = document.getElementById('city-input').value.trim()
-              || localStorage.getItem('vejr_city') || '';
-    if (city) load(city, getModel());
-  });
-})();
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
