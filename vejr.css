@@ -76,10 +76,8 @@ body {
 #model-dropdown {
   position: relative;
   margin-top: 3px;
-  cursor: pointer;
 }
 #ens-status {
-  display: block; /* label is inline by default */
   font-size: 10px;
   color: #778;
   user-select: none;
@@ -88,17 +86,14 @@ body {
 }
 #model-select {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.01; /* >0 required for iOS Chrome to fire change events */
-  cursor: pointer;
-  font-size: 16px; /* prevent iOS auto-zoom on focus */
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
   border: none;
-  outline: none;
-  background: none;
-  -webkit-appearance: none;
-  appearance: none;
+  font-size: 16px; /* prevent iOS auto-zoom on focus */
 }
 
 #forecast-container {
