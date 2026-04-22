@@ -1666,6 +1666,32 @@ document.getElementById('model-select').addEventListener('change', () => {
   const v = document.getElementById('city-input').value.trim();
   if (v) loadAndSync(v, getModel());
 });
+(function () {
+  const btn  = document.getElementById('model-dropdown-btn');
+  const list = document.getElementById('model-dropdown-list');
+  const sel  = document.getElementById('model-select');
+  if (!btn || !list || !list.querySelectorAll) return;
+
+  function open()  { list.classList.add('open'); }
+  function close() { list.classList.remove('open'); }
+  function toggle() { list.classList.contains('open') ? close() : open(); }
+
+  btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+  document.addEventListener('click', close);
+
+  list.querySelectorAll('.model-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const val = opt.dataset.val;
+      sel.value = val;
+      list.querySelectorAll('.model-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      const label = document.getElementById('model-current-label');
+      if (label) label.textContent = opt.textContent.trim();
+      close();
+      sel.dispatchEvent(new Event('change'));
+    });
+  });
+})();
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);

@@ -65,7 +65,18 @@
       </div>
       <div id="header-right">
         <div id="header-controls">
-          <select id="model-select">
+          <div id="model-dropdown">
+            <button id="model-dropdown-btn" type="button"><span id="model-current-label">DMI HARMONIE</span> <span id="model-dropdown-arrow">▾</span></button>
+            <div id="model-dropdown-list">
+              <div class="model-opt" data-val="best_match">Best match (auto)</div>
+              <div class="model-opt selected" data-val="dmi_seamless">DMI HARMONIE</div>
+              <div class="model-opt" data-val="icon_seamless">DWD ICON</div>
+              <div class="model-opt" data-val="ecmwf_ifs025">ECMWF IFS</div>
+              <div class="model-opt" data-val="meteofrance_seamless">Météo-France</div>
+              <div class="model-opt" data-val="gfs_seamless">NOAA GFS</div>
+            </div>
+          </div>
+          <select id="model-select" aria-hidden="true" style="display:none">
             <option value="best_match">Best match (auto)</option>
             <option value="dmi_seamless" selected>DMI HARMONIE</option>
             <option value="icon_seamless">DWD ICON</option>
