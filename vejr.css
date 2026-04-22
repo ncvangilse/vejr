@@ -83,6 +83,7 @@ body {
   cursor: pointer;
   user-select: none;
   text-align: right;
+  touch-action: manipulation;
 }
 #ens-status:hover { color: #445; }
 #model-dropdown-list {
