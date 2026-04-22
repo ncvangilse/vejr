@@ -1662,6 +1662,9 @@ document.getElementById('city-input').addEventListener('keydown', e => {
     closeCitySearch();
   }
 });
+document.getElementById('ens-status').addEventListener('click', () => {
+  document.getElementById('model-select').focus();
+});
 document.getElementById('model-select').addEventListener('change', () => {
   const city = document.getElementById('city-input').value.trim()
             || localStorage.getItem('vejr_city') || '';
