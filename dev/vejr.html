@@ -130,16 +130,6 @@
 
 <!-- ── RainViewer Radar ────────────────────────────────────────────── -->
 <div id="radar-section">
-  <div id="radar-header">
-    <span style="font-size:13px;font-weight:700;letter-spacing:0.2px;color:#111;">Radar – precipitation</span>
-    <span id="radar-tile-counter" title="Tile requests today (max ~1000)">0 / 1000 tiles</span>
-    <div class="radar-stations-group">
-      <span class="radar-stations-label">📡 Stations</span>
-      <button id="radar-trafikinfo-toggle" class="radar-overlay-toggle active" title="Toggle Trafikkort wind station overlay">Trafikinfo</button>
-      <button id="radar-dmi-toggle" class="radar-overlay-toggle active" title="Toggle DMI observation overlay">DMI obs</button>
-    </div>
-    <span id="radar-source-label">RainViewer</span>
-  </div>
   <div id="radar-map">
     <div id="radar-loading">Loading radar…</div>
   </div>
@@ -150,11 +140,18 @@
     <button class="radar-zoom-btn" id="radar-zoom-in"  title="Zoom in">+</button>
     <button class="radar-zoom-btn" id="radar-zoom-out" title="Zoom out">−</button>
   </div>
+  <div id="radar-obs-controls">
+    <div class="radar-stations-group">
+      <span class="radar-stations-label">📡 Stations</span>
+      <button id="radar-trafikinfo-toggle" class="radar-overlay-toggle active" title="Toggle Trafikkort wind station overlay">Trafikinfo</button>
+      <button id="radar-dmi-toggle" class="radar-overlay-toggle active" title="Toggle DMI observation overlay">DMI obs</button>
+    </div>
+  </div>
 </div>
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.04.22-166-claude-fix-issues-75-78-82-lR3G3</div>
+  <div id="build-number">build 2026.04.22-167-claude-fix-issue-91-0fCiH</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
 </footer>
