@@ -65,7 +65,12 @@
       </div>
       <div id="header-right">
         <div id="header-controls">
-          <select id="model-select" aria-hidden="true" style="display:none">
+          <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
+        </div>
+        <div id="updated-text">—</div>
+        <div id="model-dropdown">
+          <div id="ens-status">Ensemble: loading…</div>
+          <select id="model-select">
             <option value="best_match">Best match (auto)</option>
             <option value="dmi_seamless" selected>DMI HARMONIE</option>
             <option value="icon_seamless">DWD ICON</option>
@@ -73,19 +78,6 @@
             <option value="meteofrance_seamless">Météo-France</option>
             <option value="gfs_seamless">NOAA GFS</option>
           </select>
-          <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
-        </div>
-        <div id="updated-text">—</div>
-        <div id="model-dropdown">
-          <div id="ens-status">Ensemble: loading…</div>
-          <div id="model-dropdown-list">
-            <button type="button" class="model-opt" data-val="best_match">Best match (auto)</button>
-            <button type="button" class="model-opt selected" data-val="dmi_seamless">DMI HARMONIE</button>
-            <button type="button" class="model-opt" data-val="icon_seamless">DWD ICON</button>
-            <button type="button" class="model-opt" data-val="ecmwf_ifs025">ECMWF IFS</button>
-            <button type="button" class="model-opt" data-val="meteofrance_seamless">Météo-France</button>
-            <button type="button" class="model-opt" data-val="gfs_seamless">NOAA GFS</button>
-          </div>
         </div>
       </div>
     </div>
