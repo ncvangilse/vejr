@@ -69,7 +69,9 @@ async function fetchEnsemble(lat, lon, model) {
     'meteofrance_seamless':'icon_seamless',
     'gfs_seamless':        'gfs025',
   };
-  const ensModel = ENS_MAP[model] || 'icon_seamless';
+  let ensModel = ENS_MAP[model] || 'icon_seamless';
+  // icon_seamless ensemble is capped at 7 days; fall back to ecmwf_ifs04 (15 days) for longer forecasts
+  if (FORECAST_DAYS > 7 && ensModel === 'icon_seamless') ensModel = 'ecmwf_ifs04';
   const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}`
     + `&hourly=temperature_2m,windspeed_10m,windgusts_10m,precipitation`
     + `&models=${ensModel}`
