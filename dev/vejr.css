@@ -73,17 +73,48 @@ body {
   justify-content: flex-end;
   margin-bottom: 3px;
 }
-#model-select {
-  padding: 5px 8px;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 12px;
-  border: 1px solid #888;
-  background: #f5f5f0;
-  outline: none;
-  cursor: pointer;
-  max-width: 140px;
+#model-dropdown {
+  position: relative;
 }
-#model-select:focus { border-color: #003c8f; }
+#model-dropdown-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 11px;
+  color: #555;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+#model-dropdown-btn:hover { color: #111; }
+#model-dropdown-arrow { font-size: 9px; opacity: 0.6; }
+#model-dropdown-list {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  border: 1px solid #c0c8d0;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+  z-index: 9999;
+  min-width: 160px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+}
+#model-dropdown-list.open { display: block; }
+.model-opt {
+  padding: 8px 16px;
+  cursor: pointer;
+  color: #222;
+  white-space: nowrap;
+  user-select: none;
+}
+.model-opt:hover { background: #eef2f8; }
+.model-opt.selected { font-weight: 600; color: #003c8f; }
 
 #forecast-container {
   background: #e4e9ef;
@@ -1057,10 +1088,28 @@ body.inverted-colors #kite-cfg-btn {
 }
 body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
 
-/* Radar header and controls: pre-invert so OS double-inversion restores
-   original button colors (dark navy background, light blue text). */
-body.inverted-colors #radar-header   { filter: invert(1); }
-body.inverted-colors #radar-controls { filter: invert(1); }
+/* Radar buttons: pre-invert only the button elements so OS double-inversion
+   restores their original colors. The container backgrounds go dark naturally
+   with OS inversion, matching the forecast frame appearance. */
+body.inverted-colors #radar-play-btn,
+body.inverted-colors .radar-zoom-btn {
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
+}
+body.inverted-colors #radar-play-btn:hover,
+body.inverted-colors .radar-zoom-btn:hover { background: #c5b59f; }
+body.inverted-colors .radar-overlay-toggle {
+  background:   rgba(255,255,255,0.07);
+  color:        #aaaa99;
+  border-color: #444;
+}
+body.inverted-colors .radar-overlay-toggle:hover { background: rgba(255,255,255,0.13); }
+body.inverted-colors .radar-overlay-toggle.active {
+  background:   rgba(255,55,111,0.12);
+  border-color: #ff5787;
+  color:        #ff9fbf;
+}
 
 /* Kite modal: pre-invert the entire overlay so the OS double-inversion
    restores all original dark-theme colors (background, text, borders,
