@@ -70,7 +70,6 @@ import pandas as pd
 # ── Source URLs ────────────────────────────────────────────────────────────────
 NINJO_URL   = ('https://www.dmi.dk/NinJo2DmiDk/ninjo2dmidk'
                '?cmd=obj&south=54.1&north=57.9&west=5.5&east=17.9')
-NINJO_HDRS  = {'User-Agent': 'Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36'}
 TRAFIKK_URL = ('https://storage.googleapis.com/trafikkort-data'
                '/geojson/wind-speeds.point.json')
 OPEN_METEO  = 'https://api.open-meteo.com/v1/forecast'
@@ -470,7 +469,7 @@ class FetchNinjo(hass.Hass):
                 sha_map = await self._get_sha_map(session, gh_headers)
 
                 ninjo_raw, trafikk_raw = await asyncio.gather(
-                    self._fetch_json(session, NINJO_URL,   NINJO_HDRS, 'NinJo'),
+                    self._fetch_json(session, NINJO_URL,   {},          'NinJo'),
                     self._fetch_json(session, TRAFIKK_URL, {},          'Trafikkort'),
                 )
 
