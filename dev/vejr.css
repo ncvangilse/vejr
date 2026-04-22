@@ -79,19 +79,26 @@ body {
   cursor: pointer;
 }
 #ens-status {
+  display: block; /* label is inline by default */
   font-size: 10px;
   color: #778;
   user-select: none;
   text-align: right;
+  cursor: pointer;
 }
 #model-select {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
+  opacity: 0.01; /* >0 required for iOS Chrome to fire change events */
   cursor: pointer;
   font-size: 16px; /* prevent iOS auto-zoom on focus */
+  border: none;
+  outline: none;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 #forecast-container {
