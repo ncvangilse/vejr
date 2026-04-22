@@ -1641,8 +1641,26 @@ async function loadAndSync(city, model) {
   localStorage.setItem('vejr_city', city);
   await load(city, model);
 }
+function openCitySearch() {
+  document.getElementById('header-left').classList.add('search-open');
+  const input = document.getElementById('city-input');
+  const cityNameText = document.getElementById('city-name').textContent;
+  if (cityNameText && cityNameText !== '—') input.value = cityNameText;
+  if (input.focus)  input.focus();
+  if (input.select) input.select();
+}
+function closeCitySearch() {
+  document.getElementById('header-left').classList.remove('search-open');
+}
+document.getElementById('search-toggle-btn').addEventListener('click', openCitySearch);
+document.getElementById('city-name-wrap').addEventListener('click', openCitySearch);
 document.getElementById('city-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) loadAndSync(v, getModel()); }
+  if (e.key === 'Enter') {
+    const v = e.target.value.trim();
+    if (v) { closeCitySearch(); loadAndSync(v, getModel()); }
+  } else if (e.key === 'Escape') {
+    closeCitySearch();
+  }
 });
 document.getElementById('model-select').addEventListener('change', () => {
   const v = document.getElementById('city-input').value.trim();

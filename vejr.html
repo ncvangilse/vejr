@@ -42,19 +42,6 @@
 
 <div id="hover-tooltip"></div>
 
-<div id="search-bar">
-  <input id="city-input" type="text" placeholder="Enter a city, e.g. Copenhagen, London, Paris, Oslo…"/>
-  <select id="model-select">
-    <option value="best_match">Best match (auto)</option>
-    <option value="dmi_seamless" selected>DMI HARMONIE</option>
-    <option value="icon_seamless">DWD ICON</option>
-    <option value="ecmwf_ifs025">ECMWF IFS</option>
-    <option value="meteofrance_seamless">Météo-France</option>
-    <option value="gfs_seamless">NOAA GFS</option>
-  </select>
-<button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
-</div>
-
 <div id="forecast-container">
   <div id="loading">Loading weather data…</div>
   <div id="error-msg">
@@ -65,15 +52,31 @@
 
   <div id="forecast-content" style="display:none">
     <div id="header">
-      <div>
-        <div id="city-name">—</div>
+      <div id="header-left">
+        <div id="city-name-wrap">
+          <div id="city-name">—</div>
+          <button id="search-toggle-btn" title="Search for a city">🔍</button>
+        </div>
+        <div id="city-input-wrap">
+          <input id="city-input" type="text" placeholder="Enter a city, e.g. Copenhagen, London, Paris, Oslo…"/>
+        </div>
         <div id="subtitle">—</div>
         <div id="obs-station-name" style="font-size:10px;margin-top:2px;display:none;"></div>
       </div>
       <div id="header-right">
+        <div id="header-controls">
+          <select id="model-select">
+            <option value="best_match">Best match (auto)</option>
+            <option value="dmi_seamless" selected>DMI HARMONIE</option>
+            <option value="icon_seamless">DWD ICON</option>
+            <option value="ecmwf_ifs025">ECMWF IFS</option>
+            <option value="meteofrance_seamless">Météo-France</option>
+            <option value="gfs_seamless">NOAA GFS</option>
+          </select>
+          <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
+        </div>
         <div id="updated-text">—</div>
         <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
-
       </div>
     </div>
 
