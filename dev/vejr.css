@@ -159,7 +159,13 @@ body {
   flex: 1;
   min-width: 0;
   position: relative;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.chart-canvas-wrap::-webkit-scrollbar { display: none; }
 .y-axis-right {
   flex: 0 0 36px;
   width: 36px;
@@ -410,37 +416,6 @@ canvas.main-canvas {
   flex-shrink: 0;
 }
 #kite-cfg-btn:hover { background: #225a38; }
-
-#forecast-range-btn {
-  padding: 5px 8px;
-  background: #1e2e44;
-  color: #7ab8f5;
-  border: 1px solid #4a7ab5;
-  border-radius: 3px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  letter-spacing: 0.3px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-#forecast-range-btn:hover { background: #253d58; }
-#forecast-range-btn.active {
-  background: #003c8f;
-  color: #b8d4ff;
-  border-color: #6699cc;
-}
-
-/* Landscape extended forecast: enable horizontal scroll on chart rows */
-body.forecast-extended .chart-canvas-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-body.forecast-extended .chart-canvas-wrap::-webkit-scrollbar { display: none; }
 
 /* ── App footer ── */
 #app-footer {
@@ -1032,20 +1007,8 @@ body.inverted-colors #help-btn:hover { background: #c5b59f; }
   .y-axis-right { display: none; }
 }
 
-/* ── Portrait: horizontally scrollable canvas area ── */
-/*    Each .chart-canvas-wrap is its own scroll container; JS syncs them.   */
-/*    The .y-axis siblings stay fixed — no sticky needed.                   */
+/* ── Portrait: footer layout ── */
 @media (orientation: portrait) {
-  .chart-canvas-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    /* Hide scrollbar chrome — scrolling still works via swipe/drag */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .chart-canvas-wrap::-webkit-scrollbar { display: none; }
-
   /* Footer portrait: grid with shore-status+help+credits on row 1, build-number below */
   #app-footer {
     display: grid;
