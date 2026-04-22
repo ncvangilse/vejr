@@ -238,6 +238,70 @@ describe('loadAndSync', () => {
   });
 });
 
+// ── iOS Home Screen location persistence ─────────────────────────────────────
+// When the user drags the radar pin (loadAtCoords) or GPS detects a location
+// (loadByCoords), the exact coords must be written to localStorage so that an
+// iOS Home Screen launch — which always opens the manifest start_url with no
+// query params — can restore the position without going through geocoding.
+
+describe('loadAtCoords – persists coords to localStorage', () => {
+  it('writes lat/lon string to vejr_city in localStorage', () => {
+    const { ctx, mockLocalStorage } = loadApp();
+    ctx.loadAtCoords(55.123456, 12.654321, 'dmi_seamless');
+    expect(mockLocalStorage.store['vejr_city']).toBe('55.123456,12.654321');
+  });
+
+  it('overwrites a previously saved city name with the new coords', () => {
+    const { ctx, mockLocalStorage } = loadApp({ savedCity: 'Berlin' });
+    ctx.loadAtCoords(55.0, 12.0, 'dmi_seamless');
+    expect(mockLocalStorage.store['vejr_city']).toBe('55.000000,12.000000');
+  });
+
+  it('also updates the URL q param with the coord string', () => {
+    const { ctx, replaceStateCalls } = loadApp();
+    ctx.loadAtCoords(55.123456, 12.654321, 'dmi_seamless');
+    const lastUrl = replaceStateCalls.at(-1)[2];
+    expect(lastUrl).toContain('55.123456');
+    expect(lastUrl).toContain('12.654321');
+  });
+});
+
+describe('initialLoad – restores saved coord string without geocoding (iOS Home Screen)', () => {
+  it('calls loadAtCoords path when savedCity is a lat/lon string', async () => {
+    // When iOS opens the app from the Home Screen shortcut the URL has no ?q=
+    // param. The only location data is the coord string stored in localStorage.
+    // The app must restore coords directly — not pass them to geocode().
+    const geocodeCalls = [];
+    const { replaceStateCalls } = loadApp({
+      savedCity: '55.123456,12.654321',
+      // Override geocode stub to track whether it is called.
+    });
+    // Allow the async loadAtCoords chain to start (fetch rejects immediately,
+    // but setQParam is called synchronously before the first await).
+    await new Promise(r => setTimeout(r, 0));
+    // The URL should be updated with the coord string (not a geocoded city name).
+    const lastUrl = replaceStateCalls.at(-1)?.[2] ?? '';
+    expect(lastUrl).toContain('55.123456');
+    expect(lastUrl).toContain('12.654321');
+  });
+
+  it('does not treat a coord string as a city name to geocode', () => {
+    // If geocode were called with a coord string it would hit external APIs and
+    // likely fail.  We verify city-input.value is NOT set to the raw coord string
+    // (loadAtCoords sets it to the reverse-geocoded name or coord fallback, but
+    // never leaves it as the raw "lat,lon" storage key).
+    const { cityInput } = loadApp({ savedCity: '55.123456,12.654321' });
+    // city-input must NOT have been naively set to the raw storage value.
+    expect(cityInput.value).not.toBe('55.123456,12.654321');
+  });
+
+  it('still geocodes a normal city name saved in localStorage', () => {
+    const { cityInput, geoCalls } = loadApp({ savedCity: 'Berlin', geoAvailable: true });
+    expect(cityInput.value).toBe('Berlin');
+    expect(geoCalls).toHaveLength(0); // geolocation not triggered (saved city used)
+  });
+});
+
 // ── HTML structure ────────────────────────────────────────────────────────────
 
 describe('vejr.html structure', () => {
