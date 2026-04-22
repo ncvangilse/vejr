@@ -527,6 +527,98 @@ body.inverted-colors #credits-btn {
 body.inverted-colors #credits-btn:hover { background: #c5b59f; }
 body.inverted-colors #app-footer { filter: invert(1); }
 
+/* ── Help button (in footer) ── */
+#help-btn {
+  padding: 7px 14px;
+  background: #2a3a50;
+  color: #8ab4d4;
+  border: 1px solid #4a6a8a;
+  border-radius: 3px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 36px;
+}
+#help-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
+
+/* ── Help modal ── */
+#help-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  background: rgba(0,0,0,0.55);
+  align-items: center;
+  justify-content: center;
+}
+#help-modal-overlay.open { display: flex; }
+#help-modal {
+  background: #1e2a38;
+  border: 1px solid #3a5a7a;
+  border-radius: 6px;
+  padding: 18px 22px 16px;
+  min-width: 280px;
+  max-width: 480px;
+  width: 92vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  color: #e0eaf4;
+  font-family: 'IBM Plex Sans', sans-serif;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+}
+#help-modal > h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #8ab4d4;
+  letter-spacing: 0.4px;
+  margin-bottom: 14px;
+}
+#help-modal-body h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #8ab4d4;
+  margin: 16px 0 5px;
+  letter-spacing: 0.3px;
+}
+#help-modal-body h2:first-child { margin-top: 0; }
+#help-modal-body h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6a9ab8;
+  margin: 10px 0 4px;
+}
+#help-modal-body p {
+  font-size: 12px;
+  color: #b0cce0;
+  line-height: 1.55;
+  margin: 0 0 8px;
+}
+#help-modal-body ul {
+  margin: 4px 0 8px 0;
+  padding-left: 18px;
+}
+#help-modal-body li {
+  font-size: 12px;
+  color: #b0cce0;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+#help-modal-body strong { color: #d0e8f8; font-weight: 700; }
+#help-modal-body em { color: #9abcd4; font-style: italic; }
+#help-modal-body a { color: #5a9ac8; text-decoration: none; }
+#help-modal-body a:hover { color: #8ac4f0; text-decoration: underline; }
+
+body.inverted-colors #help-modal-overlay { filter: invert(1); }
+body.inverted-colors #help-btn {
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
+}
+body.inverted-colors #help-btn:hover { background: #c5b59f; }
+
 /* ── Kite config modal ── */
 #kite-modal-overlay {
   display: none;
@@ -887,15 +979,16 @@ body.inverted-colors #app-footer { filter: invert(1); }
   }
   .chart-canvas-wrap::-webkit-scrollbar { display: none; }
 
-  /* Footer portrait: grid with shore-status+credits on row 1, build-number below */
+  /* Footer portrait: grid with shore-status+help+credits on row 1, build-number below */
   #app-footer {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
     grid-template-rows: auto auto;
     padding-bottom: max(14px, calc(env(safe-area-inset-bottom) + 6px));
   }
   #app-footer #shore-status  { grid-column: 1; grid-row: 1; }
-  #app-footer #credits-btn   { grid-column: 2; grid-row: 1; }
+  #app-footer #help-btn      { grid-column: 2; grid-row: 1; }
+  #app-footer #credits-btn   { grid-column: 3; grid-row: 1; }
   #app-footer #build-number  {
     grid-column: 1 / -1;
     grid-row: 2;

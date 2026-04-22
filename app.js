@@ -1706,6 +1706,86 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   }
 })();
 /* ══════════════════════════════════════════════════
+   HELP MODAL
+══════════════════════════════════════════════════ */
+(function () {
+  const overlay  = document.getElementById('help-modal-overlay');
+  const body     = document.getElementById('help-modal-body');
+  const closeBtn = document.getElementById('help-modal-close');
+  const openBtn  = document.getElementById('help-btn');
+
+  function inlineFmt(s) {
+    return s
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  }
+
+  function parseMd(md) {
+    const lines = md.split('\n');
+    let html = '';
+    let inList = false;
+    let buf = [];
+
+    function flushPara() {
+      const text = buf.join(' ').trim();
+      if (text) html += `<p>${inlineFmt(text)}</p>\n`;
+      buf = [];
+    }
+
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      if (line.startsWith('## ')) {
+        flushPara();
+        if (inList) { html += '</ul>\n'; inList = false; }
+        html += `<h2>${inlineFmt(line.slice(3))}</h2>\n`;
+      } else if (line.startsWith('### ')) {
+        flushPara();
+        if (inList) { html += '</ul>\n'; inList = false; }
+        html += `<h3>${inlineFmt(line.slice(4))}</h3>\n`;
+      } else if (line.startsWith('- ')) {
+        flushPara();
+        if (!inList) { html += '<ul>\n'; inList = true; }
+        html += `<li>${inlineFmt(line.slice(2))}</li>\n`;
+      } else if (line === '') {
+        flushPara();
+        if (inList) { html += '</ul>\n'; inList = false; }
+      } else {
+        buf.push(line);
+      }
+    }
+    flushPara();
+    if (inList) html += '</ul>\n';
+    return html;
+  }
+
+  let loaded = false;
+  async function open() {
+    overlay.classList.add('open');
+    if (!loaded) {
+      try {
+        const r = await fetch('help.md');
+        const md = await r.text();
+        body.innerHTML = parseMd(md);
+      } catch {
+        body.innerHTML = '<p>Help could not be loaded.</p>';
+      }
+      loaded = true;
+    }
+  }
+
+  openBtn.addEventListener('click', open);
+  closeBtn.addEventListener('click', () => overlay.classList.remove('open'));
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') overlay.classList.remove('open');
+  });
+})();
+
+/* ══════════════════════════════════════════════════
    CREDITS MODAL
 ══════════════════════════════════════════════════ */
 (function () {
