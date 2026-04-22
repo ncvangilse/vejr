@@ -1672,33 +1672,26 @@ document.getElementById('model-select').addEventListener('change', () => {
   const sel     = document.getElementById('model-select');
   if (!trigger || !list || !list.querySelectorAll) return;
 
-  function open()  { list.classList.add('open'); }
-  function close() { list.classList.remove('open'); }
-  function toggle() { list.classList.contains('open') ? close() : open(); }
+  function close()  { list.classList.remove('open'); }
+  function toggle() { list.classList.toggle('open'); }
 
-  // Use touchstart on trigger so the dropdown opens before any document handler fires.
-  // preventDefault suppresses the subsequent synthetic click (avoids double-toggle).
-  function onTrigger(e) { e.stopPropagation(); e.preventDefault(); toggle(); }
-  trigger.addEventListener('touchstart', onTrigger, { passive: false });
-  trigger.addEventListener('click',      (e) => { e.stopPropagation(); toggle(); });
+  trigger.addEventListener('click', toggle);
 
-  // Close on any tap/click outside the dropdown.
-  document.addEventListener('touchstart', () => close());
-  document.addEventListener('click',      () => close());
+  // Close when clicking/tapping outside the dropdown or trigger.
+  // Containment check (not stopPropagation) so item clicks are never swallowed.
+  document.addEventListener('click', (e) => {
+    if (!list.contains(e.target) && e.target !== trigger) close();
+  });
 
   list.querySelectorAll('.model-opt').forEach(opt => {
-    function onSelect(e) {
-      e.stopPropagation();
-      e.preventDefault();
+    opt.addEventListener('click', () => {
       sel.value = opt.dataset.val;
       list.querySelectorAll('.model-opt').forEach(o => o.classList.remove('selected'));
       opt.classList.add('selected');
       close();
       const city = document.getElementById('city-input').value.trim();
       if (city) loadAndSync(city, opt.dataset.val);
-    }
-    opt.addEventListener('touchstart', onSelect, { passive: false });
-    opt.addEventListener('click',      onSelect);
+    });
   });
 })();
 let resizeTimer;
