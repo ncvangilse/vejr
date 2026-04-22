@@ -1689,12 +1689,13 @@ document.getElementById('model-select').addEventListener('change', () => {
   list.querySelectorAll('.model-opt').forEach(opt => {
     function onSelect(e) {
       e.stopPropagation();
-      e.preventDefault(); // suppress synthetic click on touch so it doesn't re-open
+      e.preventDefault();
       sel.value = opt.dataset.val;
       list.querySelectorAll('.model-opt').forEach(o => o.classList.remove('selected'));
       opt.classList.add('selected');
       close();
-      sel.dispatchEvent(new Event('change'));
+      const city = document.getElementById('city-input').value.trim();
+      if (city) loadAndSync(city, opt.dataset.val);
     }
     opt.addEventListener('touchstart', onSelect, { passive: false });
     opt.addEventListener('click',      onSelect);
