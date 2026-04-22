@@ -1,7 +1,8 @@
 /* ══════════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════════ */
-const FORECAST_DAYS = 7;
+var FORECAST_DAYS = 7;
+var FORECAST_DAYS_EXTENDED = 16;
 const STEP   = 3; // every 3 hours  (icons, wind arrows)
 const STEP1H = 1; // every 1 hour   (temperature, wind speed/gust, precip curves)
 const DA_DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -63,6 +64,20 @@ function parseKiteParams() {
 }
 
 let KITE_CFG = parseKiteParams();
+
+/* ── Forecast range (7 or 16 days) ── */
+(function() {
+  const v = parseInt(new URLSearchParams(window.location.search).get('forecast_days'));
+  if (v === FORECAST_DAYS_EXTENDED) FORECAST_DAYS = FORECAST_DAYS_EXTENDED;
+})();
+
+function setForecastDays(n) {
+  FORECAST_DAYS = n;
+  const url = new URL(window.location.href);
+  if (n === 7) url.searchParams.delete('forecast_days');
+  else url.searchParams.set('forecast_days', n);
+  window.history.replaceState(null, '', url.toString());
+}
 
 function setKiteParams(cfg) {
   KITE_CFG = cfg;

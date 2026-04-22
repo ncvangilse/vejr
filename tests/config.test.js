@@ -146,3 +146,48 @@ describe('kite settings – localStorage persistence (iOS Home Screen fix)', () 
     expect(cfg.daylight).toBe(false);
   });
 });
+
+describe('forecast range – setForecastDays', () => {
+  it('FORECAST_DAYS defaults to 7', () => {
+    const ctx = loadScripts('config.js');
+    expect(ctx.FORECAST_DAYS).toBe(7);
+  });
+
+  it('FORECAST_DAYS_EXTENDED is 16', () => {
+    const ctx = loadScripts('config.js');
+    expect(ctx.FORECAST_DAYS_EXTENDED).toBe(16);
+  });
+
+  it('setForecastDays(16) updates FORECAST_DAYS to 16', () => {
+    const ctx = loadScripts('config.js');
+    ctx.setForecastDays(16);
+    expect(ctx.FORECAST_DAYS).toBe(16);
+  });
+
+  it('setForecastDays(7) resets FORECAST_DAYS to 7', () => {
+    const ctx = loadScripts('config.js');
+    ctx.setForecastDays(16);
+    ctx.setForecastDays(7);
+    expect(ctx.FORECAST_DAYS).toBe(7);
+  });
+
+  it('setForecastDays(16) adds forecast_days=16 to URL', () => {
+    const calls = [];
+    const ctx = loadScripts('config.js');
+    ctx.window.history.replaceState = (...a) => calls.push(a);
+    ctx.setForecastDays(16);
+    expect(calls.length).toBeGreaterThan(0);
+    const url = calls[calls.length - 1][2];
+    expect(url).toContain('forecast_days=16');
+  });
+
+  it('setForecastDays(7) removes forecast_days from URL', () => {
+    const calls = [];
+    const ctx = loadScripts('config.js');
+    ctx.window.history.replaceState = (...a) => calls.push(a);
+    ctx.setForecastDays(16);
+    ctx.setForecastDays(7);
+    const url = calls[calls.length - 1][2];
+    expect(url).not.toContain('forecast_days');
+  });
+});
