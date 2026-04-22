@@ -1442,6 +1442,13 @@ async function loadAtCoords(lat, lon, model) {
     if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
     if (window.analyseShore)     window.analyseShore(lat, lon).catch(() => null);
 
+    // Persist coords before any awaits: both a page reload and an iOS Home
+    // Screen launch (which always opens the manifest start_url without query
+    // params) must be able to restore the exact position from localStorage.
+    const coordStr = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+    setQParam(coordStr);
+    try { localStorage.setItem('vejr_city', coordStr); } catch(_) {}
+
     // Reverse-geocode for a human-readable name (best-effort)
     let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     let reverseCountryCode = null;
@@ -1459,8 +1466,6 @@ async function loadAtCoords(lat, lon, model) {
     } catch(_) { /* keep coord string */ }
 
     document.getElementById('city-input').value = displayName;
-    // Store coords in the URL so a page reload restores the exact dragged position
-    setQParam(`${lat.toFixed(6)},${lon.toFixed(6)}`);
 
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
@@ -1621,7 +1626,11 @@ async function loadByCoords(lat, lon, model) {
     }
   } catch(e) { /* keep coordinate fallback */ }
   document.getElementById('city-input').value = displayName;
-  setQParam(displayName);
+  // Persist coords (not the display name) so an iOS Home Screen launch restores
+  // the exact GPS-detected position instead of re-geocoding a city name.
+  const coordStr = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  setQParam(coordStr);
+  try { localStorage.setItem('vejr_city', coordStr); } catch(_) {}
   await load(displayName, model);
 }
 async function tryGeolocation(model) {
@@ -1722,9 +1731,17 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   } else if (decision.type === 'geolocation') {
     tryGeolocation(model);
   } else {
-    document.getElementById('city-input').value = decision.value;
-    setQParam(decision.value);
-    load(decision.value, model);
+    // saved or typed — if the stored value is a "lat,lon" coord string (written
+    // by loadAtCoords / loadByCoords to survive iOS Home Screen launches), restore
+    // the exact coordinates instead of sending them through geocoding.
+    const coordMatch = decision.value.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
+    if (coordMatch) {
+      loadAtCoords(parseFloat(coordMatch[1]), parseFloat(coordMatch[2]), model);
+    } else {
+      document.getElementById('city-input').value = decision.value;
+      setQParam(decision.value);
+      load(decision.value, model);
+    }
   }
 })();
 /* ══════════════════════════════════════════════════
