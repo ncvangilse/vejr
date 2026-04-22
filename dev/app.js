@@ -269,8 +269,10 @@ function buildPortraitSeries(s) {
     const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
     const h = new Date(s.times1h[i]).getHours();
     const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
-    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
-    const step = Math.min(6, night ? baseStep * 3 : baseStep);
+    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : hoursAhead < 168 ? 6 : 12;
+    const step = hoursAhead < 168
+      ? Math.min(6,  night ? baseStep * 3 : baseStep)
+      : Math.min(24, night ? baseStep * 2 : baseStep);
 
     // For coarse steps pick the slot in [i, i+step) that is most daytime.
     let best = i;
@@ -348,9 +350,10 @@ function renderDisplay(d, scrollToNow = false) {
   const portrait       = window.matchMedia('(orientation: portrait)').matches;
   const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
   syncInvertedColorsClass();
-  // In portrait, show the full forecast from the data start (today midnight) so
-  // the user can scroll back to see today's earlier hours. In landscape show the
-  // full 7-day window from data start.
+  // Portrait always scrolls at variable resolution. Landscape also scrolls when
+  // FORECAST_DAYS > 7 so the extended range is reachable rather than squashed.
+  const scrollable = portrait || FORECAST_DAYS > 7;
+  document.body.classList.toggle('forecast-extended', FORECAST_DAYS > 7);
   const n3h = Math.ceil(FORECAST_DAYS * 24 / STEP);
   const n1h = Math.ceil(FORECAST_DAYS * 24 / STEP1H);
   const s = {
@@ -371,12 +374,12 @@ function renderDisplay(d, scrollToNow = false) {
       ? d.otherModelsWind1h.map(m => ({ model: m.model, winds1h: m.winds1h.slice(0, n1h) }))
       : null,
   };
-  const colW = portrait ? PORTRAIT_COL_W : null;
-  const displayData = portrait ? buildPortraitSeries(s) : s;
+  const colW = scrollable ? PORTRAIT_COL_W : null;
+  const displayData = scrollable ? buildPortraitSeries(s) : s;
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
-  // In portrait, scroll to center the current time in the viewport on initial load.
-  if (portrait && scrollToNow && displayData.xMap1h) {
+  // Scroll to center the current time in the viewport on initial load.
+  if (scrollable && scrollToNow && displayData.xMap1h) {
     requestAnimationFrame(() => {
       const nowMs = Date.now();
       const idx = displayData.times1h.findIndex(t => new Date(t).getTime() >= nowMs);
@@ -1679,6 +1682,20 @@ document.getElementById('model-select').addEventListener('change', () => {
             || localStorage.getItem('vejr_city') || '';
   if (city) loadAndSync(city, getModel());
 });
+(function initForecastRangeBtn() {
+  const btn = document.getElementById('forecast-range-btn');
+  btn.textContent = FORECAST_DAYS + 'd';
+  btn.classList.toggle('active', FORECAST_DAYS > 7);
+  btn.addEventListener('click', () => {
+    const next = FORECAST_DAYS === 7 ? FORECAST_DAYS_EXTENDED : 7;
+    setForecastDays(next);
+    btn.textContent = next + 'd';
+    btn.classList.toggle('active', next > 7);
+    const city = document.getElementById('city-input').value.trim()
+              || localStorage.getItem('vejr_city') || '';
+    if (city) load(city, getModel());
+  });
+})();
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
