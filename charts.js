@@ -72,13 +72,16 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 
   // day segments & names
   const segs = [0,...divs,n];
+  ctx.font = `700 11px 'IBM Plex Sans', sans-serif`;
+  const dayLabels = [];
   for(let s=0;s<segs.length-1;s++){
     const midX = ((segs[s]+segs[s+1])/2) * colW;
+    const name = DA_DAYS[new Date(times[segs[s]]).getDay()];
+    dayLabels.push({ midX, halfW: ctx.measureText(name).width / 2 });
     ctx.fillStyle = textDay;
-    ctx.font = `700 11px 'IBM Plex Sans', sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(DA_DAYS[new Date(times[segs[s]]).getDay()], midX, TIME_H/2);
+    ctx.fillText(name, midX, TIME_H/2);
   }
 
   // Hour tick marks: every 3h for 1h-resolution data, every 6h for 3h-resolution data.
@@ -92,6 +95,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
     const h = new Date(t).getHours();
     if(h===0||h%tickEvery!==0) return;
     const x = (i+0.5)*colW;
+    if(dayLabels.some(dl => Math.abs(x - dl.midX) < dl.halfW + 4)) return;
     ctx.fillStyle = textHr;
     ctx.font = `10px 'IBM Plex Mono', monospace`;
     ctx.textAlign = 'center';
