@@ -22,15 +22,43 @@ body {
            max(8px, env(safe-area-inset-bottom))
            max(8px, env(safe-area-inset-left));
 }
-#search-bar {
+#header-left {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  width: 100%;
+  flex-direction: column;
+  min-width: 0;
 }
+#city-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+#city-name-wrap:hover #city-name {
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 3px;
+}
+#search-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 1px 3px;
+  color: #667;
+  opacity: 0.5;
+  line-height: 1;
+  flex-shrink: 0;
+}
+#search-toggle-btn:hover { opacity: 1; }
+#city-input-wrap {
+  display: none;
+  margin-bottom: 2px;
+}
+#header-left.search-open #city-name-wrap { display: none; }
+#header-left.search-open #city-input-wrap { display: block; }
 #city-input {
-  flex: 1;
-  padding: 8px 12px;
+  width: 100%;
+  padding: 4px 8px;
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 14px;
   border: 2px solid #888;
@@ -38,17 +66,22 @@ body {
   outline: none;
 }
 #city-input:focus { border-color: #003c8f; }
+#header-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 3px;
+}
 #model-select {
-  padding: 8px 10px;
+  padding: 5px 8px;
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
-  border: 2px solid #888;
+  font-size: 12px;
+  border: 1px solid #888;
   background: #f5f5f0;
   outline: none;
   cursor: pointer;
-  white-space: nowrap;
-  min-width: 0;
-  flex-shrink: 1;
+  max-width: 140px;
 }
 #model-select:focus { border-color: #003c8f; }
 
@@ -68,7 +101,15 @@ body {
 }
 #city-name { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
 #subtitle  { font-size: 11px; color: #555; margin-top: 2px; }
-#header-right { text-align: right; font-size: 11px; color: #555; }
+#header-right {
+  text-align: right;
+  font-size: 11px;
+  color: #555;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
 .dmi-logo {
   display: inline-block;
   background: #003c8f;
@@ -360,13 +401,13 @@ canvas.main-canvas {
 
 /* ── Kite config button ── */
 #kite-cfg-btn {
-  padding: 7px 14px;
+  padding: 5px 10px;
   background: #1a4a2e;
   color: #00e8b0;
   border: 1px solid #00c890;
   border-radius: 3px;
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   letter-spacing: 0.3px;
@@ -1015,6 +1056,11 @@ body.inverted-colors #kite-cfg-btn {
   border-color: #ff376f;
 }
 body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
+
+/* Radar header and controls: pre-invert so OS double-inversion restores
+   original button colors (dark navy background, light blue text). */
+body.inverted-colors #radar-header   { filter: invert(1); }
+body.inverted-colors #radar-controls { filter: invert(1); }
 
 /* Kite modal: pre-invert the entire overlay so the OS double-inversion
    restores all original dark-theme colors (background, text, borders,
