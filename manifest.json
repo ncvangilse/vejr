@@ -1,7 +1,7 @@
 {
-  "name": "Weather Forecast",
-  "short_name": "Weather",
-  "description": "Weather forecast based on DMI data",
+  "name": "Kitevibe",
+  "short_name": "Kitevibe",
+  "description": "Wind and weather forecasts with kitesurfing suitability analysis",
   "start_url": "%%MANIFEST_START_URL%%",
   "scope": "%%MANIFEST_SCOPE%%",
   "display": "standalone",
