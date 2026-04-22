@@ -75,22 +75,16 @@ body {
 }
 #model-dropdown {
   position: relative;
+  margin-top: 3px;
 }
-#model-dropdown-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 11px;
-  color: #555;
+#ens-status {
+  font-size: 10px;
+  color: #778;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  white-space: nowrap;
+  user-select: none;
+  text-align: right;
 }
-#model-dropdown-btn:hover { color: #111; }
-#model-dropdown-arrow { font-size: 9px; opacity: 0.6; }
+#ens-status:hover { color: #445; }
 #model-dropdown-list {
   display: none;
   position: absolute;

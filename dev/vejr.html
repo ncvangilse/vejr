@@ -65,17 +65,6 @@
       </div>
       <div id="header-right">
         <div id="header-controls">
-          <div id="model-dropdown">
-            <button id="model-dropdown-btn" type="button"><span id="model-current-label">DMI HARMONIE</span> <span id="model-dropdown-arrow">▾</span></button>
-            <div id="model-dropdown-list">
-              <div class="model-opt" data-val="best_match">Best match (auto)</div>
-              <div class="model-opt selected" data-val="dmi_seamless">DMI HARMONIE</div>
-              <div class="model-opt" data-val="icon_seamless">DWD ICON</div>
-              <div class="model-opt" data-val="ecmwf_ifs025">ECMWF IFS</div>
-              <div class="model-opt" data-val="meteofrance_seamless">Météo-France</div>
-              <div class="model-opt" data-val="gfs_seamless">NOAA GFS</div>
-            </div>
-          </div>
           <select id="model-select" aria-hidden="true" style="display:none">
             <option value="best_match">Best match (auto)</option>
             <option value="dmi_seamless" selected>DMI HARMONIE</option>
@@ -87,7 +76,17 @@
           <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
         </div>
         <div id="updated-text">—</div>
-        <div id="ens-status" style="font-size:10px;margin-top:3px;color:#778;">Ensemble: loading…</div>
+        <div id="model-dropdown">
+          <div id="ens-status">Ensemble: loading…</div>
+          <div id="model-dropdown-list">
+            <div class="model-opt" data-val="best_match">Best match (auto)</div>
+            <div class="model-opt selected" data-val="dmi_seamless">DMI HARMONIE</div>
+            <div class="model-opt" data-val="icon_seamless">DWD ICON</div>
+            <div class="model-opt" data-val="ecmwf_ifs025">ECMWF IFS</div>
+            <div class="model-opt" data-val="meteofrance_seamless">Météo-France</div>
+            <div class="model-opt" data-val="gfs_seamless">NOAA GFS</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -163,7 +162,7 @@
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.04.22-156-claude-fix-issues-75-78-82-lR3G3</div>
+  <div id="build-number">build 2026.04.22-157-claude-fix-issues-75-78-82-lR3G3</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
 </footer>
