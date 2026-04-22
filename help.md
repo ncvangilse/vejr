@@ -1,8 +1,8 @@
 ## About
 
-**Vejr** (Danish for "weather") is a free, no-ads weather and kitesurfing forecast app. No tracking, no enshitification — just a useful tool, given freely.
+**kitevibe** is a free, no-ads weather and kitesurfing forecast app. No tracking, no enshitification — just a useful tool, given freely.
 
-The name **kitevibe** reflects how it was made: written with vibe coding, with the goal of spreading a positive vibe and giving people a genuinely good tool for free.
+The name reflects how it was made: written with vibe coding, with the goal of spreading a positive vibe and giving people a genuinely good tool for free.
 
 ## Add to your home screen
 
@@ -37,6 +37,8 @@ Weather station markers are overlaid on the map:
 - **Trafikinfo** — road-traffic weather stations from Vejdirektoratet
 
 Tap any marker to open a popup with the station name, latest wind speed and direction, model bias, and a 24-hour mini wind chart.
+
+The **location pin** on the radar map is draggable — drag it to your exact kite spot to update the forecast and sea bearing analysis for that position.
 
 ## Kitesurfing analysis
 
