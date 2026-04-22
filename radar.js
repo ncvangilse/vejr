@@ -608,17 +608,17 @@ function _buildProposeNameUrl(s) {
   function _fitRadarHeight() {
     const section    = document.getElementById('radar-section');
     const mapEl      = document.getElementById('radar-map');
-    const headerEl   = document.getElementById('radar-header');
     const controlsEl = document.getElementById('radar-controls');
+    const obsEl      = document.getElementById('radar-obs-controls');
     if (!section || section.style.display === 'none') return;
-    const headerH   = headerEl   ? headerEl.offsetHeight   : 34;
     const controlsH = controlsEl ? controlsEl.offsetHeight : 34;
+    const obsH      = obsEl      ? obsEl.offsetHeight      : 34;
     // section.offsetTop = distance from document top to section border-box.
     // footer has margin-top: 12px.  We want footer-top = window.innerHeight
     // (just below fold) when scrollY = 0, so:
     //   section.offsetTop + sectionHeight + 12 = window.innerHeight
-    //   mapHeight = window.innerHeight - section.offsetTop - 12 - headerH - controlsH - 2 (borders)
-    const mapH = window.innerHeight - section.offsetTop - 12 - headerH - controlsH - 2;
+    //   mapHeight = window.innerHeight - section.offsetTop - 12 - controlsH - obsH - 2 (borders)
+    const mapH = window.innerHeight - section.offsetTop - 12 - controlsH - obsH - 2;
     mapEl.style.minHeight = Math.max(320, mapH) + 'px';
   }
 
