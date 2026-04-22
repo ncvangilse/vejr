@@ -1761,16 +1761,11 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   }
 
   let loaded = false;
-  async function open() {
+  function open() {
     overlay.classList.add('open');
     if (!loaded) {
-      try {
-        const r = await fetch('help.md');
-        const md = await r.text();
-        body.innerHTML = parseMd(md);
-      } catch {
-        body.innerHTML = '<p>Help could not be loaded.</p>';
-      }
+      const src = document.getElementById('help-md');
+      body.innerHTML = src ? parseMd(src.textContent) : '<p>Help content missing.</p>';
       loaded = true;
     }
   }
