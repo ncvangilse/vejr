@@ -346,15 +346,19 @@ describe('_windAxisMax', () => {
     expect(ctx._windAxisMax([5, 5, 5], null)).toBe(5);
   });
 
-  it('is based on mean wind, not gusts — high gusts do not widen the axis', () => {
-    // winds peak at 8 m/s → axis max should be 10, not 25 from the gust
+  it('uses mean wind as fallback when no ensemble data', () => {
     expect(ctx._windAxisMax([5, 8, 6], null)).toBe(10);
   });
 
-  it('includes ensemble wind p90 in the max calculation', () => {
-    // winds top out at 8 but ensemble p90 reaches 13 → rounds up to 15
+  it('uses ensemble wind p90 as the axis ceiling when ensemble is present', () => {
     const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
     expect(ctx._windAxisMax([5, 8, 6], ensWind)).toBe(15);
+  });
+
+  it('uses p90 exclusively when ensemble is present, ignoring mean winds', () => {
+    // mean winds reach 17 but p90 only 13 → axis is 15, not 20
+    const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
+    expect(ctx._windAxisMax([5, 17, 6], ensWind)).toBe(15);
   });
 
   it('filters null values in winds array', () => {
