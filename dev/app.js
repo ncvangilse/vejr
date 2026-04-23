@@ -240,11 +240,11 @@ function computeXMap1h(times1h, displayTimes, portraitColW) {
 
 /**
  * Build a variable-resolution display series for portrait mode.
- * Resolution decreases with distance from now; nighttime is compressed:
+ * Base resolution decreases with distance from now; nighttime slots are
+ * additionally coarsened by 3× (capped at 6h) so nights compress naturally:
  *   0–24 h  daytime  → 1h  |  nighttime → 3h
  *   24–48 h daytime  → 3h  |  nighttime → 6h
- *   48–168 h         → 6h  (always)
- *   168 h+  daytime only, step increases linearly from 6h→12h (nighttime skipped)
+ *   48 h+            → 6h  (always, day or night)
  *
  * For coarse slots the icon/direction is picked from whichever hour in the
  * window is most "daytime" (prefers midday, avoids night).
@@ -269,18 +269,8 @@ function buildPortraitSeries(s) {
     const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
     const h = new Date(s.times1h[i]).getHours();
     const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
-
-    let step;
-    if (hoursAhead >= 168) {
-      // Extended zone: skip nighttime icons entirely (req #4)
-      if (night) { i += 1; continue; }
-      // Linear zoom: step increases from 6h at day 7 to 12h at day 16
-      const ratio = Math.min(1, (hoursAhead - 168) / 216);
-      step = Math.ceil((6 + 6 * ratio) / 3) * 3; // snaps to 6, 9, or 12
-    } else {
-      const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
-      step = Math.min(6, night ? baseStep * 3 : baseStep);
-    }
+    const baseStep = hoursAhead < 24 ? 1 : hoursAhead < 48 ? 3 : 6;
+    const step = Math.min(6, night ? baseStep * 3 : baseStep);
 
     // For coarse steps pick the slot in [i, i+step) that is most daytime.
     let best = i;
@@ -351,95 +341,6 @@ function buildPortraitSeries(s) {
 
     // x-position mapping: each 1h point → CSS x-center on the display grid.
     xMap1h, xFrac1h, slotIdx1h,
-    isPortraitMode: true,
-  };
-}
-
-/**
- * Build a display series for landscape mode.
- * Days 1–7: uniform 3h slots so exactly 7 days fills the viewport at baseColW.
- * Days 7–16: daytime only (nighttime skipped); step increases linearly from
- *             6h at day 7 to 12h at day 16 (linear zoom, req #3/#4).
- * colW is the base column width (= viewportWidth / 56) so days 1–7 fill the
- * screen and days 8–16 extend beyond, accessible by scrolling.
- */
-function buildLandscapeSeries(s, colW) {
-  const t0 = new Date(s.times1h[0]).getTime();
-  const times = [], codes = [], dirs = [];
-  const precips = [], winds = [], temps = [], gusts = [];
-  const hasEns = s.ensTemp1h != null;
-  const ensTemp = { p10: [], p50: [], p90: [] };
-  const ensWind = { p10: [], p50: [], p90: [] };
-  const ensGust = { p10: [], p50: [], p90: [] };
-  const ensPrecip = { p10: [], p50: [], p90: [] };
-
-  let i = 0;
-  while (i < s.times1h.length) {
-    const hoursAhead = (new Date(s.times1h[i]).getTime() - t0) / 3600000;
-    const h = new Date(s.times1h[i]).getHours();
-    const night = typeof isNight === 'function' ? isNight(s.times1h[i]) : (h < 6 || h >= 20);
-
-    let step;
-    if (hoursAhead < 168) {
-      step = STEP; // 3h uniform — first 7 days fill viewport exactly
-    } else {
-      // Extended zone: skip nighttime icons (req #4)
-      if (night) { i += 1; continue; }
-      // Linear zoom: step increases from 6h at day 7 to 12h at day 16
-      const ratio = Math.min(1, (hoursAhead - 168) / 216);
-      step = Math.ceil((6 + 6 * ratio) / 3) * 3; // snaps to 6, 9, or 12
-    }
-
-    // For coarse steps pick the slot in [i, i+step) that is most daytime.
-    let best = i;
-    if (step > 1) {
-      let bestScore = -Infinity;
-      const end = Math.min(i + step, s.times1h.length);
-      for (let j = i; j < end; j++) {
-        const hj = new Date(s.times1h[j]).getHours();
-        const nj = typeof isNight === 'function' ? isNight(s.times1h[j]) : (hj < 6 || hj >= 20);
-        const score = (nj ? 0 : 100) - Math.abs(hj - 12);
-        if (score > bestScore) { bestScore = score; best = j; }
-      }
-    }
-
-    times.push(s.times1h[i]);
-    codes.push(s.codes1h ? s.codes1h[best] : null);
-    dirs.push(s.dirs1h ? s.dirs1h[best]
-                       : s.dirs[Math.min(Math.round(best / 3), s.dirs.length - 1)]);
-    precips.push(s.precips1h[best]);
-    winds.push(s.winds1h[best]);
-    temps.push(s.temps1h[best]);
-    gusts.push(s.gusts1h[best]);
-    if (hasEns) {
-      ['p10', 'p50', 'p90'].forEach(k => {
-        ensTemp[k].push(s.ensTemp1h[k][best]);
-        ensWind[k].push(s.ensWind1h[k][best]);
-        ensGust[k].push(s.ensGust1h[k][best]);
-        ensPrecip[k].push(s.ensPrecip1h[k][best]);
-      });
-    }
-
-    i += step;
-  }
-
-  const { xMap1h, xFrac1h, slotIdx1h } = computeXMap1h(s.times1h, times, colW);
-
-  return {
-    times, codes, dirs, temps, precips, gusts, winds,
-    ensTemp:   hasEns ? ensTemp   : null,
-    ensWind:   hasEns ? ensWind   : null,
-    ensGust:   hasEns ? ensGust   : null,
-    ensPrecip: hasEns ? ensPrecip : null,
-    times1h:     s.times1h,   temps1h:   s.temps1h,
-    precips1h:   s.precips1h, gusts1h:   s.gusts1h,
-    winds1h:     s.winds1h,   codes1h:   s.codes1h,
-    dirs1h:      s.dirs1h,
-    ensTemp1h:   s.ensTemp1h, ensWind1h:  s.ensWind1h,
-    ensGust1h:   s.ensGust1h, ensPrecip1h: s.ensPrecip1h,
-    otherModelsWind1h: s.otherModelsWind1h || null,
-    xMap1h, xFrac1h, slotIdx1h,
-    isPortraitMode: false,
   };
 }
 
@@ -447,6 +348,9 @@ function renderDisplay(d, scrollToNow = false) {
   const portrait       = window.matchMedia('(orientation: portrait)').matches;
   const invertedColors = window.matchMedia('(inverted-colors: inverted)').matches;
   syncInvertedColorsClass();
+  // In portrait, show the full forecast from the data start (today midnight) so
+  // the user can scroll back to see today's earlier hours. In landscape show the
+  // full 7-day window from data start.
   const n3h = Math.ceil(FORECAST_DAYS * 24 / STEP);
   const n1h = Math.ceil(FORECAST_DAYS * 24 / STEP1H);
   const s = {
@@ -467,64 +371,19 @@ function renderDisplay(d, scrollToNow = false) {
       ? d.otherModelsWind1h.map(m => ({ model: m.model, winds1h: m.winds1h.slice(0, n1h) }))
       : null,
   };
-
-  // Trim trailing null temperatures so the API's incomplete last day doesn't
-  // show as a drop to zero (null coerces to 0 in JS arithmetic).
-  let clipEnd1h = s.times1h.length;
-  while (clipEnd1h > 0 && s.temps1h[clipEnd1h - 1] == null) clipEnd1h--;
-  if (clipEnd1h < s.times1h.length) {
-    const clipMs = new Date(s.times1h[clipEnd1h - 1]).getTime();
-    s.times1h    = s.times1h.slice(0, clipEnd1h);
-    s.temps1h    = s.temps1h.slice(0, clipEnd1h);
-    s.precips1h  = s.precips1h.slice(0, clipEnd1h);
-    s.gusts1h    = s.gusts1h.slice(0, clipEnd1h);
-    s.winds1h    = s.winds1h.slice(0, clipEnd1h);
-    s.codes1h    = s.codes1h  ? s.codes1h.slice(0, clipEnd1h)  : null;
-    s.dirs1h     = s.dirs1h   ? s.dirs1h.slice(0, clipEnd1h)   : null;
-    if (s.ensTemp1h)   s.ensTemp1h   = slicePercentilesFrom(s.ensTemp1h,   0, clipEnd1h);
-    if (s.ensWind1h)   s.ensWind1h   = slicePercentilesFrom(s.ensWind1h,   0, clipEnd1h);
-    if (s.ensGust1h)   s.ensGust1h   = slicePercentilesFrom(s.ensGust1h,   0, clipEnd1h);
-    if (s.ensPrecip1h) s.ensPrecip1h = slicePercentilesFrom(s.ensPrecip1h, 0, clipEnd1h);
-    let clipEnd3h = s.times.length;
-    while (clipEnd3h > 0 && new Date(s.times[clipEnd3h - 1]).getTime() > clipMs) clipEnd3h--;
-    s.times   = s.times.slice(0, clipEnd3h);
-    s.temps   = s.temps.slice(0, clipEnd3h);
-    s.precips = s.precips.slice(0, clipEnd3h);
-    s.gusts   = s.gusts.slice(0, clipEnd3h);
-    s.winds   = s.winds.slice(0, clipEnd3h);
-    s.dirs    = s.dirs.slice(0, clipEnd3h);
-    s.codes   = s.codes.slice(0, clipEnd3h);
-    if (s.ensTemp)   s.ensTemp   = slicePercentilesFrom(s.ensTemp,   0, clipEnd3h);
-    if (s.ensWind)   s.ensWind   = slicePercentilesFrom(s.ensWind,   0, clipEnd3h);
-    if (s.ensGust)   s.ensGust   = slicePercentilesFrom(s.ensGust,   0, clipEnd3h);
-    if (s.ensPrecip) s.ensPrecip = slicePercentilesFrom(s.ensPrecip, 0, clipEnd3h);
-  }
-
-  let colW, displayData;
-  if (portrait) {
-    colW = PORTRAIT_COL_W;
-    displayData = buildPortraitSeries(s);
-  } else {
-    // Landscape: 7 days fills the viewport; days 8–16 are accessible by scrolling.
-    // Compute colW from the canvas wrap width (excludes y-axis columns).
-    const wrap = document.querySelector ? document.querySelector('.chart-canvas-wrap') : null;
-    const viewW = (wrap && wrap.clientWidth > 0) ? wrap.clientWidth : (window.innerWidth || 800);
-    colW = viewW / (7 * 24 / STEP);
-    displayData = buildLandscapeSeries(s, colW);
-  }
-
+  const colW = portrait ? PORTRAIT_COL_W : null;
+  const displayData = portrait ? buildPortraitSeries(s) : s;
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
-  // Scroll to current time on initial load.
-  // Portrait: center "now" in the viewport. Landscape: left-align at "now" so 7 days ahead fills the screen.
-  if (scrollToNow && displayData.xMap1h) {
+  // In portrait, scroll to center the current time in the viewport on initial load.
+  if (portrait && scrollToNow && displayData.xMap1h) {
     requestAnimationFrame(() => {
       const nowMs = Date.now();
       const idx = displayData.times1h.findIndex(t => new Date(t).getTime() >= nowMs);
       const xNow = idx >= 0 ? displayData.xMap1h[idx] : displayData.xMap1h[displayData.xMap1h.length - 1];
       const wraps = document.querySelectorAll ? document.querySelectorAll('.chart-canvas-wrap') : [];
       const visW = wraps[0] ? wraps[0].clientWidth : 0;
-      const target = portrait ? Math.max(0, xNow - visW / 2) : Math.max(0, xNow);
+      const target = Math.max(0, xNow - visW / 2);
       wraps.forEach(w => { w.scrollLeft = target; });
     });
   }
@@ -560,37 +419,33 @@ function clearCrosshairs() {
 function drawCrosshairs(fracX, idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
-  const portrait = !!d.isPortraitMode;
-  // drawTemp always uses temps1h; wind uses 3h display series in portrait, 1h in landscape.
-  const temps_arr = d.temps1h;
+  const portrait = !!d.xFrac1h;
+  // Re-derive the same y-mappings used by the draw functions.
+  // In portrait all charts use the display series; in landscape curves use 1h data.
+  const temps_arr = portrait ? d.temps   : d.temps1h;
   const winds_arr = portrait ? d.winds   : d.winds1h;
   const gusts_arr = portrait ? d.gusts   : d.gusts1h;
   const ens_gust  = portrait ? d.ensGust : d.ensGust1h;
-  const wind_idx  = portrait ? idx3h     : idx1h;
+  const idx       = portrait ? idx3h     : idx1h;
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
-  const validTemps = temps_arr.filter(v => v != null);
-  let tmin = Math.floor(Math.min(...validTemps) / 5) * 5;
-  let tmax = Math.ceil( Math.max(...validTemps) / 5) * 5;
+  let tmin = Math.floor(Math.min(...temps_arr) / 5) * 5;
+  let tmax = Math.ceil( Math.max(...temps_arr) / 5) * 5;
   if (tmax - tmin < 15) { const mid = (tmin + tmax) / 2; tmin = Math.floor((mid - 7.5) / 5) * 5; tmax = tmin + 15; }
   const tRange   = tmax - tmin;
-  const tempVal  = temps_arr[idx1h];
-  const tempDotY = tempVal != null ? TEMP_padT + (1 - (tempVal - tmin) / tRange) * TEMP_ch : null;
+  const tempDotY = TEMP_padT + (1 - (temps_arr[idx] - tmin) / tRange) * TEMP_ch;
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH = WIND_H - WIND_padT;
   const safeGusts   = gusts_arr.map((g, i) => Math.max(g, winds_arr[i]));
   const ensGustMax  = ens_gust ? Math.max(...ens_gust.p90.filter(v => v != null)) : 0;
   const maxW        = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
-  const windDotY    = WIND_padT + (1 - winds_arr[wind_idx] / maxW) * WIND_chartH;
+  const windDotY    = WIND_padT + (1 - winds_arr[idx] / maxW) * WIND_chartH;
   const fracX3h = (idx3h + 0.5) / d.times.length;
   const fracX1h = (idx1h + 0.5) / d.times1h.length;
-  // Temp chart x: portrait uses xMap1h[idx1h] (variable-width slots), landscape uses fracX1h.
-  const tempX_frac = portrait && d.xMap1h ? null : fracX1h;
-  const tempX_abs  = portrait && d.xMap1h ? d.xMap1h[idx1h] : null;
-  const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC  = {
+  const DOT_Y   = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
+  const FRAC    = {
     'xh-top':  portrait ? fracX3h : (d.codes1h ? fracX1h : fracX3h),
-    'xh-temp': tempX_frac,
+    'xh-temp': portrait ? fracX3h : fracX1h,
     'xh-dir':  fracX3h,
     'xh-wind': portrait ? fracX3h : fracX1h,
   };
@@ -610,7 +465,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.save();
     ctx.scale(dpr, dpr);
-    const x = (id === 'xh-temp' && tempX_abs !== null) ? tempX_abs : (FRAC[id] * cssW);
+    const x = FRAC[id] * cssW;
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([4, 3]);
@@ -618,7 +473,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.setLineDash([]);
     const dotY = DOT_Y[id];
     if (dotY !== null) {
-      const dotCol = (id === 'xh-temp') ? (tempVal >= 0 ? '#cc2200' : '#4488ff') : '#fff';
+      const dotCol = (id === 'xh-temp') ? (temps_arr[idx] >= 0 ? '#cc2200' : '#4488ff') : '#fff';
       ctx.fillStyle   = dotCol;
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth   = 1;
@@ -644,7 +499,7 @@ function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
   const tip = document.getElementById('hover-tooltip');
-  const portrait = !!d.isPortraitMode;
+  const portrait = !!d.xFrac1h;
   let timeStr, temp, prec, wind, gust, dir, code, tp10, tp90, wp10, wp90, gp10, gp90, pp10, pp90;
   if (portrait) {
     // Portrait: all values from display series (same zoom as icon row).
@@ -769,36 +624,27 @@ function hideTooltip() {
   document.getElementById('hover-tooltip').style.display = 'none';
   clearCrosshairs();
 }
-var _chartDragging = false;
 function attachHoverListeners() {
   document.getElementById('hover-tooltip').addEventListener('click', hideTooltip);
   const content = document.getElementById('forecast-content');
   content.addEventListener('mousemove', e => {
-    if (_chartDragging || !lastRenderedData) return;
+    if (!lastRenderedData) return;
     const wrap = e.target.closest('.chart-canvas-wrap');
     if (!wrap) { hideTooltip(); return; }
     const rect  = wrap.getBoundingClientRect();
-    // Add scrollLeft so relX is measured in canvas coordinates, not viewport coordinates.
+    // In portrait the wrap scrolls horizontally; add scrollLeft so relX is
+    // measured in canvas coordinates, not visible-viewport coordinates.
     const relX  = e.clientX - rect.left + (wrap.scrollLeft || 0);
     const span  = wrap.scrollWidth || rect.width;
-    const fracX = Math.max(0, Math.min(1, relX / span));
-    const n1h   = lastRenderedData.times1h.length;
-    const n3h   = lastRenderedData.times.length;
+    const fracX    = Math.max(0, Math.min(1, relX / span));
+    const n1h      = lastRenderedData.times1h.length;
+    const n3h      = lastRenderedData.times.length;
     let idx1h, idx3h;
-    if (lastRenderedData.xMap1h) {
-      // Binary search on xMap1h (monotonically increasing) for the nearest 1h slot.
-      const xMap = lastRenderedData.xMap1h;
-      let lo = 0, hi = xMap.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (xMap[mid] < relX) lo = mid + 1; else hi = mid;
-      }
-      idx1h = lo;
-      idx3h = lastRenderedData.slotIdx1h
-        ? Math.min(n3h - 1, lastRenderedData.slotIdx1h[idx1h])
-        : Math.min(n3h - 1, Math.floor(fracX * n3h));
+    idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    if (lastRenderedData.xFrac1h) {
+      // Portrait: display series drives all charts; idx1h is unused.
+      idx1h = idx3h;
     } else {
-      idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
       idx1h = Math.min(n1h - 1, Math.floor(fracX * n1h));
     }
     drawCrosshairs(fracX, idx1h, idx3h);
@@ -885,56 +731,6 @@ function initPortraitScrollSync() {
       velX = 0; horizontal = null;
     }, { passive: true });
   });
-
-  // Mouse drag: enables panning on desktop (no trackpad / scroll wheel needed).
-  let mouseDown = false, mouseLastX = 0, mouseLastT = 0, mouseVelX = 0;
-
-  function stopMouseDrag() {
-    if (!mouseDown) return;
-    mouseDown = false;
-    _chartDragging = false;
-    document.body.style.cursor = '';
-    if (Math.abs(mouseVelX) >= 0.5) {
-      (function step() {
-        mouseVelX *= DECEL;
-        if (Math.abs(mouseVelX) < 0.5) { rafId = null; return; }
-        syncAll(wraps[0].scrollLeft + mouseVelX);
-        rafId = requestAnimationFrame(step);
-      })();
-    }
-  }
-
-  wraps.forEach(wrap => {
-    wrap.addEventListener('mousedown', e => {
-      if (e.button !== 0) return;
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      mouseDown = true;
-      _chartDragging = true;
-      mouseVelX = 0;
-      mouseLastX = e.clientX;
-      mouseLastT = performance.now();
-      document.body.style.cursor = 'grabbing';
-      hideTooltip();
-      e.preventDefault();
-    });
-
-    wrap.addEventListener('mousemove', e => {
-      if (!mouseDown) return;
-      const cx  = e.clientX;
-      const dx  = cx - mouseLastX;
-      const now = performance.now();
-      const dt  = Math.max(1, now - mouseLastT);
-      mouseVelX = -(dx / dt) * 16;
-      syncAll(wraps[0].scrollLeft - dx);
-      mouseLastX = cx;
-      mouseLastT = now;
-    });
-
-    wrap.addEventListener('mouseup',    stopMouseDrag);
-    wrap.addEventListener('mouseleave', stopMouseDrag);
-  });
-
-  document.addEventListener('mouseup', stopMouseDrag);
 }
 initPortraitScrollSync();
 
@@ -1773,7 +1569,6 @@ async function loadAtCoords(lat, lon, model) {
     document.getElementById('loading').style.display = 'none';
     forecastEl.style.display = 'block';
     forecastEl.classList.remove('updating');
-    const isFirstLoad = !isReload;
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       ensTemp, ensWind, ensGust, ensPrecip,
@@ -1782,7 +1577,7 @@ async function loadAtCoords(lat, lon, model) {
       otherModelsWind1h: null,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      renderDisplay(lastData, isFirstLoad);
+      renderDisplay(lastData);
       // Background fetch of other-model wind lines; re-render on arrival.
       const capturedData = lastData;
       fetchOtherModelsWind(lat, lon, model)
