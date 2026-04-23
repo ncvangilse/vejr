@@ -466,6 +466,38 @@ function renderDisplay(d, scrollToNow = false) {
       : null,
   };
 
+  // Trim trailing null temperatures so the API's incomplete last day doesn't
+  // show as a drop to zero (null coerces to 0 in JS arithmetic).
+  let clipEnd1h = s.times1h.length;
+  while (clipEnd1h > 0 && s.temps1h[clipEnd1h - 1] == null) clipEnd1h--;
+  if (clipEnd1h < s.times1h.length) {
+    const clipMs = new Date(s.times1h[clipEnd1h - 1]).getTime();
+    s.times1h    = s.times1h.slice(0, clipEnd1h);
+    s.temps1h    = s.temps1h.slice(0, clipEnd1h);
+    s.precips1h  = s.precips1h.slice(0, clipEnd1h);
+    s.gusts1h    = s.gusts1h.slice(0, clipEnd1h);
+    s.winds1h    = s.winds1h.slice(0, clipEnd1h);
+    s.codes1h    = s.codes1h  ? s.codes1h.slice(0, clipEnd1h)  : null;
+    s.dirs1h     = s.dirs1h   ? s.dirs1h.slice(0, clipEnd1h)   : null;
+    if (s.ensTemp1h)   s.ensTemp1h   = slicePercentilesFrom(s.ensTemp1h,   0, clipEnd1h);
+    if (s.ensWind1h)   s.ensWind1h   = slicePercentilesFrom(s.ensWind1h,   0, clipEnd1h);
+    if (s.ensGust1h)   s.ensGust1h   = slicePercentilesFrom(s.ensGust1h,   0, clipEnd1h);
+    if (s.ensPrecip1h) s.ensPrecip1h = slicePercentilesFrom(s.ensPrecip1h, 0, clipEnd1h);
+    let clipEnd3h = s.times.length;
+    while (clipEnd3h > 0 && new Date(s.times[clipEnd3h - 1]).getTime() > clipMs) clipEnd3h--;
+    s.times   = s.times.slice(0, clipEnd3h);
+    s.temps   = s.temps.slice(0, clipEnd3h);
+    s.precips = s.precips.slice(0, clipEnd3h);
+    s.gusts   = s.gusts.slice(0, clipEnd3h);
+    s.winds   = s.winds.slice(0, clipEnd3h);
+    s.dirs    = s.dirs.slice(0, clipEnd3h);
+    s.codes   = s.codes.slice(0, clipEnd3h);
+    if (s.ensTemp)   s.ensTemp   = slicePercentilesFrom(s.ensTemp,   0, clipEnd3h);
+    if (s.ensWind)   s.ensWind   = slicePercentilesFrom(s.ensWind,   0, clipEnd3h);
+    if (s.ensGust)   s.ensGust   = slicePercentilesFrom(s.ensGust,   0, clipEnd3h);
+    if (s.ensPrecip) s.ensPrecip = slicePercentilesFrom(s.ensPrecip, 0, clipEnd3h);
+  }
+
   let colW, displayData;
   if (portrait) {
     colW = PORTRAIT_COL_W;
