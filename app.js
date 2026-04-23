@@ -554,40 +554,29 @@ function clearCrosshairs() {
 function drawCrosshairs(fracX, idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
-  const portrait = !!d.isPortraitMode;
-  // drawTemp always uses temps1h; wind uses 3h display series in portrait, 1h in landscape.
-  const temps_arr = d.temps1h;
-  const winds_arr = portrait ? d.winds   : d.winds1h;
-  const gusts_arr = portrait ? d.gusts   : d.gusts1h;
-  const ens_gust  = portrait ? d.ensGust : d.ensGust1h;
-  const wind_idx  = portrait ? idx3h     : idx1h;
+  // renderAll always fires the portrait branch (colW is always non-null), so:
+  //   drawTemp  uses d.temps1h + d.xMap1h  → temp dot tracks xMap1h[idx1h]
+  //   drawWind  uses d.winds/d.gusts (3h)  → wind dot tracks fracX3h
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
-  const validTemps = temps_arr.filter(v => v != null);
+  const validTemps = d.temps1h.filter(v => v != null);
   let tmin = Math.floor(Math.min(...validTemps) / 5) * 5;
   let tmax = Math.ceil( Math.max(...validTemps) / 5) * 5;
   if (tmax - tmin < 15) { const mid = (tmin + tmax) / 2; tmin = Math.floor((mid - 7.5) / 5) * 5; tmax = tmin + 15; }
-  const tRange   = tmax - tmin;
-  const tempVal  = temps_arr[idx1h];
+  const tRange  = tmax - tmin;
+  const tempVal = d.temps1h[idx1h];
   const tempDotY = tempVal != null ? TEMP_padT + (1 - (tempVal - tmin) / tRange) * TEMP_ch : null;
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH = WIND_H - WIND_padT;
-  const safeGusts   = gusts_arr.map((g, i) => Math.max(g, winds_arr[i]));
-  const ensGustMax  = ens_gust ? Math.max(...ens_gust.p90.filter(v => v != null)) : 0;
-  const maxW        = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
-  const windDotY    = WIND_padT + (1 - winds_arr[wind_idx] / maxW) * WIND_chartH;
-  const fracX3h = (idx3h + 0.5) / d.times.length;
-  const fracX1h = (idx1h + 0.5) / d.times1h.length;
-  // Temp chart x: portrait uses xMap1h[idx1h] (variable-width slots), landscape uses fracX1h.
-  const tempX_frac = portrait && d.xMap1h ? null : fracX1h;
-  const tempX_abs  = portrait && d.xMap1h ? d.xMap1h[idx1h] : null;
+  const safeGusts  = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
+  const ensGustMax = d.ensGust ? Math.max(...d.ensGust.p90.filter(v => v != null)) : 0;
+  const maxW       = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
+  const windDotY   = WIND_padT + (1 - d.winds[idx3h] / maxW) * WIND_chartH;
+  const fracX3h    = (idx3h + 0.5) / d.times.length;
+  // xMap1h[idx1h] is the CSS x-centre of the 1h point as drawn by drawTemp.
+  const tempXabs   = d.xMap1h ? d.xMap1h[idx1h] : fracX3h;
   const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC  = {
-    'xh-top':  portrait ? fracX3h : (d.codes1h ? fracX1h : fracX3h),
-    'xh-temp': tempX_frac,
-    'xh-dir':  fracX3h,
-    'xh-wind': portrait ? fracX3h : fracX1h,
-  };
+  const FRAC  = { 'xh-top': fracX3h, 'xh-temp': null, 'xh-dir': fracX3h, 'xh-wind': fracX3h };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -604,7 +593,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.save();
     ctx.scale(dpr, dpr);
-    const x = (id === 'xh-temp' && tempX_abs !== null) ? tempX_abs : (FRAC[id] * cssW);
+    const x = (id === 'xh-temp') ? tempXabs : (FRAC[id] * cssW);
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([4, 3]);
@@ -926,14 +915,28 @@ function initPortraitScrollSync() {
     }, { passive: true });
   });
 
-  // Mouse drag: enables panning on desktop (no trackpad / scroll wheel needed).
+  // Mouse drag: enables panning on desktop. Listeners are on document so the
+  // drag continues even when the mouse leaves the wrap element.
   let mouseDown = false, mouseLastX = 0, mouseLastT = 0, mouseVelX = 0;
+
+  function onDocMouseMove(e) {
+    const cx  = e.clientX;
+    const dx  = cx - mouseLastX;
+    const now = performance.now();
+    const dt  = Math.max(1, now - mouseLastT);
+    mouseVelX = -(dx / dt) * 16;
+    syncAll(wraps[0].scrollLeft - dx);
+    mouseLastX = cx;
+    mouseLastT = now;
+  }
 
   function stopMouseDrag() {
     if (!mouseDown) return;
     mouseDown = false;
     _chartDragging = false;
     document.body.style.cursor = '';
+    document.removeEventListener('mousemove', onDocMouseMove);
+    document.removeEventListener('mouseup',   stopMouseDrag);
     if (Math.abs(mouseVelX) >= 0.5) {
       (function step() {
         mouseVelX *= DECEL;
@@ -955,26 +958,11 @@ function initPortraitScrollSync() {
       mouseLastT = performance.now();
       document.body.style.cursor = 'grabbing';
       hideTooltip();
+      document.addEventListener('mousemove', onDocMouseMove);
+      document.addEventListener('mouseup',   stopMouseDrag);
       e.preventDefault();
     });
-
-    wrap.addEventListener('mousemove', e => {
-      if (!mouseDown) return;
-      const cx  = e.clientX;
-      const dx  = cx - mouseLastX;
-      const now = performance.now();
-      const dt  = Math.max(1, now - mouseLastT);
-      mouseVelX = -(dx / dt) * 16;
-      syncAll(wraps[0].scrollLeft - dx);
-      mouseLastX = cx;
-      mouseLastT = now;
-    });
-
-    wrap.addEventListener('mouseup',    stopMouseDrag);
-    wrap.addEventListener('mouseleave', stopMouseDrag);
   });
-
-  document.addEventListener('mouseup', stopMouseDrag);
 }
 initPortraitScrollSync();
 
