@@ -83,7 +83,7 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
     const midX = ((segs[s]+segs[s+1])/2) * colW;
     const segDate = new Date(times[segs[s]]);
     const isExtended = segDate.getTime() >= extThreshMs;
-    const name = isExtended ? String(segDate.getDate()) : DA_DAYS[segDate.getDay()];
+    const name = isExtended ? DA_DAYS3[segDate.getDay()] : DA_DAYS[segDate.getDay()];
     dayLabels.push({ midX, halfW: ctx.measureText(name).width / 2 });
     ctx.fillStyle = isExtended ? (invertedColors ? '#7a8a9a' : '#778899') : textDay;
     ctx.textAlign = 'center';

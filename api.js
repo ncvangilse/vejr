@@ -69,13 +69,14 @@ async function fetchEnsemble(lat, lon, model) {
     'meteofrance_seamless':'icon_seamless',
     'gfs_seamless':        'gfs025',
   };
-  let ensModel = ENS_MAP[model] || 'icon_seamless';
-  // icon_seamless ensemble is capped at 7 days; fall back to ecmwf_ifs04 (15 days) for longer forecasts
-  if (FORECAST_DAYS > 7 && ensModel === 'icon_seamless') ensModel = 'ecmwf_ifs04';
+  const ensModel = ENS_MAP[model] || 'icon_seamless';
+  // Cap forecast_days to each ensemble model's supported maximum
+  const ENS_MAX_DAYS = { 'icon_seamless': 7, 'ecmwf_ifs04': 15, 'gfs025': 35 };
+  const ensDays = Math.min(FORECAST_DAYS, ENS_MAX_DAYS[ensModel] || 7);
   const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}`
     + `&hourly=temperature_2m,windspeed_10m,windgusts_10m,precipitation`
     + `&models=${ensModel}`
-    + `&forecast_days=${FORECAST_DAYS}&timezone=auto&windspeed_unit=ms`;
+    + `&forecast_days=${ensDays}&timezone=auto&windspeed_unit=ms`;
   const r = await fetch(url);
   if (!r.ok) throw new Error('ensemble fetch failed');
   return r.json();
