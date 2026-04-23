@@ -699,6 +699,12 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 function _otherModelLineColor(invertedColors) {
   return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
 }
+
+/** Returns the wind Y-axis maximum: max mean wind speed (not gusts) rounded up to nearest 5 m/s. */
+function _windAxisMax(winds, ensWind) {
+  const ensWindMax = ensWind ? Math.max(...ensWind.p90.filter(v => v != null)) : 0;
+  return Math.ceil(Math.max(...winds.filter(v => v != null), ensWindMax, 5) / 5) * 5;
+}
 function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
@@ -727,10 +733,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const KITE_H    = 24;                   // reserved strip for kite pill icons
   const padT      = KITE_H + 4;
   const chartH    = WIND_H - padT;
-  const ensGustMax = ensGust
-    ? Math.max(...ensGust.p90.filter(v => v != null))
-    : 0;
-  const maxW      = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
+  const maxW      = _windAxisMax(winds, ensWind);
   const wy        = v => cY + padT + (1 - v / maxW) * chartH;
   const base      = wy(0);
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
@@ -850,6 +853,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
     const displayMs = times.map(t => new Date(t).getTime());
     ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, cY + padT, cssW, chartH);
+    ctx.clip();
     for (const ob of window.DMI_OBS.obs) {
       // Find which display slot ob.t falls into and compute the fractional offset
       // within that slot.  For 1-hour uniform slots this reduces to (fracH+0.5)*colW.
