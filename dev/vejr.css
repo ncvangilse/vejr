@@ -111,7 +111,6 @@ body {
   align-items: flex-start;
 }
 #city-name { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
-#subtitle  { font-size: 11px; color: #555; margin-top: 2px; }
 #header-right {
   text-align: right;
   font-size: 11px;
