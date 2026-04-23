@@ -457,6 +457,17 @@ canvas.main-canvas {
 }
 #credits-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
 
+/* ── Feedback mailto link (in footer) ── */
+#feedback-link {
+  font-size: 11px;
+  color: #667;
+  font-family: 'IBM Plex Mono', monospace;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#feedback-link:hover { color: #8ab4d4; text-decoration: underline; }
+
 /* ── Credits modal ── */
 #credits-modal-overlay {
   display: none;
@@ -1026,10 +1037,16 @@ body.inverted-colors #help-btn:hover { background: #c5b59f; }
   #app-footer #help-btn      { grid-column: 2; grid-row: 1; }
   #app-footer #credits-btn   { grid-column: 3; grid-row: 1; }
   #app-footer #build-number  {
-    grid-column: 1 / -1;
+    grid-column: 1;
     grid-row: 2;
     white-space: normal;
     margin-top: 4px;
+  }
+  #app-footer #feedback-link {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    margin-top: 4px;
+    text-align: right;
   }
 }
 
