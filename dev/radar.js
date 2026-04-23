@@ -103,7 +103,17 @@ function _buildProposeNameUrl(s) {
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
 
-  // ── Desktop right-click context menu ─────────────────────────────────
+  // ── Shared helper ─────────────────────────────────────────────────────
+  function isMarkerTarget(e) {
+    const t = e.target;
+    if (!t || !t.closest) return false;
+    return t.closest('.radar-loc-wrap') ||
+           t.closest('.ws-wrap') ||
+           t.closest('.leaflet-popup-content-wrapper') ||
+           t.closest('.leaflet-popup-close-button');
+  }
+
+  // ── Desktop right-click / mobile long-press context menu ──────────────
   function attachContextMenu(mapEl) {
     let ctxMenuEl = null;
     let pendingLatLng = null;
@@ -127,24 +137,49 @@ function _buildProposeNameUrl(s) {
       return div;
     }
 
-    mapEl.addEventListener('contextmenu', e => {
-      if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-      e.preventDefault();
+    function showMenuAt(clientX, clientY) {
       if (!radarMap) return;
-
       if (!ctxMenuEl) ctxMenuEl = buildMenu();
-
       const rect = mapEl.getBoundingClientRect();
       pendingLatLng = radarMap.containerPointToLatLng(
-        [e.clientX - rect.left, e.clientY - rect.top]
+        [clientX - rect.left, clientY - rect.top]
       );
-
-      // Position the menu, flipping toward the inside edge when near viewport boundary
-      const { x, y } = _clampMenuPos(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+      const { x, y } = _clampMenuPos(clientX, clientY, window.innerWidth, window.innerHeight);
       ctxMenuEl.style.left = x + 'px';
       ctxMenuEl.style.top  = y + 'px';
       ctxMenuEl.classList.add('visible');
+    }
+
+    // Desktop right-click
+    mapEl.addEventListener('contextmenu', e => {
+      if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+      e.preventDefault();
+      showMenuAt(e.clientX, e.clientY);
     });
+
+    // Mobile long press (measure hold duration at touchend to avoid triggering
+    // the browser's native text-selection on the visible hint overlay).
+    let lpStart = 0, lpX = 0, lpY = 0;
+    mapEl.addEventListener('touchstart', e => {
+      if (isMarkerTarget(e) || e.touches.length !== 1) { lpStart = 0; return; }
+      lpStart = performance.now();
+      lpX = e.touches[0].clientX;
+      lpY = e.touches[0].clientY;
+    }, { passive: true });
+    mapEl.addEventListener('touchmove', e => {
+      if (!lpStart) return;
+      const dx = e.touches[0].clientX - lpX;
+      const dy = e.touches[0].clientY - lpY;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) lpStart = 0;
+    }, { passive: true });
+    mapEl.addEventListener('touchend', () => {
+      if (!lpStart) return;
+      const dt = performance.now() - lpStart;
+      const x = lpX, y = lpY;
+      lpStart = 0;
+      if (dt >= 500) showMenuAt(x, y);
+    }, { passive: true });
+    mapEl.addEventListener('touchcancel', () => { lpStart = 0; }, { passive: true });
 
     document.addEventListener('click', e => {
       if (ctxMenuEl && !ctxMenuEl.contains(e.target)) ctxMenuEl.classList.remove('visible');
@@ -157,14 +192,6 @@ function _buildProposeNameUrl(s) {
   // ── Map drag ──────────────────────────────────────────────────────────
   function attachMapDrag(mapEl) {
     let dragging = false, lastX = 0, lastY = 0;
-    function isMarkerTarget(e) {
-      const t = e.target;
-      if (!t || !t.closest) return false;
-      return t.closest('.radar-loc-wrap') ||
-             t.closest('.ws-wrap') ||
-             t.closest('.leaflet-popup-content-wrapper') ||
-             t.closest('.leaflet-popup-close-button');
-    }
     function onStart(x, y) { dragging = true; lastX = x; lastY = y; }
     function onMove(x, y) {
       if (!dragging || !radarMap || markerDragging) return;
