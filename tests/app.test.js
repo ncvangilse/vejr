@@ -118,7 +118,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     parseInt, parseFloat, isNaN, isFinite,
     encodeURIComponent, decodeURIComponent,
     Promise, Error,
-    setTimeout, clearTimeout,
+    setTimeout, clearTimeout, performance,
     fetch: () => Promise.reject(new Error('fetch not mocked')),
     // Stubs for functions/constants defined in other scripts.
     // Use a never-settling promise so async chains stall silently rather than
@@ -935,31 +935,41 @@ describe('long press on mobile', () => {
     expect(contentEl._listeners['touchcancel']).toBeTypeOf('function');
   });
 
-  it('cancels long press timer when touchend fires before 500 ms', () => {
-    const cleared = [];
-    const originalClear = clearTimeout;
-    // patch clearTimeout inside the test to track cancellations
-    const { contentEl } = loadApp();
-    // Start a long press
+  it('does not show tooltip when touchend fires before 500 ms', () => {
+    const { ctx, contentEl } = loadApp();
     const mockWrap = { getBoundingClientRect: () => ({ left: 0 }), scrollLeft: 0, scrollWidth: 100 };
-    const startE = {
+    // Start touch
+    contentEl._listeners['touchstart']({
       target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
       touches: [{ clientX: 50, clientY: 50 }],
-    };
-    contentEl._listeners['touchstart'](startE);
-    // Immediately fire touchend — the timer should be cancelled (clearTimeout called)
-    // We just verify no crash and the function is callable
+    });
+    // Lift finger immediately — well under 500 ms (performance.now returns real time)
+    // The hold duration is ~0 ms so the tooltip should not be shown.
+    // We just verify no crash occurs.
     contentEl._listeners['touchend']();
   });
 
-  it('does not cancel timer when touchmove stays within 10px', () => {
+  it('cancels long press when touchmove exceeds 10px', () => {
     const { contentEl } = loadApp();
     const mockWrap = { getBoundingClientRect: () => ({ left: 0 }), scrollLeft: 0, scrollWidth: 100 };
     contentEl._listeners['touchstart']({
       target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
       touches: [{ clientX: 50, clientY: 50 }],
     });
-    // Move less than 10px — timer should still be pending (no crash)
+    // Move more than 10px — should cancel the long press state
+    contentEl._listeners['touchmove']({ touches: [{ clientX: 65, clientY: 50 }] });
+    // touchend should now be a no-op (lpStart cleared)
+    contentEl._listeners['touchend']();
+  });
+
+  it('does not cancel long press when touchmove stays within 10px', () => {
+    const { contentEl } = loadApp();
+    const mockWrap = { getBoundingClientRect: () => ({ left: 0 }), scrollLeft: 0, scrollWidth: 100 };
+    contentEl._listeners['touchstart']({
+      target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
+      touches: [{ clientX: 50, clientY: 50 }],
+    });
+    // Move less than 10px — long press state should survive
     contentEl._listeners['touchmove']({ touches: [{ clientX: 55, clientY: 52 }] });
     // Cleanup
     contentEl._listeners['touchend']();

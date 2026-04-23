@@ -651,12 +651,12 @@ function attachHoverListeners() {
   content.addEventListener('mouseleave', hideTooltip);
 
   // Long press state — declared before contextmenu so cancelLp is available there.
-  let lpTimer = null, lpX = 0, lpY = 0;
-  function cancelLp() { if (lpTimer !== null) { clearTimeout(lpTimer); lpTimer = null; } }
+  let lpStart = 0, lpX = 0, lpY = 0, lpEl = null;
+  function cancelLp() { lpStart = 0; }
 
   // Right-click pins the tooltip without the browser context menu.
-  // On Android, long press also fires contextmenu, so cancel the timer here
-  // to avoid showing the tooltip twice.
+  // On Android, long press also fires contextmenu — cancel the lp state here
+  // so the touchend handler doesn't fire a second time.
   content.addEventListener('contextmenu', e => {
     if (!e.target.closest('.chart-canvas-wrap')) return;
     e.preventDefault();
@@ -664,25 +664,29 @@ function attachHoverListeners() {
     showTooltipAtX(e.clientX, e.target);
   });
 
-  // Long press on iOS: show tooltip after 500 ms of stationary touch.
-  // CSS user-select:none on .chart-canvas-wrap prevents text selection during hold.
+  // Long press on iOS: measure hold duration at touchend to avoid triggering
+  // the browser's native "held touch" detection (which causes text selection).
   content.addEventListener('touchstart', e => {
-    if (!e.target.closest('.chart-canvas-wrap')) return;
+    const wrap = e.target.closest('.chart-canvas-wrap');
+    if (!wrap) { lpStart = 0; return; }
+    lpStart = performance.now();
     lpX = e.touches[0].clientX;
     lpY = e.touches[0].clientY;
-    lpTimer = setTimeout(() => {
-      lpTimer = null;
-      const el = document.elementFromPoint(lpX, lpY);
-      if (el) showTooltipAtX(lpX, el);
-    }, 500);
+    lpEl  = e.target;
   }, { passive: true });
   content.addEventListener('touchmove', e => {
-    if (lpTimer === null) return;
+    if (!lpStart) return;
     const dx = e.touches[0].clientX - lpX;
     const dy = e.touches[0].clientY - lpY;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { cancelLp(); }
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) lpStart = 0;
   }, { passive: true });
-  content.addEventListener('touchend',   cancelLp, { passive: true });
+  content.addEventListener('touchend', () => {
+    if (!lpStart) return;
+    const dt = performance.now() - lpStart;
+    const el = lpEl;
+    cancelLp();
+    if (dt >= 500) showTooltipAtX(lpX, el);
+  }, { passive: true });
   content.addEventListener('touchcancel', cancelLp, { passive: true });
 }
 attachHoverListeners();
