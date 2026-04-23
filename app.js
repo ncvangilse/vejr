@@ -650,15 +650,22 @@ function attachHoverListeners() {
   });
   content.addEventListener('mouseleave', hideTooltip);
 
+  // Long press state — declared before contextmenu so cancelLp is available there.
+  let lpTimer = null, lpX = 0, lpY = 0;
+  function cancelLp() { if (lpTimer !== null) { clearTimeout(lpTimer); lpTimer = null; } }
+
   // Right-click pins the tooltip without the browser context menu.
+  // On Android, long press also fires contextmenu, so cancel the timer here
+  // to avoid showing the tooltip twice.
   content.addEventListener('contextmenu', e => {
     if (!e.target.closest('.chart-canvas-wrap')) return;
     e.preventDefault();
+    cancelLp();
     showTooltipAtX(e.clientX, e.target);
   });
 
-  // Long press on mobile: show tooltip after 500 ms of stationary touch.
-  let lpTimer = null, lpX = 0, lpY = 0;
+  // Long press on iOS: show tooltip after 500 ms of stationary touch.
+  // CSS user-select:none on .chart-canvas-wrap prevents text selection during hold.
   content.addEventListener('touchstart', e => {
     if (!e.target.closest('.chart-canvas-wrap')) return;
     lpX = e.touches[0].clientX;
@@ -673,9 +680,8 @@ function attachHoverListeners() {
     if (lpTimer === null) return;
     const dx = e.touches[0].clientX - lpX;
     const dy = e.touches[0].clientY - lpY;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { clearTimeout(lpTimer); lpTimer = null; }
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { cancelLp(); }
   }, { passive: true });
-  function cancelLp() { if (lpTimer !== null) { clearTimeout(lpTimer); lpTimer = null; } }
   content.addEventListener('touchend',   cancelLp, { passive: true });
   content.addEventListener('touchcancel', cancelLp, { passive: true });
 }
