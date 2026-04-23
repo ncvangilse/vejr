@@ -164,6 +164,10 @@ body {
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  cursor: grab;
+}
+.chart-canvas-wrap.dragging {
+  cursor: grabbing;
 }
 .chart-canvas-wrap::-webkit-scrollbar { display: none; }
 .y-axis-right {
