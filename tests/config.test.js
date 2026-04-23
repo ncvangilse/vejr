@@ -146,3 +146,10 @@ describe('kite settings – localStorage persistence (iOS Home Screen fix)', () 
     expect(cfg.daylight).toBe(false);
   });
 });
+
+describe('forecast range', () => {
+  it('FORECAST_DAYS is 16 (always shows full 16-day forecast)', () => {
+    const ctx = loadScripts('config.js');
+    expect(ctx.FORECAST_DAYS).toBe(16);
+  });
+});

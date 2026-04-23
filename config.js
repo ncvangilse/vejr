@@ -1,7 +1,7 @@
 /* ══════════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════════ */
-const FORECAST_DAYS = 7;
+var FORECAST_DAYS = 16;
 const STEP   = 3; // every 3 hours  (icons, wind arrows)
 const STEP1H = 1; // every 1 hour   (temperature, wind speed/gust, precip curves)
 const DA_DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];

@@ -15,6 +15,36 @@ function makeFakeEnsemble(varName, memberCount, hourCount, baseVal = 0, step = 2
   return H;
 }
 
+describe('fetchEnsemble – forecast_days capped per model', () => {
+  it('caps forecast_days to 7 for icon_seamless even when FORECAST_DAYS=16', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    ctx.FORECAST_DAYS = 16;
+    let capturedUrl = '';
+    ctx.fetch = (url) => { capturedUrl = url; return Promise.reject(new Error('stop')); };
+    await ctx.fetchEnsemble(55.0, 12.0, 'dmi_seamless').catch(() => {});
+    expect(capturedUrl).toContain('forecast_days=7');
+    expect(capturedUrl).not.toContain('forecast_days=16');
+  });
+
+  it('caps forecast_days to 15 for ecmwf_ifs04 when FORECAST_DAYS=16', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    ctx.FORECAST_DAYS = 16;
+    let capturedUrl = '';
+    ctx.fetch = (url) => { capturedUrl = url; return Promise.reject(new Error('stop')); };
+    await ctx.fetchEnsemble(55.0, 12.0, 'ecmwf_ifs025').catch(() => {});
+    expect(capturedUrl).toContain('forecast_days=15');
+  });
+
+  it('uses full FORECAST_DAYS for gfs025 which supports 35 days', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    ctx.FORECAST_DAYS = 16;
+    let capturedUrl = '';
+    ctx.fetch = (url) => { capturedUrl = url; return Promise.reject(new Error('stop')); };
+    await ctx.fetchEnsemble(55.0, 12.0, 'gfs_seamless').catch(() => {});
+    expect(capturedUrl).toContain('forecast_days=16');
+  });
+});
+
 describe('ensemblePercentiles', () => {
   it('returns null when no matching members exist', () => {
     expect(ensemblePercentiles({}, 'nonexistent', 3)).toBeNull();

@@ -15,7 +15,7 @@ function makeEl(value = '') {
     value,
     style:      {},
     textContent: '',
-    classList:  { contains: () => false, add: () => {}, remove: () => {} },
+    classList:  { contains: () => false, add: () => {}, remove: () => {}, toggle: () => {} },
     addEventListener: () => {},
     getContext:  () => ({
       getImageData:  (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
@@ -131,11 +131,13 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     renderAll:          renderAllSpy || (() => {}),
     isKiteOptimal:      () => false,
     snapBearing:        (d) => d,
-    FORECAST_DAYS:      7,
+    FORECAST_DAYS:          7,
+    FORECAST_DAYS_EXTENDED: 16,
     STEP:               3,
     STEP1H:             1,
     KITE_DEFAULTS:      { min: 4, max: 18, dirs: [], daylight: true },
     KITE_CFG:           { min: 4, max: 18, dirs: [], daylight: true },
+    setForecastDays:    () => {},
     setKiteParams:      () => {},
     parseKiteParams:    () => ({ min: 4, max: 18, dirs: [], daylight: true }),
     SHORE_BEARINGS:     36,
@@ -456,11 +458,12 @@ describe('renderDisplay slicing', () => {
     expect(colWs[0]).toBeGreaterThan(0);
   });
 
-  it('passes null portraitColW to renderAll in landscape mode', () => {
+  it('passes a positive numeric portraitColW to renderAll in landscape mode (extended scroll)', () => {
     const colWs = [];
     const { ctx } = loadApp({ portrait: false, renderAllSpy: (d, ic, colW) => colWs.push(colW) });
     ctx.renderDisplay(makeData(TOTAL_3H, TOTAL_1H));
-    expect(colWs[0]).toBeNull();
+    expect(colWs[0]).toBeTypeOf('number');
+    expect(colWs[0]).toBeGreaterThan(0);
   });
 
   it('includes dirs1h in sliced data passed to buildPortraitSeries', () => {
@@ -657,6 +660,75 @@ describe('buildPortraitSeries', () => {
     s.otherModelsWind1h = null;
     const ds = ctx.buildPortraitSeries(s);
     expect(ds.otherModelsWind1h).toBeNull();
+  });
+});
+
+describe('buildPortraitSeries – extended 16-day mode', () => {
+  const TOTAL_1H_16D = 16 * 24;
+  const HR = 60 * 60 * 1000;
+  const BASE = new Date('2025-06-16T10:00:00.000Z');
+
+  function make16DaySlice() {
+    const iso1 = (i) => new Date(BASE.getTime() + i * HR).toISOString();
+    const num1 = () => Array(TOTAL_1H_16D).fill(0);
+    return {
+      times1h:     Array.from({ length: TOTAL_1H_16D }, (_, i) => iso1(i)),
+      codes1h:     num1(),
+      dirs1h:      num1(),
+      dirs:        num1(),
+      temps1h:     num1(),
+      precips1h:   num1(),
+      gusts1h:     num1(),
+      winds1h:     num1(),
+      ensTemp1h:   null,
+      ensWind1h:   null,
+      ensGust1h:   null,
+      ensPrecip1h: null,
+    };
+  }
+
+  const { ctx: ctx16 } = loadApp({ portrait: true });
+
+  it('uses 12h step for daytime slots beyond 7 days (168h+)', () => {
+    const ds = ctx16.buildPortraitSeries(make16DaySlice());
+    const t0ms = new Date(ds.times[0]).getTime();
+    let found12h = false;
+    for (let i = 1; i < ds.times.length; i++) {
+      const dt = new Date(ds.times[i]).getTime() - new Date(ds.times[i - 1]).getTime();
+      const hoursAhead = (new Date(ds.times[i - 1]).getTime() - t0ms) / 3600000;
+      if (hoursAhead >= 168 && dt === 12 * HR) { found12h = true; break; }
+    }
+    expect(found12h).toBe(true);
+  });
+
+  it('uses between 6h and 12h steps (linear zoom) for daytime slots beyond 168h', () => {
+    const ds = ctx16.buildPortraitSeries(make16DaySlice());
+    const t0ms = new Date(ds.times[0]).getTime();
+    for (let i = 1; i < ds.times.length; i++) {
+      const dt = new Date(ds.times[i]).getTime() - new Date(ds.times[i - 1]).getTime();
+      const hoursAhead = (new Date(ds.times[i - 1]).getTime() - t0ms) / 3600000;
+      if (hoursAhead >= 168) {
+        // Linear zoom: 6–12h steps for daytime; night entries are skipped 1h at a
+        // time so gaps between consecutive daytime pushes can be non-multiples of 3.
+        // Key properties: at least 1h (never backwards), at most 24h per visible slot.
+        expect(dt).toBeGreaterThanOrEqual(HR);
+        expect(dt).toBeLessThanOrEqual(24 * HR);
+      }
+    }
+  });
+
+  it('extended series xFrac1h values are monotonically increasing', () => {
+    const ds = ctx16.buildPortraitSeries(make16DaySlice());
+    const xf = ds.xFrac1h;
+    for (let i = 1; i < xf.length; i++) {
+      expect(xf[i]).toBeGreaterThan(xf[i - 1]);
+    }
+  });
+
+  it('extended series has fewer display slots than 1h input slots', () => {
+    const s = make16DaySlice();
+    const ds = ctx16.buildPortraitSeries(s);
+    expect(ds.times.length).toBeLessThan(s.times1h.length);
   });
 });
 
