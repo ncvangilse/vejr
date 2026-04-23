@@ -91,6 +91,7 @@ body {
   width: 1px;
   height: 1px;
   opacity: 0;
+  pointer-events: none;
   border: none;
   font-size: 16px; /* prevent iOS auto-zoom on focus */
 }
@@ -110,6 +111,7 @@ body {
   align-items: flex-start;
 }
 #city-name { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+#subtitle  { font-size: 11px; color: #555; margin-top: 2px; }
 #header-right {
   text-align: right;
   font-size: 11px;
@@ -157,10 +159,17 @@ body {
   flex: 1;
   min-width: 0;
   position: relative;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  cursor: grab;
 }
+.chart-canvas-wrap.dragging {
+  cursor: grabbing;
+}
+.chart-canvas-wrap::-webkit-scrollbar { display: none; }
 .y-axis-right {
   flex: 0 0 36px;
   width: 36px;
@@ -293,8 +302,6 @@ canvas.main-canvas {
   font-weight: 600;
   letter-spacing: 0.3px;
   pointer-events: none;
-  -webkit-user-select: none;
-  user-select: none;
   opacity: 0;
   transition: opacity 0.25s;
 }
@@ -314,8 +321,6 @@ canvas.main-canvas {
   font-weight: 600;
   letter-spacing: 0.3px;
   pointer-events: none;
-  -webkit-user-select: none;
-  user-select: none;
   opacity: 0;
   transition: opacity 0.25s;
 }
@@ -461,17 +466,6 @@ canvas.main-canvas {
   min-height: 36px;
 }
 #credits-btn:hover { background: #334455; color: #b0d4f4; border-color: #6a8aaa; }
-
-/* ── Feedback mailto link (in footer) ── */
-#feedback-link {
-  font-size: 11px;
-  color: #667;
-  font-family: 'IBM Plex Mono', monospace;
-  text-decoration: none;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-#feedback-link:hover { color: #8ab4d4; text-decoration: underline; }
 
 /* ── Credits modal ── */
 #credits-modal-overlay {
@@ -1017,20 +1011,8 @@ body.inverted-colors #help-btn:hover { background: #c5b59f; }
   .y-axis-right { display: none; }
 }
 
-/* ── Portrait: horizontally scrollable canvas area ── */
-/*    Each .chart-canvas-wrap is its own scroll container; JS syncs them.   */
-/*    The .y-axis siblings stay fixed — no sticky needed.                   */
+/* ── Portrait: footer layout ── */
 @media (orientation: portrait) {
-  .chart-canvas-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    /* Hide scrollbar chrome — scrolling still works via swipe/drag */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .chart-canvas-wrap::-webkit-scrollbar { display: none; }
-
   /* Footer portrait: grid with shore-status+help+credits on row 1, build-number below */
   #app-footer {
     display: grid;
@@ -1042,16 +1024,10 @@ body.inverted-colors #help-btn:hover { background: #c5b59f; }
   #app-footer #help-btn      { grid-column: 2; grid-row: 1; }
   #app-footer #credits-btn   { grid-column: 3; grid-row: 1; }
   #app-footer #build-number  {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 2;
     white-space: normal;
     margin-top: 4px;
-  }
-  #app-footer #feedback-link {
-    grid-column: 2 / -1;
-    grid-row: 2;
-    margin-top: 4px;
-    text-align: right;
   }
 }
 

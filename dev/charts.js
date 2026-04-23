@@ -70,28 +70,34 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
   ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(0,TIME_H); ctx.lineTo(cssW,TIME_H); ctx.stroke();
 
+  // 7-day threshold: slots beyond this get day-of-month labels and no dividers
+  const extThreshMs = times.length > 0
+    ? new Date(times[0]).getTime() + 7 * 24 * 3600 * 1000
+    : Infinity;
+
   // day segments & names
   const segs = [0,...divs,n];
   ctx.font = `700 11px 'IBM Plex Sans', sans-serif`;
   const dayLabels = [];
   for(let s=0;s<segs.length-1;s++){
     const midX = ((segs[s]+segs[s+1])/2) * colW;
-    const name = DA_DAYS[new Date(times[segs[s]]).getDay()];
+    const segDate = new Date(times[segs[s]]);
+    const isExtended = segDate.getTime() >= extThreshMs;
+    const name = isExtended ? DA_DAYS3[segDate.getDay()] : DA_DAYS[segDate.getDay()];
     dayLabels.push({ midX, halfW: ctx.measureText(name).width / 2 });
-    ctx.fillStyle = textDay;
+    ctx.fillStyle = isExtended ? (invertedColors ? '#7a8a9a' : '#778899') : textDay;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(name, midX, TIME_H/2);
   }
 
-  // Hour tick marks: every 3h for 1h-resolution data, every 6h for 3h-resolution data.
-  // With PORTRAIT_COL_W = 24 px per slot: 3h ticks are 72 px apart (1h data),
-  // or 6h ticks are 48 px apart (3h data) — both comfortable.
+  // Hour tick marks (suppressed in extended zone where coarse slots make them misleading)
   const stepHours = times.length >= 2
     ? (new Date(times[1]).getTime() - new Date(times[0]).getTime()) / 3600000
     : 3;
   const tickEvery = stepHours <= 1 ? 3 : 6;
   times.forEach((t,i)=>{
+    if (new Date(t).getTime() >= extThreshMs) return; // no ticks in extended zone
     const h = new Date(t).getHours();
     if(h===0||h%tickEvery!==0) return;
     const x = (i+0.5)*colW;
@@ -103,9 +109,10 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
     ctx.fillText(h, x, TIME_H/2);
   });
 
-  /* ---- day dividers through time axis ---- */
+  /* ---- day dividers through time axis (first 7 days only) ---- */
   ctx.strokeStyle = divCol; ctx.lineWidth = 1;
   divs.forEach(i=>{
+    if (new Date(times[i]).getTime() >= extThreshMs) return;
     const x = i*colW;
     ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,TIME_H); ctx.stroke();
   });
@@ -115,8 +122,9 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
   ctx.fillStyle = iconBg;
   ctx.fillRect(0, iconY, cssW, ICON_H);
 
-  // day dividers
+  // day dividers (first 7 days only)
   divs.forEach(i=>{
+    if (new Date(times[i]).getTime() >= extThreshMs) return;
     const x = i*colW;
     ctx.strokeStyle=divCol; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(x,iconY); ctx.lineTo(x,iconY+ICON_H); ctx.stroke();
@@ -443,13 +451,17 @@ function drawWindDir(times, winds, dirs, totalCssW = null) {
   wrap.parentElement.style.height = DIR_H + 'px';
 
   const divs  = dayDivs(times);
+  const extThreshMsDir = times.length > 0
+    ? new Date(times[0]).getTime() + 7 * 24 * 3600 * 1000
+    : Infinity;
 
   // dark background
   ctx.fillStyle = '#1e2a38';
   ctx.fillRect(0, 0, cssW, DIR_H);
 
-  // day dividers
+  // day dividers (first 7 days only — req #3)
   divs.forEach(i => {
+    if (new Date(times[i]).getTime() >= extThreshMsDir) return;
     const x = i * colW;
     ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
@@ -695,6 +707,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const ctx    = resolveDPI(canvas, cssW, WIND_H);
   ctx.clearRect(0, 0, cssW, WIND_H);
   const divs = dayDivs(times);
+  const extThreshMsWind = times.length > 0
+    ? new Date(times[0]).getTime() + 7 * 24 * 3600 * 1000
+    : Infinity;
   const cx2  = xMap ? (i => xMap[i]) : (i => (i + 0.5) * colW);
 
   // 3hr kite data (dirs align with times3h)
@@ -731,9 +746,10 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     });
   }
 
-  // --- grid & day dividers ---
+  // --- grid & day dividers (first 7 days only — req #3) ---
   _drawWindGrid(ctx, wLevels, wy, cssW);
   divs.forEach(i => {
+    if (new Date(times[i]).getTime() >= extThreshMsWind) return;
     const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
     ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
@@ -876,7 +892,12 @@ function renderAll(d, invertedColors, portraitColW = null) {
   const totalCssW = portrait ? d.times.length * portraitColW : null;
   // Pre-compute day-divider pixel positions from the display series so every
   // chart row (icon row, temp, wind) places its divider at exactly the same x.
-  const divXs = portrait ? dayDivs(d.times).map(i => i * portraitColW) : null;
+  const extThreshMsAll = d.times.length > 0
+    ? new Date(d.times[0]).getTime() + 7 * 24 * 3600 * 1000
+    : Infinity;
+  const divXs = portrait ? dayDivs(d.times)
+    .filter(i => new Date(d.times[i]).getTime() < extThreshMsAll)
+    .map(i => i * portraitColW) : null;
 
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
   drawWindDir(d.times, d.winds, d.dirs, totalCssW);
