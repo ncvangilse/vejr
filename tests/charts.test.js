@@ -361,6 +361,16 @@ describe('_windAxisMax', () => {
     expect(ctx._windAxisMax([5, 17, 6], ensWind)).toBe(15);
   });
 
+  it('caller-sliced arrays exclude extended-forecast high values', () => {
+    // Full 10-slot p90 has a distant storm (22 m/s) in slots 7-9; caller passes
+    // only the first 7 slots so the axis stays at 15 instead of 25.
+    const full    = [10, 12, 11, 9, 10, 11, 12, 22, 22, 22];
+    const ensWind = { p90: full };
+    expect(ctx._windAxisMax([5, 5, 5], { p90: full.slice(0, 7) })).toBe(15);
+    // Confirm without slicing the storm pushes it to 25.
+    expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(25);
+  });
+
   it('filters null values in winds array', () => {
     expect(ctx._windAxisMax([null, 12, null], null)).toBe(15);
   });

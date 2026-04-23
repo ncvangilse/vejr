@@ -700,7 +700,8 @@ function _otherModelLineColor(invertedColors) {
   return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
 }
 
-/** Returns the wind Y-axis maximum: max ensemble wind p90 (or mean wind when no ensemble) rounded up to nearest 5 m/s. Gusts are clipped above this. */
+/** Returns the wind Y-axis maximum: max ensemble wind p90 (or mean wind when no ensemble) rounded up to nearest 5 m/s.
+ *  Caller should pre-slice winds/ensWind to the desired window (e.g. first 7 days) before calling. */
 function _windAxisMax(winds, ensWind) {
   const base = ensWind
     ? Math.max(...ensWind.p90.filter(v => v != null))
@@ -735,7 +736,15 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const KITE_H    = 24;                   // reserved strip for kite pill icons
   const padT      = KITE_H + 4;
   const chartH    = WIND_H - padT;
-  const maxW      = _windAxisMax(winds, ensWind);
+  // Axis max is based on the first-7-day window only; extended-forecast data
+  // (days 7–16) is drawn but clipped to this ceiling so a distant storm does
+  // not widen the scale for the current detailed period.
+  const n7d  = times.findIndex(t => new Date(t).getTime() >= extThreshMsWind);
+  const nAx  = n7d > 0 ? n7d : n;
+  const maxW = _windAxisMax(
+    winds.slice(0, nAx),
+    ensWind ? { p90: ensWind.p90.slice(0, nAx) } : null
+  );
   const wy        = v => cY + padT + (1 - v / maxW) * chartH;
   const base      = wy(0);
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
@@ -762,10 +771,17 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
   });
 
+  // Clip all data rendering to the chart area so extended-forecast values that
+  // exceed maxW don't bleed into the kite-pill strip above.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, cY + padT, cssW, chartH);
+  ctx.clip();
+
   // --- ensemble gust band (clipped above ens-wind p90) ---
   _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx2, wy, cY + padT, cssW);
 
-  // --- ensemble wind band (unclipped) ---
+  // --- ensemble wind band ---
   _drawEnsWindBand(ctx, ensWind, cx2, wy, 'rgba(0,0,0,0.22)');
 
 
@@ -816,6 +832,8 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
 
   // --- wind line ---
   _drawWindLine(ctx, winds, cx2, wy, 'rgba(255,255,255,0.95)', 2);
+
+  ctx.restore(); // end data clip
 
   // --- kite pill icons (top strip) — drawn at 3hr positions ---
   if (lastData) {
