@@ -329,3 +329,40 @@ describe('isKiteDirOnly is a superset of isKiteOptimal', () => {
     }
   });
 });
+
+// ── _windAxisMax ─────────────────────────────────────────────────────────────
+
+describe('_windAxisMax', () => {
+  let ctx;
+  beforeEach(() => { ctx = loadChartLogic(); });
+
+  it('returns minimum 5 when all winds are calm', () => {
+    expect(ctx._windAxisMax([0, 0, 0], null)).toBe(5);
+  });
+
+  it('rounds up to the nearest 5', () => {
+    expect(ctx._windAxisMax([7, 8, 6], null)).toBe(10);
+    expect(ctx._windAxisMax([10, 11, 9], null)).toBe(15);
+    expect(ctx._windAxisMax([5, 5, 5], null)).toBe(5);
+  });
+
+  it('is based on mean wind, not gusts — high gusts do not widen the axis', () => {
+    // winds peak at 8 m/s → axis max should be 10, not 25 from the gust
+    expect(ctx._windAxisMax([5, 8, 6], null)).toBe(10);
+  });
+
+  it('includes ensemble wind p90 in the max calculation', () => {
+    // winds top out at 8 but ensemble p90 reaches 13 → rounds up to 15
+    const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
+    expect(ctx._windAxisMax([5, 8, 6], ensWind)).toBe(15);
+  });
+
+  it('filters null values in winds array', () => {
+    expect(ctx._windAxisMax([null, 12, null], null)).toBe(15);
+  });
+
+  it('filters null values in ensWind.p90', () => {
+    const ensWind = { p90: [null, 14, null], p10: [null, 7, null] };
+    expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(15);
+  });
+});
