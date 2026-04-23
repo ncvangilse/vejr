@@ -35,7 +35,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="vejr.css?v=24">
+<link rel="stylesheet" href="vejr.css?v=25">
 </head>
 <body>
 <div id="rotator">
@@ -60,14 +60,12 @@
         <div id="city-input-wrap">
           <input id="city-input" type="text" placeholder="Enter a city, e.g. Copenhagen, London, Paris, Oslo…"/>
         </div>
-        <div id="subtitle">—</div>
         <div id="obs-station-name" style="font-size:10px;margin-top:2px;display:none;"></div>
       </div>
       <div id="header-right">
         <div id="header-controls">
           <button id="kite-cfg-btn" title="Kitesurfing settings">⚙ 🪁</button>
         </div>
-        <div id="updated-text">—</div>
         <div id="model-dropdown">
           <div id="ens-status">Ensemble: loading…</div>
           <select id="model-select">
@@ -151,7 +149,7 @@
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.04.23-61</div>
+  <div id="build-number">build 2026.04.23-62</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
   <a href="mailto:info@kitevibe.dk" id="feedback-link">Feedback</a>
@@ -390,8 +388,8 @@ Trafikinfo weather stations sometimes have unhelpful auto-generated names. If yo
 <script src="api.js?v=23"></script>
 <script src="weather-icons.js?v=23"></script>
 <script src="charts.js?v=23"></script>
-<script src="radar.js?v=23"></script>
+<script src="radar.js?v=24"></script>
 <script src="shore.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

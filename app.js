@@ -151,12 +151,6 @@ async function load(cityName, model) {
     }
     document.getElementById('city-name').textContent =
       loc.name+(loc.country_code?', '+loc.country_code:'');
-    const t0=new Date(times[0]),t1=new Date(times[times.length-1]);
-    document.getElementById('subtitle').textContent =
-      `Forecast from ${DA_DAYS3[t0.getDay()]} at ${t0.getHours()}:00 to ${DA_DAYS3[t1.getDay()]} at ${t1.getHours()}:00`;
-    const now=new Date();
-    document.getElementById('updated-text').textContent =
-      `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
     document.getElementById('loading').style.display='none';
     forecastEl.style.display='block';
     forecastEl.classList.remove('updating');
@@ -627,30 +621,73 @@ function hideTooltip() {
 function attachHoverListeners() {
   document.getElementById('hover-tooltip').addEventListener('click', hideTooltip);
   const content = document.getElementById('forecast-content');
-  content.addEventListener('mousemove', e => {
+
+  function showTooltipAtX(clientX, target) {
     if (!lastRenderedData) return;
-    const wrap = e.target.closest('.chart-canvas-wrap');
+    const wrap = target && target.closest ? target.closest('.chart-canvas-wrap') : null;
     if (!wrap) { hideTooltip(); return; }
     const rect  = wrap.getBoundingClientRect();
     // In portrait the wrap scrolls horizontally; add scrollLeft so relX is
     // measured in canvas coordinates, not visible-viewport coordinates.
-    const relX  = e.clientX - rect.left + (wrap.scrollLeft || 0);
+    const relX  = clientX - rect.left + (wrap.scrollLeft || 0);
     const span  = wrap.scrollWidth || rect.width;
-    const fracX    = Math.max(0, Math.min(1, relX / span));
-    const n1h      = lastRenderedData.times1h.length;
-    const n3h      = lastRenderedData.times.length;
-    let idx1h, idx3h;
-    idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
-    if (lastRenderedData.xFrac1h) {
-      // Portrait: display series drives all charts; idx1h is unused.
-      idx1h = idx3h;
-    } else {
-      idx1h = Math.min(n1h - 1, Math.floor(fracX * n1h));
-    }
+    const fracX = Math.max(0, Math.min(1, relX / span));
+    const n1h   = lastRenderedData.times1h.length;
+    const n3h   = lastRenderedData.times.length;
+    const idx3h = Math.min(n3h - 1, Math.floor(fracX * n3h));
+    const idx1h = lastRenderedData.xFrac1h
+      ? idx3h
+      : Math.min(n1h - 1, Math.floor(fracX * n1h));
     drawCrosshairs(fracX, idx1h, idx3h);
     showTooltip(idx1h, idx3h);
+  }
+
+  content.addEventListener('mousemove', e => {
+    if (!lastRenderedData) return;
+    const wrap = e.target.closest('.chart-canvas-wrap');
+    if (!wrap) { hideTooltip(); return; }
+    showTooltipAtX(e.clientX, e.target);
   });
   content.addEventListener('mouseleave', hideTooltip);
+
+  // Long press state — declared before contextmenu so cancelLp is available there.
+  let lpStart = 0, lpX = 0, lpY = 0, lpEl = null;
+  function cancelLp() { lpStart = 0; }
+
+  // Right-click pins the tooltip without the browser context menu.
+  // On Android, long press also fires contextmenu — cancel the lp state here
+  // so the touchend handler doesn't fire a second time.
+  content.addEventListener('contextmenu', e => {
+    if (!e.target.closest('.chart-canvas-wrap')) return;
+    e.preventDefault();
+    cancelLp();
+    showTooltipAtX(e.clientX, e.target);
+  });
+
+  // Long press on iOS: measure hold duration at touchend to avoid triggering
+  // the browser's native "held touch" detection (which causes text selection).
+  content.addEventListener('touchstart', e => {
+    const wrap = e.target.closest('.chart-canvas-wrap');
+    if (!wrap) { lpStart = 0; return; }
+    lpStart = performance.now();
+    lpX = e.touches[0].clientX;
+    lpY = e.touches[0].clientY;
+    lpEl  = e.target;
+  }, { passive: true });
+  content.addEventListener('touchmove', e => {
+    if (!lpStart) return;
+    const dx = e.touches[0].clientX - lpX;
+    const dy = e.touches[0].clientY - lpY;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) lpStart = 0;
+  }, { passive: true });
+  content.addEventListener('touchend', () => {
+    if (!lpStart) return;
+    const dt = performance.now() - lpStart;
+    const el = lpEl;
+    cancelLp();
+    if (dt >= 500) showTooltipAtX(lpX, el);
+  }, { passive: true });
+  content.addEventListener('touchcancel', cancelLp, { passive: true });
 }
 attachHoverListeners();
 
@@ -1560,12 +1597,6 @@ async function loadAtCoords(lat, lon, model) {
       ensStatus.style.color = '#a77';
     }
     document.getElementById('city-name').textContent = displayName;
-    const t0=new Date(times[0]), t1=new Date(times[times.length-1]);
-    document.getElementById('subtitle').textContent =
-      `Forecast from ${DA_DAYS3[t0.getDay()]} at ${t0.getHours()}:00 to ${DA_DAYS3[t1.getDay()]} at ${t1.getHours()}:00`;
-    const now=new Date();
-    document.getElementById('updated-text').textContent =
-      `Updated ${now.getDate()} ${DA_MON[now.getMonth()]} ${now.getFullYear()}`;
     document.getElementById('loading').style.display = 'none';
     forecastEl.style.display = 'block';
     forecastEl.classList.remove('updating');
