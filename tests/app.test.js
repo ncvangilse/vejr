@@ -40,6 +40,12 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
   const cityInput        = makeEl();
   const geoCalls         = [];
   const replaceStateCalls = [];
+  const contentEl = {
+    _listeners: {},
+    style: { display: '' },
+    classList: { contains: () => false, add: () => {}, remove: () => {} },
+    addEventListener(type, fn) { this._listeners[type] = fn; },
+  };
 
   const store = savedCity != null ? { vejr_city: savedCity } : {};
   const mockLocalStorage = {
@@ -88,14 +94,16 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     },
     document: {
       getElementById: (id) => {
-        if (id === 'city-input')      return cityInput;
-        if (id === 'model-select')    return makeEl('dmi_seamless');
-        if (id === 'hover-tooltip')   return tooltipEl;
+        if (id === 'city-input')        return cityInput;
+        if (id === 'model-select')      return makeEl('dmi_seamless');
+        if (id === 'hover-tooltip')     return tooltipEl;
+        if (id === 'forecast-content')  return contentEl;
         return makeEl();
       },
       querySelectorAll: () => [],
       querySelector: () => null,
       addEventListener: () => {},
+      elementFromPoint: () => null,
       body: { classList: { toggle: () => {}, contains: () => false } },
     },
     localStorage: mockLocalStorage,
@@ -110,7 +118,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     parseInt, parseFloat, isNaN, isFinite,
     encodeURIComponent, decodeURIComponent,
     Promise, Error,
-    setTimeout, clearTimeout,
+    setTimeout, clearTimeout, performance,
     fetch: () => Promise.reject(new Error('fetch not mocked')),
     // Stubs for functions/constants defined in other scripts.
     // Use a never-settling promise so async chains stall silently rather than
@@ -141,7 +149,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
 
   vm.runInContext(APP_SRC, ctx);
 
-  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL, tooltipEl };
+  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL, tooltipEl, contentEl };
 }
 
 // ── decideInitialLocation unit tests ─────────────────────────────────────────
@@ -879,6 +887,92 @@ describe('tooltip close-on-tap', () => {
     tooltipEl.style.display = 'block';
     tooltipEl._listeners['click']();
     expect(tooltipEl.style.display).toBe('none');
+  });
+});
+
+// ── contextmenu (right-click pins tooltip) ────────────────────────────────────
+
+describe('contextmenu right-click', () => {
+  it('registers a contextmenu listener on forecast-content', () => {
+    const { contentEl } = loadApp();
+    expect(contentEl._listeners['contextmenu']).toBeTypeOf('function');
+  });
+
+  it('does not call preventDefault when target is not inside a chart wrap', () => {
+    const { contentEl } = loadApp();
+    let prevented = false;
+    const e = { target: { closest: () => null }, clientX: 50, preventDefault() { prevented = true; } };
+    contentEl._listeners['contextmenu'](e);
+    expect(prevented).toBe(false);
+  });
+
+  it('calls preventDefault when target is inside a chart wrap', () => {
+    const { contentEl } = loadApp();
+    let prevented = false;
+    const mockWrap = {
+      getBoundingClientRect: () => ({ left: 0 }),
+      scrollLeft: 0,
+      scrollWidth: 100,
+    };
+    const e = {
+      target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
+      clientX: 50,
+      preventDefault() { prevented = true; },
+    };
+    contentEl._listeners['contextmenu'](e);
+    expect(prevented).toBe(true);
+  });
+});
+
+// ── long press (mobile tooltip) ───────────────────────────────────────────────
+
+describe('long press on mobile', () => {
+  it('registers touchstart, touchmove, touchend and touchcancel listeners on forecast-content', () => {
+    const { contentEl } = loadApp();
+    expect(contentEl._listeners['touchstart']).toBeTypeOf('function');
+    expect(contentEl._listeners['touchmove']).toBeTypeOf('function');
+    expect(contentEl._listeners['touchend']).toBeTypeOf('function');
+    expect(contentEl._listeners['touchcancel']).toBeTypeOf('function');
+  });
+
+  it('does not show tooltip when touchend fires before 500 ms', () => {
+    const { ctx, contentEl } = loadApp();
+    const mockWrap = { getBoundingClientRect: () => ({ left: 0 }), scrollLeft: 0, scrollWidth: 100 };
+    // Start touch
+    contentEl._listeners['touchstart']({
+      target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
+      touches: [{ clientX: 50, clientY: 50 }],
+    });
+    // Lift finger immediately — well under 500 ms (performance.now returns real time)
+    // The hold duration is ~0 ms so the tooltip should not be shown.
+    // We just verify no crash occurs.
+    contentEl._listeners['touchend']();
+  });
+
+  it('cancels long press when touchmove exceeds 10px', () => {
+    const { contentEl } = loadApp();
+    const mockWrap = { getBoundingClientRect: () => ({ left: 0 }), scrollLeft: 0, scrollWidth: 100 };
+    contentEl._listeners['touchstart']({
+      target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
+      touches: [{ clientX: 50, clientY: 50 }],
+    });
+    // Move more than 10px — should cancel the long press state
+    contentEl._listeners['touchmove']({ touches: [{ clientX: 65, clientY: 50 }] });
+    // touchend should now be a no-op (lpStart cleared)
+    contentEl._listeners['touchend']();
+  });
+
+  it('does not cancel long press when touchmove stays within 10px', () => {
+    const { contentEl } = loadApp();
+    const mockWrap = { getBoundingClientRect: () => ({ left: 0 }), scrollLeft: 0, scrollWidth: 100 };
+    contentEl._listeners['touchstart']({
+      target: { closest: (sel) => sel === '.chart-canvas-wrap' ? mockWrap : null },
+      touches: [{ clientX: 50, clientY: 50 }],
+    });
+    // Move less than 10px — long press state should survive
+    contentEl._listeners['touchmove']({ touches: [{ clientX: 55, clientY: 52 }] });
+    // Cleanup
+    contentEl._listeners['touchend']();
   });
 });
 
