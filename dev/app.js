@@ -1702,8 +1702,10 @@ document.getElementById('city-input').addEventListener('keydown', e => {
     closeCitySearch();
   }
 });
-/* #model-select is a transparent CSS overlay covering #model-dropdown;
-   clicks on #ens-status naturally hit the select, which opens natively. */
+document.getElementById('ens-status').addEventListener('click', () => {
+  const sel = document.getElementById('model-select');
+  try { sel.showPicker(); } catch (_) { sel.focus(); }
+});
 document.getElementById('model-select').addEventListener('change', () => {
   const city = document.getElementById('city-input').value.trim()
             || localStorage.getItem('vejr_city') || '';
