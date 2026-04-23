@@ -700,10 +700,12 @@ function _otherModelLineColor(invertedColors) {
   return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
 }
 
-/** Returns the wind Y-axis maximum: max mean wind speed (not gusts) rounded up to nearest 5 m/s. */
+/** Returns the wind Y-axis maximum: max ensemble wind p90 (or mean wind when no ensemble) rounded up to nearest 5 m/s. Gusts are clipped above this. */
 function _windAxisMax(winds, ensWind) {
-  const ensWindMax = ensWind ? Math.max(...ensWind.p90.filter(v => v != null)) : 0;
-  return Math.ceil(Math.max(...winds.filter(v => v != null), ensWindMax, 5) / 5) * 5;
+  const base = ensWind
+    ? Math.max(...ensWind.p90.filter(v => v != null))
+    : Math.max(...winds.filter(v => v != null));
+  return Math.ceil(Math.max(base, 5) / 5) * 5;
 }
 function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null) {
   // --- canvas setup ---
