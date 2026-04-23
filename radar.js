@@ -157,15 +157,17 @@ function _buildProposeNameUrl(s) {
       showMenuAt(e.clientX, e.clientY);
     });
 
-    // Mobile long press (measure hold duration at touchend to avoid triggering
-    // the browser's native text-selection on the visible hint overlay).
+    // Mobile long press → context menu.
+    // preventDefault on touchstart is the only reliable way to suppress the
+    // browser's native long-press text-selection before we can react.
     let lpStart = 0, lpX = 0, lpY = 0;
     mapEl.addEventListener('touchstart', e => {
       if (isMarkerTarget(e) || e.touches.length !== 1) { lpStart = 0; return; }
+      e.preventDefault();
       lpStart = performance.now();
       lpX = e.touches[0].clientX;
       lpY = e.touches[0].clientY;
-    }, { passive: true });
+    }, { passive: false });
     mapEl.addEventListener('touchmove', e => {
       if (!lpStart) return;
       const dx = e.touches[0].clientX - lpX;
