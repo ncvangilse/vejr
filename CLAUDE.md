@@ -6,6 +6,16 @@
 
 ---
 
+## CSS Version Bump
+
+**Always bump the CSS version when editing `vejr.css`.** The service worker caches `vejr.css` by URL, so changes won't reach users without a version bump. Update the query string in `vejr.html`:
+
+```html
+<link rel="stylesheet" href="vejr.css?v=N">  →  <link rel="stylesheet" href="vejr.css?v=N+1">
+```
+
+---
+
 ## Testing
 
 Every time a new bug is fixed or a new feature is implemented, write good tests that cover the new behavior or reproduce and confirm the fix.

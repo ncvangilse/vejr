@@ -1702,9 +1702,8 @@ document.getElementById('city-input').addEventListener('keydown', e => {
     closeCitySearch();
   }
 });
-document.getElementById('ens-status').addEventListener('click', () => {
-  document.getElementById('model-select').focus();
-});
+/* #model-select is a transparent CSS overlay covering #model-dropdown;
+   clicks on #ens-status naturally hit the select, which opens natively. */
 document.getElementById('model-select').addEventListener('change', () => {
   const city = document.getElementById('city-input').value.trim()
             || localStorage.getItem('vejr_city') || '';
