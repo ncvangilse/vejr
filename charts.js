@@ -275,22 +275,19 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
 
   for (let i = 0; i < temps.length - 1; i++) {
     const t0 = temps[i], t1 = temps[i+1];
+    if (t0 == null || t1 == null) continue;
     const x0 = cx2(i),   x1 = cx2(i+1);
     const py0 = ty(t0),  py1 = ty(t1);
 
     if ((t0 >= 0 && t1 >= 0) || (t0 < 0 && t1 < 0)) {
-      // no crossing — single colour
       ctx.strokeStyle = t0 >= 0 ? TEMP_ABOVE : TEMP_BELOW;
       ctx.beginPath(); ctx.moveTo(x0, py0); ctx.lineTo(x1, py1); ctx.stroke();
     } else {
       // zero crossing — split at the interpolated x,y
-      const frac = t0 / (t0 - t1);           // fraction along segment where temp=0
+      const frac = t0 / (t0 - t1);
       const xMid = x0 + frac * (x1 - x0);
-
-      // first half
       ctx.strokeStyle = t0 >= 0 ? TEMP_ABOVE : TEMP_BELOW;
       ctx.beginPath(); ctx.moveTo(x0, py0); ctx.lineTo(xMid, y0); ctx.stroke();
-      // second half
       ctx.strokeStyle = t1 >= 0 ? TEMP_ABOVE : TEMP_BELOW;
       ctx.beginPath(); ctx.moveTo(xMid, y0); ctx.lineTo(x1, py1); ctx.stroke();
     }
@@ -611,7 +608,12 @@ function _drawWindLine(ctx, values, cx2, wy, strokeStyle, lineWidth) {
   ctx.lineWidth   = lineWidth;
   ctx.setLineDash([]);
   ctx.beginPath();
-  values.forEach((v, i) => i === 0 ? ctx.moveTo(cx2(i), wy(v)) : ctx.lineTo(cx2(i), wy(v)));
+  let started = false;
+  values.forEach((v, i) => {
+    if (v == null) { started = false; return; }
+    if (!started) { ctx.moveTo(cx2(i), wy(v)); started = true; }
+    else ctx.lineTo(cx2(i), wy(v));
+  });
   ctx.stroke();
 }
 
@@ -763,14 +765,17 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
 
 
   // --- wind fill (colour-mapped gradient below wind line) ---
-  if (n > 1) {
+  // Only fill up to the last non-null wind value; null entries (unavailable
+  // model data) are left blank rather than drawn as flat zero.
+  const lastNonNull = (() => { for (let i = n - 1; i >= 0; i--) if (winds[i] != null) return i; return -1; })();
+  if (n > 1 && lastNonNull > 0) {
     const grad = ctx.createLinearGradient(0, 0, cssW, 0);
-    winds.forEach((v, i) => grad.addColorStop(cx2(i) / cssW, windColorStr(v, 0.72)));
+    winds.forEach((v, i) => { if (v != null) grad.addColorStop(cx2(i) / cssW, windColorStr(v, 0.72)); });
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(cx2(0), wy(winds[0]));
-    for (let i = 1; i < n; i++) ctx.lineTo(cx2(i), wy(winds[i]));
-    ctx.lineTo(cx2(n - 1), base);
+    ctx.moveTo(cx2(0), wy(winds[0] ?? 0));
+    for (let i = 1; i <= lastNonNull; i++) ctx.lineTo(cx2(i), wy(winds[i] ?? winds[i - 1] ?? 0));
+    ctx.lineTo(cx2(lastNonNull), base);
     ctx.lineTo(cx2(0), base);
     ctx.closePath();
     ctx.fill();
