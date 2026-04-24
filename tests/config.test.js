@@ -147,6 +147,45 @@ describe('kite settings – localStorage persistence (iOS Home Screen fix)', () 
   });
 });
 
+describe('?reset=1 clears stored kite config', () => {
+  it('removes vejr_kite_cfg from localStorage when ?reset=1 is present', () => {
+    const ctx = loadScripts('config.js');
+    ctx.localStorage.setItem('vejr_kite_cfg', JSON.stringify({ min: 5, dirs: [180] }));
+    ctx.window.location.search = '?reset=1';
+    ctx.applyResetParam();
+    expect(ctx.localStorage.getItem('vejr_kite_cfg')).toBeNull();
+  });
+
+  it('strips the reset param from the URL', () => {
+    const replaceStateCalls = [];
+    const ctx = loadScripts('config.js');
+    ctx.window.history.replaceState = (...a) => replaceStateCalls.push(a);
+    ctx.window.location.search = '?reset=1';
+    ctx.applyResetParam();
+    expect(replaceStateCalls).toHaveLength(1);
+    expect(replaceStateCalls[0][2]).not.toContain('reset');
+  });
+
+  it('preserves other URL params when stripping reset', () => {
+    const replaceStateCalls = [];
+    const ctx = loadScripts('config.js');
+    ctx.window.history.replaceState = (...a) => replaceStateCalls.push(a);
+    ctx.window.location.search = '?q=Copenhagen&reset=1';
+    ctx.applyResetParam();
+    const newUrl = replaceStateCalls[0][2];
+    expect(newUrl).toContain('q=Copenhagen');
+    expect(newUrl).not.toContain('reset');
+  });
+
+  it('does nothing when reset param is absent', () => {
+    const ctx = loadScripts('config.js');
+    ctx.localStorage.setItem('vejr_kite_cfg', JSON.stringify({ min: 5 }));
+    ctx.window.location.search = '?q=Oslo';
+    ctx.applyResetParam();
+    expect(ctx.localStorage.getItem('vejr_kite_cfg')).not.toBeNull();
+  });
+});
+
 describe('forecast range', () => {
   it('FORECAST_DAYS is 16 (always shows full 16-day forecast)', () => {
     const ctx = loadScripts('config.js');
