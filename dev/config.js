@@ -65,6 +65,19 @@ function parseKiteParams() {
   return cfg;
 }
 
+// ?reset=1 clears the stored kite config so auto-detection runs again on the
+// next load.  The param is stripped from the URL immediately so it doesn't
+// linger in the address bar or get shared accidentally.
+function applyResetParam() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('reset') !== '1') return;
+  try { localStorage.removeItem(KITE_STORAGE_KEY); } catch(_) {}
+  p.delete('reset');
+  const qs = p.toString();
+  window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+}
+applyResetParam();
+
 let KITE_CFG = parseKiteParams();
 
 function setKiteParams(cfg) {
