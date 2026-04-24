@@ -534,8 +534,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const tRange  = tmax - tmin;
   const tempVal = d.temps1h[idx1h];
   const tempDotY = tempVal != null ? TEMP_padT + (1 - (tempVal - tmin) / tRange) * TEMP_ch : null;
-  const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
-  const WIND_chartH = WIND_H - WIND_padT;
+  const WIND_H = 130;
   const t0Ms   = d.times.length > 0 ? new Date(d.times[0]).getTime() : 0;
   const ext7d  = t0Ms + 7 * 24 * 3600 * 1000;
   const n7d    = d.times.findIndex(t => new Date(t).getTime() >= ext7d);
@@ -544,7 +543,8 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     d.winds.slice(0, nAx),
     d.ensWind ? { p90: d.ensWind.p90.slice(0, nAx) } : null
   );
-  const windDotY   = WIND_padT + (1 - d.winds[idx3h] / maxW) * WIND_chartH;
+  const windVal    = d.winds[idx3h];
+  const windDotY   = windVal != null ? (1 - windVal / maxW) * WIND_H : null;
   const fracX3h    = (idx3h + 0.5) / d.times.length;
   // xMap1h[idx1h] is the CSS x-centre of the 1h point as drawn by drawTemp.
   const tempXabs   = d.xMap1h ? d.xMap1h[idx1h] : fracX3h;
@@ -582,6 +582,29 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
       ctx.arc(x, dotY, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // inline label next to the dot
+      ctx.font         = 'bold 10px monospace';
+      ctx.textBaseline = 'middle';
+      const nearRight  = x + 52 > cssW;
+      ctx.textAlign    = nearRight ? 'right' : 'left';
+      const labelX     = nearRight ? x - 8 : x + 8;
+      if (id === 'xh-temp' && tempVal != null) {
+        ctx.fillStyle = dotCol;
+        ctx.fillText(`${tempVal >= 0 ? '+' : ''}${tempVal.toFixed(1)}°`, labelX, dotY);
+      } else if (id === 'xh-wind' && windVal != null) {
+        ctx.fillStyle = windColorStr(windVal, 1);
+        ctx.fillText(windVal.toFixed(1), labelX, dotY);
+      }
+    }
+    // time label at the bottom of the top-row overlay
+    if (id === 'xh-top') {
+      const t  = new Date(d.times[idx3h]);
+      const hh = t.getHours().toString().padStart(2, '0');
+      ctx.font         = 'bold 10px sans-serif';
+      ctx.fillStyle    = '#000';
+      ctx.textBaseline = 'bottom';
+      ctx.textAlign    = 'center';
+      ctx.fillText(`${hh}:00`, x, cssH - 2);
     }
     ctx.restore();
   });
