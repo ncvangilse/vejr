@@ -620,7 +620,7 @@ function _windAxisMax(winds, ensWind) {
     : Math.max(...winds.filter(v => v != null));
   return Math.ceil(Math.max(base, 5) / 5) * 5;
 }
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const n      = times.length;
@@ -674,12 +674,19 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
 
   // --- grid & day dividers (first 7 days only — req #3) ---
   _drawWindGrid(ctx, wLevels, wy, cssW);
-  divs.forEach(i => {
-    if (new Date(times[i]).getTime() >= extThreshMsWind) return;
-    const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
-    ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
-  });
+  if (divXs) {
+    divXs.forEach(x => {
+      ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
+    });
+  } else {
+    divs.forEach(i => {
+      if (new Date(times[i]).getTime() >= extThreshMsWind) return;
+      const x = xMap ? (xMap[i - 1] + xMap[i]) / 2 : i * colW;
+      ctx.strokeStyle = '#667788'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, cY); ctx.lineTo(x, cY + WIND_H); ctx.stroke();
+    });
+  }
 
   // Clip all data rendering to the chart area so extended-forecast values that
   // exceed maxW don't overflow the canvas.
@@ -852,7 +859,7 @@ function renderAll(d, invertedColors, portraitColW = null) {
              d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs);
     drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
              d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null,
-             d.otherModelsWind1h || null, d.xMap1h || null);
+             d.otherModelsWind1h || null, d.xMap1h || null, divXs);
   } else {
     // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
