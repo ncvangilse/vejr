@@ -225,6 +225,34 @@ describe('initialLoad – location source selection', () => {
   });
 });
 
+// ── Default coordinate fallback (no geolocation / denied) ────────────────────
+
+describe('tryGeolocation – default coordinate fallback', () => {
+  it('loads default coords when geolocation API is unavailable', () => {
+    const { mockLocalStorage } = loadApp({ geoAvailable: false });
+    expect(mockLocalStorage.store['vejr_city']).toBe('54.941360,11.999631');
+  });
+
+  it('loads default coords when geolocation is denied', () => {
+    const { mockLocalStorage } = loadApp({ geoAvailable: true });
+    expect(mockLocalStorage.store['vejr_city']).toBe('54.941360,11.999631');
+  });
+
+  it('sets the URL q param to default coords when geolocation API is unavailable', () => {
+    const { replaceStateCalls } = loadApp({ geoAvailable: false });
+    const lastUrl = replaceStateCalls.at(-1)?.[2] ?? '';
+    expect(lastUrl).toContain('54.941360');
+    expect(lastUrl).toContain('11.999631');
+  });
+
+  it('sets the URL q param to default coords when geolocation is denied', () => {
+    const { replaceStateCalls } = loadApp({ geoAvailable: true });
+    const lastUrl = replaceStateCalls.at(-1)?.[2] ?? '';
+    expect(lastUrl).toContain('54.941360');
+    expect(lastUrl).toContain('11.999631');
+  });
+});
+
 // ── loadAndSync persists city to localStorage ─────────────────────────────────
 
 describe('loadAndSync', () => {

@@ -1834,14 +1834,14 @@ async function loadByCoords(lat, lon, model) {
   await load(displayName, model);
 }
 async function tryGeolocation(model) {
-  if (!navigator.geolocation) { await load('Bogø', model); return; }
+  if (!navigator.geolocation) { await loadAtCoords(54.941360, 11.999631, model); return; }
   setLoadingMsg('Finding your location…');
   document.getElementById('loading').style.display         = 'block';
   document.getElementById('forecast-content').style.display = 'none';
   document.getElementById('error-msg').style.display       = 'none';
   navigator.geolocation.getCurrentPosition(
     pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, model),
-    _err => load('Bogø', model),
+    _err => loadAtCoords(54.941360, 11.999631, model),
     { timeout: 8000, maximumAge: 300000 }
   );
 }
