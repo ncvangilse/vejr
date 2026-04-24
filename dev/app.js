@@ -1831,7 +1831,6 @@ async function loadByCoords(lat, lon, model) {
   const coordStr = `${lat.toFixed(6)},${lon.toFixed(6)}`;
   setQParam(coordStr);
   try { localStorage.setItem('vejr_city', coordStr); } catch(_) {}
-  autoDetectSeaBearingsOnce();
   await load(displayName, model);
 }
 // On the first load where the user has no saved kite config (KITE_CFG._fromDefaults),
@@ -1857,18 +1856,14 @@ function autoDetectSeaBearingsOnce() {
   window.addEventListener('shore-mask-ready', onMaskReady);
 }
 async function tryGeolocation(model) {
-  if (!navigator.geolocation) {
-    autoDetectSeaBearingsOnce();
-    await loadAtCoords(54.941360, 11.999631, model);
-    return;
-  }
+  if (!navigator.geolocation) { await loadAtCoords(54.941360, 11.999631, model); return; }
   setLoadingMsg('Finding your location…');
   document.getElementById('loading').style.display         = 'block';
   document.getElementById('forecast-content').style.display = 'none';
   document.getElementById('error-msg').style.display       = 'none';
   navigator.geolocation.getCurrentPosition(
     pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, model),
-    _err => { autoDetectSeaBearingsOnce(); loadAtCoords(54.941360, 11.999631, model); },
+    _err => loadAtCoords(54.941360, 11.999631, model),
     { timeout: 8000, maximumAge: 300000 }
   );
 }
@@ -1943,6 +1938,9 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   const typed    = document.getElementById('city-input').value.trim();
   const saved    = localStorage.getItem('vejr_city');
   const decision = decideInitialLocation(qParam, typed, saved);
+  // Register auto-detection before any location load fires, regardless of which
+  // path is taken below (qparam, saved, geolocation, typed).
+  autoDetectSeaBearingsOnce();
 
   if (decision.type === 'qparam') {
     // If q looks like "lat,lon" (stored when the user dragged the pin), restore
