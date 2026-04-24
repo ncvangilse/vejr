@@ -49,10 +49,14 @@ Every time a new bug is fixed or a new feature is implemented, write good tests 
 | `vejr.html` | Single-page app entry point |
 | `index.html` | Redirect to vejr.html (GitHub Pages root) |
 | `vejr.css` | All styles (responsive, PWA-aware) |
-| `app.js` | Main orchestration: load pipeline, render, tooltips, kite dialog |
+| `app.js` | Main orchestration: load pipeline, render, kite dialog, location init (~1128 lines) |
 | `api.js` | Weather/ensemble/geocoding API calls + ensemble percentile math |
 | `config.js` | Constants, kite settings, URL↔localStorage sync |
-| `charts.js` | Canvas drawing: temp, precip, wind, cloud, kite highlights |
+| `series.js` | Pure data-prep: `buildPortraitSeries`, `buildLandscapeSeries`, `computeXMap1h` |
+| `charts.js` | Canvas drawing: temp, precip, wind, cloud, kite highlights (~857 lines) |
+| `charts-wind-utils.js` | Wind colour ramp (`WINDY_RAMP`, `windColorStr`) + kite predicates (`isKiteOptimal` etc.) |
+| `tooltip.js` | Hover crosshair, tooltip panel, portrait scroll sync (`attachHoverListeners`, `initPortraitScrollSync`) |
+| `shore-debug.js` | Shore analysis debug panel (`drawShoreDebugMap`, `renderShoreDebug`) |
 | ~~`dmi.js`~~ | **Removed** — replaced by obs-history.json.gz; file is now an empty stub |
 | `shore.js` | Land/sea pixel analysis for kitesurfing (Terrascope WMS / ESA WorldCover) |
 | `radar.js` | RainViewer radar map (Leaflet, frame animation, tile rate limiting) |

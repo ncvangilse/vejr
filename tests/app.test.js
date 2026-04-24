@@ -6,6 +6,8 @@ import vm from 'node:vm';
 
 const ROOT    = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HTML_SRC = readFileSync(resolve(ROOT, 'vejr.html'), 'utf8');
+const SERIES_SRC  = readFileSync(resolve(ROOT, 'series.js'),  'utf8');
+const TOOLTIP_SRC = readFileSync(resolve(ROOT, 'tooltip.js'), 'utf8');
 const APP_SRC = readFileSync(resolve(ROOT, 'app.js'), 'utf8');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,10 +163,11 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     drawShoreCompass:   null,
     analyseShore:       () => {},
     drawShoreDebug:     () => {},
+    renderShoreDebug:   () => {},
     fetchStationNames:  async () => ({}),
   });
 
-  vm.runInContext(APP_SRC, ctx);
+  vm.runInContext(SERIES_SRC + '\n' + TOOLTIP_SRC + '\n' + APP_SRC, ctx);
 
   return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL, tooltipEl, contentEl, setKiteParamsCalls, kiteCfg };
 }

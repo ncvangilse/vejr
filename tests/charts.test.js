@@ -13,9 +13,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function loadChartLogic({ kiteCfg = null, shoreMask = null } = {}) {
   const src = [
-    readFileSync(resolve(ROOT, 'config.js'),        'utf8'),
-    readFileSync(resolve(ROOT, 'weather-icons.js'), 'utf8'),
-    readFileSync(resolve(ROOT, 'charts.js'),        'utf8'),
+    readFileSync(resolve(ROOT, 'config.js'),             'utf8'),
+    readFileSync(resolve(ROOT, 'weather-icons.js'),      'utf8'),
+    readFileSync(resolve(ROOT, 'charts-wind-utils.js'),  'utf8'),
+    readFileSync(resolve(ROOT, 'charts.js'),             'utf8'),
   ].join('\n');
 
   const ctx = vm.createContext({
