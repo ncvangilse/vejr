@@ -536,9 +536,14 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const tempDotY = tempVal != null ? TEMP_padT + (1 - (tempVal - tmin) / tRange) * TEMP_ch : null;
   const WIND_H = 130, WIND_KITE_H = 24, WIND_padT = WIND_KITE_H + 4;
   const WIND_chartH = WIND_H - WIND_padT;
-  const safeGusts  = d.gusts.map((g, i) => Math.max(g, d.winds[i]));
-  const ensGustMax = d.ensGust ? Math.max(...d.ensGust.p90.filter(v => v != null)) : 0;
-  const maxW       = Math.ceil(Math.max(...safeGusts, ensGustMax, 5) / 5) * 5;
+  const t0Ms   = d.times.length > 0 ? new Date(d.times[0]).getTime() : 0;
+  const ext7d  = t0Ms + 7 * 24 * 3600 * 1000;
+  const n7d    = d.times.findIndex(t => new Date(t).getTime() >= ext7d);
+  const nAx    = n7d > 0 ? n7d : d.times.length;
+  const maxW   = _windAxisMax(
+    d.winds.slice(0, nAx),
+    d.ensWind ? { p90: d.ensWind.p90.slice(0, nAx) } : null
+  );
   const windDotY   = WIND_padT + (1 - d.winds[idx3h] / maxW) * WIND_chartH;
   const fracX3h    = (idx3h + 0.5) / d.times.length;
   // xMap1h[idx1h] is the CSS x-centre of the 1h point as drawn by drawTemp.

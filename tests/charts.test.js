@@ -329,3 +329,54 @@ describe('isKiteDirOnly is a superset of isKiteOptimal', () => {
     }
   });
 });
+
+// ── _windAxisMax ─────────────────────────────────────────────────────────────
+
+describe('_windAxisMax', () => {
+  let ctx;
+  beforeEach(() => { ctx = loadChartLogic(); });
+
+  it('returns minimum 5 when all winds are calm', () => {
+    expect(ctx._windAxisMax([0, 0, 0], null)).toBe(5);
+  });
+
+  it('rounds up to the nearest 5', () => {
+    expect(ctx._windAxisMax([7, 8, 6], null)).toBe(10);
+    expect(ctx._windAxisMax([10, 11, 9], null)).toBe(15);
+    expect(ctx._windAxisMax([5, 5, 5], null)).toBe(5);
+  });
+
+  it('uses mean wind as fallback when no ensemble data', () => {
+    expect(ctx._windAxisMax([5, 8, 6], null)).toBe(10);
+  });
+
+  it('uses ensemble wind p90 as the axis ceiling when ensemble is present', () => {
+    const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
+    expect(ctx._windAxisMax([5, 8, 6], ensWind)).toBe(15);
+  });
+
+  it('uses p90 exclusively when ensemble is present, ignoring mean winds', () => {
+    // mean winds reach 17 but p90 only 13 → axis is 15, not 20
+    const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
+    expect(ctx._windAxisMax([5, 17, 6], ensWind)).toBe(15);
+  });
+
+  it('caller-sliced arrays exclude extended-forecast high values', () => {
+    // Full 10-slot p90 has a distant storm (22 m/s) in slots 7-9; caller passes
+    // only the first 7 slots so the axis stays at 15 instead of 25.
+    const full    = [10, 12, 11, 9, 10, 11, 12, 22, 22, 22];
+    const ensWind = { p90: full };
+    expect(ctx._windAxisMax([5, 5, 5], { p90: full.slice(0, 7) })).toBe(15);
+    // Confirm without slicing the storm pushes it to 25.
+    expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(25);
+  });
+
+  it('filters null values in winds array', () => {
+    expect(ctx._windAxisMax([null, 12, null], null)).toBe(15);
+  });
+
+  it('filters null values in ensWind.p90', () => {
+    const ensWind = { p90: [null, 14, null], p10: [null, 7, null] };
+    expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(15);
+  });
+});
