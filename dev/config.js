@@ -19,7 +19,7 @@ const KITE_DEFAULTS = {
   max:  9,
   dirs: [90, 270],   // exact bearings (snapped to nearest 10°)
   daylight: true,
-  seaThresh: 0.75,   // fraction of samples over water required for a sea bearing
+  seaThresh: 0.90,   // fraction of samples over water required for a sea bearing
 };
 const KITE_STORAGE_KEY = 'vejr_kite_cfg';
 
@@ -56,6 +56,9 @@ function parseKiteParams() {
         if (Array.isArray(saved.dirs))          cfg.dirs    = saved.dirs;
         if (typeof saved.daylight === 'boolean') cfg.daylight = saved.daylight;
         if (typeof saved.seaThresh === 'number') cfg.seaThresh = saved.seaThresh;
+      } else {
+        // No stored config: this is a fresh session, safe to auto-detect sea bearings.
+        cfg._fromDefaults = true;
       }
     } catch(_) { /* ignore corrupt storage */ }
   }
