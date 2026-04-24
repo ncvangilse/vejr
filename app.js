@@ -1831,22 +1831,28 @@ async function loadByCoords(lat, lon, model) {
   const coordStr = `${lat.toFixed(6)},${lon.toFixed(6)}`;
   setQParam(coordStr);
   try { localStorage.setItem('vejr_city', coordStr); } catch(_) {}
+  autoDetectSeaBearingsOnce();
   await load(displayName, model);
 }
-// When the default fallback position is used and the user has no saved kite
-// bearings, auto-apply sea bearings derived from the shore mask once it lands.
+// On the first load where the user has no saved kite config (KITE_CFG._fromDefaults),
+// auto-apply sea bearings derived from the shore mask.  Must be called before the
+// location load so the listener is registered before analyseShore fires.
 function autoDetectSeaBearingsOnce() {
-  if (KITE_CFG.dirs.length > 0) return;
-  function onMaskReady() {
-    window.removeEventListener('shore-mask-ready', onMaskReady);
-    if (!window.SHORE_MASK || KITE_CFG.dirs.length > 0) return;
+  if (!KITE_CFG._fromDefaults) return;
+  function apply() {
+    if (!window.SHORE_MASK) return;
     const dirs = [];
     for (let b = 0; b < SHORE_BEARINGS; b++) {
       if (window.SHORE_MASK[b] >= SHORE_SEA_THRESH) dirs.push(b * 10);
     }
     if (dirs.length === 0) return;
-    setKiteParams({ ...KITE_CFG, dirs });
+    setKiteParams({ ...KITE_CFG, dirs, _fromDefaults: false });
     if (lastData) renderDisplay(lastData);
+  }
+  if (window.SHORE_MASK) { apply(); return; }
+  function onMaskReady() {
+    window.removeEventListener('shore-mask-ready', onMaskReady);
+    apply();
   }
   window.addEventListener('shore-mask-ready', onMaskReady);
 }

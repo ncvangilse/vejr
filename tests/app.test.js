@@ -76,7 +76,8 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
   };
 
   const windowListeners = {};
-  const kiteCfg = { min: 4, max: 18, dirs: kiteDirs.slice(), daylight: true, seaThresh: 0.75 };
+  const kiteCfg = { min: 4, max: 18, dirs: kiteDirs.slice(), daylight: true, seaThresh: 0.90,
+                    _fromDefaults: kiteDirs.length === 0 };
 
   const ctx = vm.createContext({
     window: {

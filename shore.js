@@ -45,7 +45,7 @@ const SHORE_MAX_KM     = 5;
 // honoured immediately.  Can be updated at runtime via window.setShoreSeaThresh.
 let SHORE_SEA_THRESH = (typeof KITE_CFG !== 'undefined' && typeof KITE_CFG.seaThresh === 'number')
   ? KITE_CFG.seaThresh
-  : 0.75;   // fraction of samples that must be water
+  : 0.90;   // fraction of samples that must be water
 
 /* ── WMS constants ──────────────────────────────────────────────────────── */
 const WMS_BASE    = 'https://services.terrascope.be/wms/v2';
