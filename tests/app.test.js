@@ -316,6 +316,19 @@ describe('autoDetectSeaBearingsOnce – initial sea bearing detection', () => {
     ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
     expect(setKiteParamsCalls).toHaveLength(1);
   });
+
+  it('auto-applies when the initial location comes from the URL q param (qparam path)', () => {
+    // This was the root cause: when ?q=lat,lon is set from a previous session,
+    // initialLoad takes the qparam path and bypasses tryGeolocation entirely.
+    // autoDetectSeaBearingsOnce must still fire because it is called at the top
+    // of initialLoad regardless of which path is taken.
+    const { ctx, setKiteParamsCalls } = loadApp({ qParam: '54.941360,11.999631' });
+    ctx.window.SHORE_MASK = makeMaskWithSeaBearings([9, 18]); // 90° and 180°
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(1);
+    expect(setKiteParamsCalls[0].dirs).toContain(90);
+    expect(setKiteParamsCalls[0].dirs).toContain(180);
+  });
 });
 
 // ── loadAndSync persists city to localStorage ─────────────────────────────────
