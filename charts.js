@@ -334,7 +334,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
 /* ══════════════════════════════════════════════════
    DRAW WIND DIRECTION ROW
 ══════════════════════════════════════════════════ */
-function drawWindDir(times, winds, dirs, totalCssW = null) {
+function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null) {
   const canvas = document.getElementById('c-dir');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -361,12 +361,20 @@ function drawWindDir(times, winds, dirs, totalCssW = null) {
   ctx.fillRect(0, 0, cssW, DIR_H);
 
   // day dividers (first 7 days only — req #3)
-  divs.forEach(i => {
-    if (new Date(times[i]).getTime() >= extThreshMsDir) return;
-    const x = i * colW;
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
-  });
+  // Use pre-computed divXs when available (portrait mode) so dividers align with other rows.
+  if (divXs) {
+    divXs.forEach(x => {
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
+    });
+  } else {
+    divs.forEach(i => {
+      if (new Date(times[i]).getTime() >= extThreshMsDir) return;
+      const x = i * colW;
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
+    });
+  }
 
   // KITE highlight — bright teal on all columns where direction matches
   dirs.forEach((deg, i) => {
@@ -835,7 +843,7 @@ function renderAll(d, invertedColors, portraitColW = null) {
     .map(i => i * portraitColW) : null;
 
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
-  drawWindDir(d.times, d.winds, d.dirs, totalCssW);
+  drawWindDir(d.times, d.winds, d.dirs, totalCssW, divXs);
   if (portrait) {
     // Portrait: temp curve uses 1h data + xMap1h for smooth rendering across
     // the variable-resolution display grid. Precip bars use the display series.

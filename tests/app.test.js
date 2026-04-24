@@ -890,8 +890,9 @@ function loadAppWithObs(obsHistory) {
   const renderCalls = [];
   const highlightCalls = [];
   const { ctx } = loadApp({ renderAllSpy: (d) => renderCalls.push(d) });
-  // Pre-populate OBS_HISTORY and lastData so loadNearestObsStation can skip fetch.
   ctx.window.OBS_HISTORY = obsHistory;
+  // Mock fetchObsHistory so the always-fresh-fetch path gets the test data.
+  ctx.window.fetchObsHistory = async () => { ctx.window.OBS_HISTORY = obsHistory; return obsHistory; };
   ctx.lastData = makeData((7 * 24) / 3, 7 * 24);
   // Spy for map highlight
   ctx.window.highlightNearestStation = (lat, lon) => highlightCalls.push({ lat, lon });
