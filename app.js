@@ -603,7 +603,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
       ctx.fillStyle    = '#000';
       ctx.textBaseline = 'bottom';
       ctx.textAlign    = 'center';
-      ctx.fillText(`${hh}:00`, x, cssH + 3);
+      ctx.fillText(`${hh}:00`, x, cssH);
     }
     ctx.restore();
   });
