@@ -1158,3 +1158,60 @@ describe('long press on mobile', () => {
   });
 });
 
+// ── drawCrosshairs uses xMap1h for all rows ────────────────────────────────────
+
+describe('drawCrosshairs consistent x across rows', () => {
+  it('uses xMap1h[idx1h] for all four rows, not fracX3h slot center', () => {
+    const { ctx } = loadApp();
+
+    // Stub _windAxisMax since charts.js is not loaded in app test context.
+    ctx._windAxisMax = () => 20;
+
+    // Two 3h display slots; each contains 3 1h points.
+    // xMap1h[1] = 25px, but fracX3h for slot 0 = (0+0.5)/2 * 60 = 15px.
+    // Before the fix, xh-dir and xh-top used fracX3h (15) while xh-temp and
+    // xh-wind used xMap1h (25), causing a visible crosshair jump between rows.
+    const cssW = 60;
+    ctx.lastRenderedData = {
+      times:     ['2025-01-01T00:00', '2025-01-01T03:00'],
+      times1h:   Array.from({ length: 6 }, (_, i) => `2025-01-01T0${i}:00`),
+      temps1h:   Array(6).fill(10),
+      winds1h:   Array(6).fill(5),
+      ensWind1h: null,
+      ensGust1h: null,
+      xMap1h:    [15, 25, 35, 45, 55, 65],
+      slotIdx1h: [0, 0, 0, 1, 1, 1],
+    };
+
+    const xDrawn = {};
+    function makeXhCtx(id) {
+      return {
+        clearRect() {}, save() {}, restore() {}, scale() {},
+        beginPath() {}, stroke() {}, fill() {}, arc() {},
+        setLineDash() {}, fillText() {},
+        moveTo(x) { xDrawn[id] = x; }, lineTo() {},
+        font: '', fillStyle: '', strokeStyle: '',
+        lineWidth: 0, textBaseline: '', textAlign: '',
+        measureText: () => ({ width: 0 }),
+      };
+    }
+
+    const origGetEl = ctx.document.getElementById;
+    ctx.document.getElementById = (id) => {
+      if (['xh-top', 'xh-temp', 'xh-dir', 'xh-wind'].includes(id))
+        return { width: cssW, height: 50, style: {}, getContext: () => makeXhCtx(id) };
+      if (['c-top', 'c-temp', 'c-dir', 'c-wind'].includes(id))
+        return { width: cssW, height: 50 };
+      return origGetEl(id);
+    };
+
+    // idx1h=1 → xMap1h[1]=25;  idx3h=0 → fracX3h=0.25 → fracX3h*cssW=15 (different)
+    ctx.drawCrosshairs(0.25, 1, 0);
+
+    // All four rows must be at xMap1h[1]=25, not at fracX3h*cssW=15
+    expect(xDrawn['xh-top']).toBeCloseTo(25);
+    expect(xDrawn['xh-temp']).toBeCloseTo(25);
+    expect(xDrawn['xh-dir']).toBeCloseTo(25);
+    expect(xDrawn['xh-wind']).toBeCloseTo(25);
+  });
+});

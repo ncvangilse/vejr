@@ -39,10 +39,11 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const windVal    = winds1h[idx1h];
   const windDotY   = windVal != null ? (1 - windVal / maxW) * WIND_H : null;
   const fracX3h    = (idx3h + 0.5) / d.times.length;
-  // xMap1h[idx1h] gives the CSS x-centre as drawn by both drawTemp and drawWind.
+  // All rows use xMap1h[idx1h] so the crosshair is at the same x in every row.
+  // This prevents the visible jump that occurred when moving between rows in
+  // coarse (3h/6h) display slots where fracX3h * cssW ≠ xMap1h[idx1h].
   const absX1h     = d.xMap1h ? d.xMap1h[idx1h] : fracX3h;
   const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC  = { 'xh-top': fracX3h, 'xh-temp': null, 'xh-dir': fracX3h, 'xh-wind': null };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -59,7 +60,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.save();
     ctx.scale(dpr, dpr);
-    const x = (id === 'xh-temp' || id === 'xh-wind') ? absX1h : (FRAC[id] * cssW);
+    const x = d.xMap1h ? d.xMap1h[idx1h] : fracX3h * cssW;
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([4, 3]);
@@ -90,7 +91,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     }
     // time label at the bottom of the top-row overlay
     if (id === 'xh-top') {
-      const t  = new Date(d.times[idx3h]);
+      const t  = new Date(d.times1h ? d.times1h[idx1h] : d.times[idx3h]);
       const hh = t.getHours().toString().padStart(2, '0');
       ctx.font         = 'bold 10px sans-serif';
       ctx.fillStyle    = '#000';
