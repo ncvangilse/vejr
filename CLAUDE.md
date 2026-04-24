@@ -6,6 +6,14 @@
 
 ---
 
+## Issue Naming
+
+**When starting work on a GitHub issue, suggest a `/rename` command** so the conversation can be named consistently. Output this at the very start, before any other work:
+
+> `/rename Issue #XX: <issue title>`
+
+---
+
 ## CSS Version Bump
 
 **Always bump the CSS version when editing `vejr.css`.** The service worker caches `vejr.css` by URL, so changes won't reach users without a version bump. Update the query string in `vejr.html`:
