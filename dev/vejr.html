@@ -149,7 +149,7 @@
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.04.24-207-claude-fix-issue-104-46ucG</div>
+  <div id="build-number">build 2026.04.24-208-claude-refactor-large-files-7wATP</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
   <a href="mailto:info@kitevibe.dk" id="feedback-link">Feedback</a>
@@ -383,14 +383,18 @@ Trafikinfo weather stations sometimes have unhelpful auto-generated names. If yo
   </div>
 </div>
 
-<!-- ── Scripts (order matters: config → api → icons → charts → radar → shore → app) ── -->
+<!-- ── Scripts (order matters: config → api → icons → charts-wind-utils → series → charts → radar → shore → shore-debug → tooltip → app) ── -->
 <script src="config.js?v=23"></script>
 <script src="api.js?v=23"></script>
 <script src="weather-icons.js?v=23"></script>
+<script src="charts-wind-utils.js?v=1"></script>
+<script src="series.js?v=1"></script>
 <script src="charts.js?v=26"></script>
 <script src="radar.js?v=24"></script>
 <script src="shore.js?v=23"></script>
-<script src="app.js?v=27"></script>
+<script src="shore-debug.js?v=1"></script>
+<script src="tooltip.js?v=1"></script>
+<script src="app.js?v=28"></script>
 <!-- 100% privacy-first analytics -->
 <script data-collect-dnt="true" async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
 </body>
