@@ -733,9 +733,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // --- scale ---
   const safeGusts = _safeClampGusts(gusts, winds);
   const cY        = 0;
-  const KITE_H    = 24;                   // reserved strip for kite pill icons
-  const padT      = KITE_H + 4;
-  const chartH    = WIND_H - padT;
+  const KITE_H    = 24;                   // kite pill icon height (pills drawn on top of chart)
   // Axis max is based on the first-7-day window only; extended-forecast data
   // (days 7–16) is drawn but clipped to this ceiling so a distant storm does
   // not widen the scale for the current detailed period.
@@ -745,7 +743,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     winds.slice(0, nAx),
     ensWind ? { p90: ensWind.p90.slice(0, nAx) } : null
   );
-  const wy        = v => cY + padT + (1 - v / maxW) * chartH;
+  const wy        = v => cY + (1 - v / maxW) * WIND_H;
   const base      = wy(0);
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
 
@@ -772,14 +770,14 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   });
 
   // Clip all data rendering to the chart area so extended-forecast values that
-  // exceed maxW don't bleed into the kite-pill strip above.
+  // exceed maxW don't overflow the canvas.
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, cY + padT, cssW, chartH);
+  ctx.rect(0, cY, cssW, WIND_H);
   ctx.clip();
 
   // --- ensemble gust band (clipped above ens-wind p90) ---
-  _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx2, wy, cY + padT, cssW);
+  _drawEnsGustExtendedBand(ctx, ensGust, ensWind, safeGusts, winds, n, cx2, wy, cY, cssW);
 
   // --- ensemble wind band ---
   _drawEnsWindBand(ctx, ensWind, cx2, wy, 'rgba(0,0,0,0.22)');
@@ -866,15 +864,17 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   }
 
   // --- DMI observed wind dots ---
-  // Yellow dots  = 10-min mean wind speed from the nearest DMI station.
-  // Orange dots  = 10-min gust (wind_gust_always_10min) — faint, drawn first so
-  //                the wind dots appear on top.
-  // x-mapping: slot-aware position so portrait variable-resolution slots align.
+  // Wind dots = 10-min mean wind speed from the nearest DMI station.
+  // Gust dots = 10-min gust — faint, drawn first so wind dots appear on top.
+  // x-mapping: use the 3h display series (times3h || times) because totalCssW
+  // is anchored to that series' slot count, not to times1h.
   if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
-    const displayMs = times.map(t => new Date(t).getTime());
+    const obsRef    = times3h || times;
+    const obsColW   = cssW / obsRef.length;
+    const displayMs = obsRef.map(t => new Date(t).getTime());
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, cY + padT, cssW, chartH);
+    ctx.rect(0, cY, cssW, WIND_H);
     ctx.clip();
     for (const ob of window.DMI_OBS.obs) {
       // Find which display slot ob.t falls into and compute the fractional offset
@@ -885,20 +885,20 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
         ? displayMs[j + 1] - displayMs[j]
         : (j > 0 ? displayMs[j] - displayMs[j - 1] : 3600000);
       const slotFrac = (ob.t - displayMs[j]) / slotDur;
-      const x = (j + slotFrac + 0.5) * colW;
+      const x = (j + slotFrac + 0.5) * obsColW;
       if (x < -8 || x > cssW + 8) continue;
-      // gust dot (faint orange — drawn first so wind dot appears on top)
+      // gust dot (drawn first so wind dot appears on top)
       if (ob.gust != null && isFinite(ob.gust)) {
         ctx.beginPath();
         ctx.arc(x, wy(ob.gust), 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,150,50,0.65)';
+        ctx.fillStyle = windColorStr(ob.gust, 0.65);
         ctx.fill();
       }
-      // wind dot (yellow, slightly larger and more opaque)
+      // wind dot (slightly larger and more opaque)
       if (ob.wind != null && isFinite(ob.wind)) {
         ctx.beginPath();
         ctx.arc(x, wy(ob.wind), 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,240,80,0.9)';
+        ctx.fillStyle = windColorStr(ob.wind, 0.9);
         ctx.strokeStyle = 'rgba(0,0,0,0.3)';
         ctx.lineWidth = 0.5;
         ctx.fill();
@@ -938,8 +938,8 @@ function renderAll(d, invertedColors, portraitColW = null) {
     // divXs ensures day dividers align with the icon row regardless of curve resolution.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
              d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs);
-    drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null,
-             null, null, invertedColors, totalCssW, null,
+    drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
+             d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null,
              d.otherModelsWind1h || null, d.xMap1h || null);
   } else {
     // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
