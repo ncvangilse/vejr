@@ -1833,15 +1833,36 @@ async function loadByCoords(lat, lon, model) {
   try { localStorage.setItem('vejr_city', coordStr); } catch(_) {}
   await load(displayName, model);
 }
+// When the default fallback position is used and the user has no saved kite
+// bearings, auto-apply sea bearings derived from the shore mask once it lands.
+function autoDetectSeaBearingsOnce() {
+  if (KITE_CFG.dirs.length > 0) return;
+  function onMaskReady() {
+    window.removeEventListener('shore-mask-ready', onMaskReady);
+    if (!window.SHORE_MASK || KITE_CFG.dirs.length > 0) return;
+    const dirs = [];
+    for (let b = 0; b < SHORE_BEARINGS; b++) {
+      if (window.SHORE_MASK[b] >= SHORE_SEA_THRESH) dirs.push(b * 10);
+    }
+    if (dirs.length === 0) return;
+    setKiteParams({ ...KITE_CFG, dirs });
+    if (lastData) renderDisplay(lastData);
+  }
+  window.addEventListener('shore-mask-ready', onMaskReady);
+}
 async function tryGeolocation(model) {
-  if (!navigator.geolocation) { await loadAtCoords(54.941360, 11.999631, model); return; }
+  if (!navigator.geolocation) {
+    autoDetectSeaBearingsOnce();
+    await loadAtCoords(54.941360, 11.999631, model);
+    return;
+  }
   setLoadingMsg('Finding your location…');
   document.getElementById('loading').style.display         = 'block';
   document.getElementById('forecast-content').style.display = 'none';
   document.getElementById('error-msg').style.display       = 'none';
   navigator.geolocation.getCurrentPosition(
     pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, model),
-    _err => loadAtCoords(54.941360, 11.999631, model),
+    _err => { autoDetectSeaBearingsOnce(); loadAtCoords(54.941360, 11.999631, model); },
     { timeout: 8000, maximumAge: 300000 }
   );
 }
