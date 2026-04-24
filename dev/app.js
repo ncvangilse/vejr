@@ -522,9 +522,8 @@ function clearCrosshairs() {
 function drawCrosshairs(fracX, idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
-  // renderAll always fires the portrait branch (colW is always non-null), so:
-  //   drawTemp  uses d.temps1h + d.xMap1h  → temp dot tracks xMap1h[idx1h]
-  //   drawWind  uses d.winds/d.gusts (3h)  → wind dot tracks fracX3h
+  // Both temp and wind charts use 1h data + xMap1h for smooth rendering.
+  // Kite icons / top row / direction row snap to 3h columns (fracX3h).
   const TEMP_cssH = 130, TEMP_padT = 8, TEMP_padB = 8;
   const TEMP_ch   = TEMP_cssH - TEMP_padT - TEMP_padB;
   const validTemps = d.temps1h.filter(v => v != null);
@@ -534,22 +533,25 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const tRange  = tmax - tmin;
   const tempVal = d.temps1h[idx1h];
   const tempDotY = tempVal != null ? TEMP_padT + (1 - (tempVal - tmin) / tRange) * TEMP_ch : null;
-  const WIND_H = 130;
-  const t0Ms   = d.times.length > 0 ? new Date(d.times[0]).getTime() : 0;
-  const ext7d  = t0Ms + 7 * 24 * 3600 * 1000;
-  const n7d    = d.times.findIndex(t => new Date(t).getTime() >= ext7d);
-  const nAx    = n7d > 0 ? n7d : d.times.length;
-  const maxW   = _windAxisMax(
-    d.winds.slice(0, nAx),
-    d.ensWind ? { p90: d.ensWind.p90.slice(0, nAx) } : null
+  const WIND_H  = 130;
+  const winds1h = d.winds1h || d.winds;
+  const ens1h   = d.ensWind1h || d.ensWind;
+  const times1h = d.times1h || d.times;
+  const t0Ms    = times1h.length > 0 ? new Date(times1h[0]).getTime() : 0;
+  const ext7d   = t0Ms + 7 * 24 * 3600 * 1000;
+  const n7d     = times1h.findIndex(t => new Date(t).getTime() >= ext7d);
+  const nAx     = n7d > 0 ? n7d : winds1h.length;
+  const maxW    = _windAxisMax(
+    winds1h.slice(0, nAx),
+    ens1h ? { p90: ens1h.p90.slice(0, nAx) } : null
   );
-  const windVal    = d.winds[idx3h];
+  const windVal    = winds1h[idx1h];
   const windDotY   = windVal != null ? (1 - windVal / maxW) * WIND_H : null;
   const fracX3h    = (idx3h + 0.5) / d.times.length;
-  // xMap1h[idx1h] is the CSS x-centre of the 1h point as drawn by drawTemp.
-  const tempXabs   = d.xMap1h ? d.xMap1h[idx1h] : fracX3h;
+  // xMap1h[idx1h] gives the CSS x-centre as drawn by both drawTemp and drawWind.
+  const absX1h     = d.xMap1h ? d.xMap1h[idx1h] : fracX3h;
   const DOT_Y = { 'xh-top': null, 'xh-temp': tempDotY, 'xh-dir': null, 'xh-wind': windDotY };
-  const FRAC  = { 'xh-top': fracX3h, 'xh-temp': null, 'xh-dir': fracX3h, 'xh-wind': fracX3h };
+  const FRAC  = { 'xh-top': fracX3h, 'xh-temp': null, 'xh-dir': fracX3h, 'xh-wind': null };
   XH_CANVASES.forEach(id => {
     const c   = document.getElementById(id);
     const ref = document.getElementById(XH_PAIR[id]);
@@ -566,7 +568,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.save();
     ctx.scale(dpr, dpr);
-    const x = (id === 'xh-temp') ? tempXabs : (FRAC[id] * cssW);
+    const x = (id === 'xh-temp' || id === 'xh-wind') ? absX1h : (FRAC[id] * cssW);
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([4, 3]);
