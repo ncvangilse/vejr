@@ -791,12 +791,13 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
       const slotFrac = (ob.t - displayMs[j]) / slotDur;
       const x = (j + slotFrac + 0.5) * obsColW;
       if (x < -8 || x > cssW + 8) continue;
-      // gust dot (drawn first so wind dot appears on top)
+      // gust ring (drawn first so wind dot appears on top)
       if (ob.gust != null && isFinite(ob.gust)) {
         ctx.beginPath();
-        ctx.arc(x, wy(ob.gust), 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = windColorStr(ob.gust, 0.65);
-        ctx.fill();
+        ctx.arc(x, wy(ob.gust), 2, 0, Math.PI * 2);
+        ctx.strokeStyle = windColorStr(ob.gust, 0.55);
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
       // wind dot (slightly larger and more opaque)
       if (ob.wind != null && isFinite(ob.wind)) {
