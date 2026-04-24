@@ -19,7 +19,7 @@ const KITE_DEFAULTS = {
   max:  9,
   dirs: [90, 270],   // exact bearings (snapped to nearest 10°)
   daylight: true,
-  seaThresh: 0.75,   // fraction of samples over water required for a sea bearing
+  seaThresh: 0.90,   // fraction of samples over water required for a sea bearing
 };
 const KITE_STORAGE_KEY = 'vejr_kite_cfg';
 
@@ -56,11 +56,30 @@ function parseKiteParams() {
         if (Array.isArray(saved.dirs))          cfg.dirs    = saved.dirs;
         if (typeof saved.daylight === 'boolean') cfg.daylight = saved.daylight;
         if (typeof saved.seaThresh === 'number') cfg.seaThresh = saved.seaThresh;
+      } else {
+        // No stored config: this is a fresh session, safe to auto-detect sea bearings.
+        cfg._fromDefaults = true;
       }
     } catch(_) { /* ignore corrupt storage */ }
   }
   return cfg;
 }
+
+// ?reset=1 gives a fully fresh first-visit experience: clears the saved
+// location and kite config from localStorage, then strips the param from
+// the URL so it doesn't linger or get shared accidentally.
+function applyResetParam() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('reset') !== '1') return;
+  try {
+    localStorage.removeItem(KITE_STORAGE_KEY);
+    localStorage.removeItem('vejr_city');
+  } catch(_) {}
+  p.delete('reset');
+  const qs = p.toString();
+  window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+}
+applyResetParam();
 
 let KITE_CFG = parseKiteParams();
 

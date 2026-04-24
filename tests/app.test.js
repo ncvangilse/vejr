@@ -36,10 +36,11 @@ function makeEl(value = '') {
  * @param {boolean} opts.portrait     – simulate portrait orientation (default: false)
  * @param {Function|null} opts.renderAllSpy – optional spy to replace the renderAll stub
  */
-function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, invertedColors = false, renderAllSpy = null } = {}) {
-  const cityInput        = makeEl();
-  const geoCalls         = [];
+function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, invertedColors = false, renderAllSpy = null, kiteDirs = [] } = {}) {
+  const cityInput         = makeEl();
+  const geoCalls          = [];
   const replaceStateCalls = [];
+  const setKiteParamsCalls = [];
   const contentEl = {
     _listeners: {},
     style: { display: '' },
@@ -74,11 +75,24 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     classList: { contains: () => false, add: () => {}, remove: () => {} },
   };
 
+  const windowListeners = {};
+  const kiteCfg = { min: 4, max: 18, dirs: kiteDirs.slice(), daylight: true, seaThresh: 0.90,
+                    _fromDefaults: kiteDirs.length === 0 };
+
   const ctx = vm.createContext({
     window: {
       location:             { search, href },
       history:              { replaceState: (...a) => replaceStateCalls.push(a) },
-      addEventListener:     () => {},
+      addEventListener(type, fn) {
+        windowListeners[type] = windowListeners[type] || [];
+        windowListeners[type].push(fn);
+      },
+      removeEventListener(type, fn) {
+        if (windowListeners[type]) windowListeners[type] = windowListeners[type].filter(f => f !== fn);
+      },
+      dispatchEvent(event) {
+        (windowListeners[event.type] || []).forEach(fn => fn(event));
+      },
       setRadarDragCallback: null,
       SHORE_MASK:           null,
       SHORE_STATUS:         { state: 'idle', msg: '' },
@@ -119,6 +133,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     encodeURIComponent, decodeURIComponent,
     Promise, Error,
     setTimeout, clearTimeout, performance,
+    requestAnimationFrame: () => {},
     fetch: () => Promise.reject(new Error('fetch not mocked')),
     // Stubs for functions/constants defined in other scripts.
     // Use a never-settling promise so async chains stall silently rather than
@@ -136,9 +151,9 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     STEP:               3,
     STEP1H:             1,
     KITE_DEFAULTS:      { min: 4, max: 18, dirs: [], daylight: true },
-    KITE_CFG:           { min: 4, max: 18, dirs: [], daylight: true },
+    KITE_CFG:           kiteCfg,
     setForecastDays:    () => {},
-    setKiteParams:      () => {},
+    setKiteParams:      (cfg) => { setKiteParamsCalls.push(cfg); Object.assign(kiteCfg, cfg); },
     parseKiteParams:    () => ({ min: 4, max: 18, dirs: [], daylight: true }),
     SHORE_BEARINGS:     36,
     SHORE_SEA_THRESH:   0.5,
@@ -151,7 +166,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
 
   vm.runInContext(APP_SRC, ctx);
 
-  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL, tooltipEl, contentEl };
+  return { ctx, cityInput, mockLocalStorage, geoCalls, replaceStateCalls, invertedMQL, tooltipEl, contentEl, setKiteParamsCalls, kiteCfg };
 }
 
 // ── decideInitialLocation unit tests ─────────────────────────────────────────
@@ -222,6 +237,97 @@ describe('initialLoad – location source selection', () => {
     const { cityInput, geoCalls } = loadApp({ qParam: 'Oslo', savedCity: 'Berlin' });
     expect(cityInput.value).toBe('Oslo');
     expect(geoCalls).toHaveLength(0);
+  });
+});
+
+// ── Default coordinate fallback (no geolocation / denied) ────────────────────
+
+describe('tryGeolocation – default coordinate fallback', () => {
+  it('loads default coords when geolocation API is unavailable', () => {
+    const { mockLocalStorage } = loadApp({ geoAvailable: false });
+    expect(mockLocalStorage.store['vejr_city']).toBe('54.941360,11.999631');
+  });
+
+  it('loads default coords when geolocation is denied', () => {
+    const { mockLocalStorage } = loadApp({ geoAvailable: true });
+    expect(mockLocalStorage.store['vejr_city']).toBe('54.941360,11.999631');
+  });
+
+  it('sets the URL q param to default coords when geolocation API is unavailable', () => {
+    const { replaceStateCalls } = loadApp({ geoAvailable: false });
+    const lastUrl = replaceStateCalls.at(-1)?.[2] ?? '';
+    expect(lastUrl).toContain('54.941360');
+    expect(lastUrl).toContain('11.999631');
+  });
+
+  it('sets the URL q param to default coords when geolocation is denied', () => {
+    const { replaceStateCalls } = loadApp({ geoAvailable: true });
+    const lastUrl = replaceStateCalls.at(-1)?.[2] ?? '';
+    expect(lastUrl).toContain('54.941360');
+    expect(lastUrl).toContain('11.999631');
+  });
+});
+
+// ── Auto-detect sea bearings on default location ──────────────────────────────
+
+describe('autoDetectSeaBearingsOnce – initial sea bearing detection', () => {
+  function makeMaskWithSeaBearings(seaBearingIndices) {
+    const mask = new Float32Array(36);
+    seaBearingIndices.forEach(i => { mask[i] = 1.0; });
+    return mask;
+  }
+
+  it('auto-applies sea bearings from SHORE_MASK when geolocation is unavailable', () => {
+    const { ctx, setKiteParamsCalls } = loadApp({ geoAvailable: false });
+    ctx.window.SHORE_MASK = makeMaskWithSeaBearings([0, 18]); // 0° and 180°
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(1);
+    expect(setKiteParamsCalls[0].dirs).toContain(0);
+    expect(setKiteParamsCalls[0].dirs).toContain(180);
+  });
+
+  it('auto-applies sea bearings when geolocation is denied', () => {
+    const { ctx, setKiteParamsCalls } = loadApp({ geoAvailable: true });
+    ctx.window.SHORE_MASK = makeMaskWithSeaBearings([9, 27]); // 90° and 270°
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(1);
+    expect(setKiteParamsCalls[0].dirs).toContain(90);
+    expect(setKiteParamsCalls[0].dirs).toContain(270);
+  });
+
+  it('does not auto-apply when user already has saved kite bearings', () => {
+    const { ctx, setKiteParamsCalls } = loadApp({ geoAvailable: false, kiteDirs: [90, 180] });
+    ctx.window.SHORE_MASK = makeMaskWithSeaBearings([0, 18]);
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(0);
+  });
+
+  it('does not auto-apply when SHORE_MASK has no sea bearings', () => {
+    const { ctx, setKiteParamsCalls } = loadApp({ geoAvailable: false });
+    ctx.window.SHORE_MASK = new Float32Array(36); // all zeros = all land
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(0);
+  });
+
+  it('fires only once even if shore-mask-ready fires multiple times', () => {
+    const { ctx, setKiteParamsCalls } = loadApp({ geoAvailable: false });
+    ctx.window.SHORE_MASK = makeMaskWithSeaBearings([0]);
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(1);
+  });
+
+  it('auto-applies when the initial location comes from the URL q param (qparam path)', () => {
+    // This was the root cause: when ?q=lat,lon is set from a previous session,
+    // initialLoad takes the qparam path and bypasses tryGeolocation entirely.
+    // autoDetectSeaBearingsOnce must still fire because it is called at the top
+    // of initialLoad regardless of which path is taken.
+    const { ctx, setKiteParamsCalls } = loadApp({ qParam: '54.941360,11.999631' });
+    ctx.window.SHORE_MASK = makeMaskWithSeaBearings([9, 18]); // 90° and 180°
+    ctx.window.dispatchEvent({ type: 'shore-mask-ready' });
+    expect(setKiteParamsCalls).toHaveLength(1);
+    expect(setKiteParamsCalls[0].dirs).toContain(90);
+    expect(setKiteParamsCalls[0].dirs).toContain(180);
   });
 });
 
