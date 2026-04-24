@@ -936,8 +936,8 @@ function renderAll(d, invertedColors, portraitColW = null) {
     // divXs ensures day dividers align with the icon row regardless of curve resolution.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
              d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs);
-    drawWind(d.times, d.gusts, d.winds, d.dirs, d.ensWind || null, d.ensGust || null,
-             null, null, invertedColors, totalCssW, null,
+    drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
+             d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null,
              d.otherModelsWind1h || null, d.xMap1h || null);
   } else {
     // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
