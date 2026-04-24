@@ -334,7 +334,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
 /* ══════════════════════════════════════════════════
    DRAW WIND DIRECTION ROW
 ══════════════════════════════════════════════════ */
-function drawWindDir(times, winds, dirs, totalCssW = null) {
+function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null) {
   const canvas = document.getElementById('c-dir');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -361,12 +361,20 @@ function drawWindDir(times, winds, dirs, totalCssW = null) {
   ctx.fillRect(0, 0, cssW, DIR_H);
 
   // day dividers (first 7 days only — req #3)
-  divs.forEach(i => {
-    if (new Date(times[i]).getTime() >= extThreshMsDir) return;
-    const x = i * colW;
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
-  });
+  // Use pre-computed divXs when available (portrait mode) so dividers align with other rows.
+  if (divXs) {
+    divXs.forEach(x => {
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
+    });
+  } else {
+    divs.forEach(i => {
+      if (new Date(times[i]).getTime() >= extThreshMsDir) return;
+      const x = i * colW;
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIR_H); ctx.stroke();
+    });
+  }
 
   // KITE highlight — bright teal on all columns where direction matches
   dirs.forEach((deg, i) => {
@@ -791,13 +799,12 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
       const slotFrac = (ob.t - displayMs[j]) / slotDur;
       const x = (j + slotFrac + 0.5) * obsColW;
       if (x < -8 || x > cssW + 8) continue;
-      // gust ring (drawn first so wind dot appears on top)
+      // gust dot (drawn first so wind dot appears on top)
       if (ob.gust != null && isFinite(ob.gust)) {
         ctx.beginPath();
-        ctx.arc(x, wy(ob.gust), 2, 0, Math.PI * 2);
-        ctx.strokeStyle = windColorStr(ob.gust, 0.55);
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        ctx.arc(x, wy(ob.gust), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = windColorStr(ob.gust, 0.65);
+        ctx.fill();
       }
       // wind dot (slightly larger and more opaque)
       if (ob.wind != null && isFinite(ob.wind)) {
@@ -836,7 +843,7 @@ function renderAll(d, invertedColors, portraitColW = null) {
     .map(i => i * portraitColW) : null;
 
   drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
-  drawWindDir(d.times, d.winds, d.dirs, totalCssW);
+  drawWindDir(d.times, d.winds, d.dirs, totalCssW, divXs);
   if (portrait) {
     // Portrait: temp curve uses 1h data + xMap1h for smooth rendering across
     // the variable-resolution display grid. Precip bars use the display series.
