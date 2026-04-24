@@ -584,15 +584,14 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
       ctx.stroke();
       // inline label next to the dot
       ctx.font         = 'bold 10px monospace';
+      ctx.fillStyle    = '#000';
       ctx.textBaseline = 'middle';
       const nearRight  = x + 52 > cssW;
       ctx.textAlign    = nearRight ? 'right' : 'left';
       const labelX     = nearRight ? x - 8 : x + 8;
       if (id === 'xh-temp' && tempVal != null) {
-        ctx.fillStyle = dotCol;
         ctx.fillText(`${tempVal >= 0 ? '+' : ''}${tempVal.toFixed(1)}°`, labelX, dotY);
       } else if (id === 'xh-wind' && windVal != null) {
-        ctx.fillStyle = windColorStr(windVal, 1);
         ctx.fillText(windVal.toFixed(1), labelX, dotY);
       }
     }
@@ -604,7 +603,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
       ctx.fillStyle    = '#000';
       ctx.textBaseline = 'bottom';
       ctx.textAlign    = 'center';
-      ctx.fillText(`${hh}:00`, x, cssH - 2);
+      ctx.fillText(`${hh}:00`, x, cssH + 3);
     }
     ctx.restore();
   });
