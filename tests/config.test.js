@@ -156,6 +156,14 @@ describe('?reset=1 clears stored kite config', () => {
     expect(ctx.localStorage.getItem('vejr_kite_cfg')).toBeNull();
   });
 
+  it('removes vejr_city from localStorage when ?reset=1 is present', () => {
+    const ctx = loadScripts('config.js');
+    ctx.localStorage.setItem('vejr_city', '55.123456,12.654321');
+    ctx.window.location.search = '?reset=1';
+    ctx.applyResetParam();
+    expect(ctx.localStorage.getItem('vejr_city')).toBeNull();
+  });
+
   it('strips the reset param from the URL', () => {
     const replaceStateCalls = [];
     const ctx = loadScripts('config.js');
