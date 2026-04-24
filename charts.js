@@ -864,12 +864,14 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   }
 
   // --- DMI observed wind dots ---
-  // Yellow dots  = 10-min mean wind speed from the nearest DMI station.
-  // Orange dots  = 10-min gust (wind_gust_always_10min) — faint, drawn first so
-  //                the wind dots appear on top.
-  // x-mapping: slot-aware position so portrait variable-resolution slots align.
+  // Wind dots = 10-min mean wind speed from the nearest DMI station.
+  // Gust dots = 10-min gust — faint, drawn first so wind dots appear on top.
+  // x-mapping: use the 3h display series (times3h || times) because totalCssW
+  // is anchored to that series' slot count, not to times1h.
   if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
-    const displayMs = times.map(t => new Date(t).getTime());
+    const obsRef    = times3h || times;
+    const obsColW   = cssW / obsRef.length;
+    const displayMs = obsRef.map(t => new Date(t).getTime());
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, cY, cssW, WIND_H);
@@ -883,7 +885,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
         ? displayMs[j + 1] - displayMs[j]
         : (j > 0 ? displayMs[j] - displayMs[j - 1] : 3600000);
       const slotFrac = (ob.t - displayMs[j]) / slotDur;
-      const x = (j + slotFrac + 0.5) * colW;
+      const x = (j + slotFrac + 0.5) * obsColW;
       if (x < -8 || x > cssW + 8) continue;
       // gust dot (drawn first so wind dot appears on top)
       if (ob.gust != null && isFinite(ob.gust)) {
