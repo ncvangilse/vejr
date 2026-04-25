@@ -236,10 +236,12 @@ function showTooltip(idx1h, idx3h) {
     ictx.scale(dpr, dpr);
     dmiIcon(ictx, wmoType(code, timeStr), sz / 2, sz / 2, sz, prec, code);
   }
+  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr));
 }
 function hideTooltip() {
   document.getElementById('hover-tooltip').style.display = 'none';
   clearCrosshairs();
+  if (window.onForecastHover) window.onForecastHover(null, false);
 }
 var _chartDragging = false;
 function attachHoverListeners() {
