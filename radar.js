@@ -502,7 +502,7 @@ function _buildProposeNameUrl(s) {
 
       // First-time init: load wind stations and start auto-refresh
       refreshWindStations();
-      setInterval(refreshWindStations, 10 * 60 * 1000);
+      setInterval(refreshWindStations, 5 * 60 * 1000);
       initOverlayToggles();
     }
     radarMap.setView([lat, lon], 8);
@@ -958,6 +958,7 @@ function _buildProposeNameUrl(s) {
 
     if (trafikinfoVisible) trafikinfoLayer.addTo(radarMap);
     if (dmiVisible)        dmiLayer.addTo(radarMap);
+    if (window.onObsHistoryRefreshed) window.onObsHistoryRefreshed();
   }
 
   // ── DMI station markers ───────────────────────────────────────────────────
