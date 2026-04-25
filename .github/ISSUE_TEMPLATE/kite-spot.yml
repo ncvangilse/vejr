@@ -1,0 +1,36 @@
+name: Propose kite spot
+description: Suggest a named kitesurfing spot location with sea bearings
+title: "Kite spot: "
+labels: ["kite-spot"]
+body:
+  - type: input
+    id: lat-lon
+    attributes:
+      label: Coordinates
+      description: Latitude and longitude (pre-filled by the app link, e.g. 55.123456,12.456789)
+      placeholder: "55.123456,12.456789"
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Spot name
+      description: The name you want displayed (Danish preferred)
+      placeholder: "Amager Strand"
+    validations:
+      required: true
+  - type: input
+    id: dirs
+    attributes:
+      label: Sea bearings (degrees)
+      description: Comma-separated wind bearings (from which the sea lies) that are good for kiting here
+      placeholder: "90,100,270,280"
+    validations:
+      required: false
+  - type: textarea
+    id: reason
+    attributes:
+      label: Notes (optional)
+      description: Any local knowledge about the spot (best tide, obstacles, launch area, etc.)
+    validations:
+      required: false

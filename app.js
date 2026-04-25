@@ -6,6 +6,47 @@ var lastRenderedData = null; // the sliced data passed to the most recent render
 let lastShoreCoords = null;  // { lat, lon } of the last loaded city
 let lastObsCoords   = null;  // { lat, lon } last used for nearest station lookup
 
+/* ══════════════════════════════════════════════════
+   KITE SPOT STORAGE
+══════════════════════════════════════════════════ */
+const KITE_SPOTS_KEY = 'vejr_kite_spots';
+
+function loadKiteSpots() {
+  try { return JSON.parse(localStorage.getItem(KITE_SPOTS_KEY) || '[]'); } catch (_) { return []; }
+}
+function saveKiteSpots(spots) {
+  try { localStorage.setItem(KITE_SPOTS_KEY, JSON.stringify(spots)); } catch (_) {}
+}
+function addKiteSpot(spot) {
+  const spots = loadKiteSpots();
+  spots.push(spot);
+  saveKiteSpots(spots);
+  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(spots);
+}
+function deleteKiteSpot(id) {
+  const spots = loadKiteSpots().filter(s => s.id !== id);
+  saveKiteSpots(spots);
+  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(spots);
+}
+
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R    = 6371000;
+  const toR  = d => d * Math.PI / 180;
+  const dLat = toR(lat2 - lat1);
+  const dLon = toR(lon2 - lon1);
+  const a    = Math.sin(dLat / 2) ** 2
+             + Math.cos(toR(lat1)) * Math.cos(toR(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findNearbyKiteSpot(lat, lon, maxDistM = 2000) {
+  const spots = loadKiteSpots();
+  for (const s of spots) {
+    if (haversineDistance(lat, lon, s.lat, s.lon) <= maxDistM) return s;
+  }
+  return null;
+}
+
 function syncInvertedColorsClass() {
   const on = window.matchMedia('(inverted-colors: inverted)').matches;
   document.body.classList.toggle('inverted-colors', on);
@@ -691,8 +732,18 @@ function setLoadingMsg(msg) {
  * Load weather for exact coordinates without geocoding and without
  * resetting the radar map (used when the user drags the radar pin).
  */
-async function loadAtCoords(lat, lon, model) {
+async function loadAtCoords(lat, lon, model, displayNameOverride) {
   model = model || getModel();
+
+  // Snap to nearby kite spot (within 2 km)
+  const nearbySpot = findNearbyKiteSpot(lat, lon);
+  if (nearbySpot) {
+    lat = nearbySpot.lat;
+    lon = nearbySpot.lon;
+    displayNameOverride = displayNameOverride || nearbySpot.name;
+    setKiteParams({ ...KITE_CFG, dirs: nearbySpot.dirs });
+  }
+
   const forecastEl = document.getElementById('forecast-content');
   const isReload = lastData !== null;
   if (isReload) {
@@ -718,21 +769,23 @@ async function loadAtCoords(lat, lon, model) {
     setQParam(coordStr);
     try { localStorage.setItem('vejr_city', coordStr); } catch(_) {}
 
-    // Reverse-geocode for a human-readable name (best-effort)
-    let displayName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    // Reverse-geocode for a human-readable name (best-effort); skip if override provided
+    let displayName = displayNameOverride || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     let reverseCountryCode = null;
-    try {
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
-        { headers: { 'Accept-Language': 'en' } }
-      );
-      if (r.ok) {
-        const d = await r.json();
-        displayName = d.address?.city || d.address?.town || d.address?.village
-                      || d.display_name.split(',')[0];
-        reverseCountryCode = (d.address?.country_code || '').toUpperCase() || null;
-      }
-    } catch(_) { /* keep coord string */ }
+    if (!displayNameOverride) {
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
+          { headers: { 'Accept-Language': 'en' } }
+        );
+        if (r.ok) {
+          const d = await r.json();
+          displayName = d.address?.city || d.address?.town || d.address?.village
+                        || d.display_name.split(',')[0];
+          reverseCountryCode = (d.address?.country_code || '').toUpperCase() || null;
+        }
+      } catch(_) { /* keep coord string */ }
+    }
 
     document.getElementById('city-input').value = displayName;
 
@@ -985,6 +1038,30 @@ if (window.setObsToggleCallback) {
   });
 }
 
+// ── Kite spot callbacks ───────────────────────────────────────────────────
+if (window.setCreateKiteSpotCallback) {
+  window.setCreateKiteSpotCallback((lat, lon) => {
+    if (window.openKiteSpotDialog) window.openKiteSpotDialog(lat, lon);
+  });
+}
+if (window.setKiteSpotClickCallback) {
+  window.setKiteSpotClickCallback(spotId => {
+    const spot = loadKiteSpots().find(s => s.id === spotId);
+    if (!spot) return;
+    setKiteParams({ ...KITE_CFG, dirs: spot.dirs });
+    loadAtCoords(spot.lat, spot.lon, getModel(), spot.name);
+  });
+}
+window._onDeleteKiteSpot = id => deleteKiteSpot(id);
+
+// Seed map with any already-saved kite spots
+if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(loadKiteSpots());
+
+// Forward forecast hover events to the radar bearing overlay
+window.onForecastHover = (windDeg, isOptimal) => {
+  if (window.updateKiteSpotBearingHover) window.updateKiteSpotBearingHover(windDeg, isOptimal);
+};
+
 // ── Initial load ──────────────────────────────────────────────────────────
 // Pure decision function: given the three possible location sources, returns
 // which one to use.  Tested directly in tests/app.test.js.
@@ -1032,6 +1109,139 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     }
   }
 })();
+/* ══════════════════════════════════════════════════
+   KITE SPOT CREATION DIALOG
+══════════════════════════════════════════════════ */
+(function () {
+  const overlay    = document.getElementById('kite-spot-modal-overlay');
+  const applyBtn   = document.getElementById('kite-spot-apply');
+  const cancelBtn  = document.getElementById('kite-spot-cancel');
+  const issueBtn   = document.getElementById('kite-spot-issue-btn');
+  const nameInput  = document.getElementById('kite-spot-name-input');
+  if (!overlay) return;
+
+  let pendingLat      = null;
+  let pendingLon      = null;
+  let spotBearings    = [];   // currently selected bearings for this spot
+  let spotDragMode    = null; // 'add' | 'remove'
+  let spotLastSlot    = null;
+
+  function getCanvas() { return document.getElementById('kite-spot-compass-canvas'); }
+
+  function drawSpotCompass() {
+    const canvas = getCanvas();
+    if (!canvas || !window.drawShoreCompass) return;
+    const SIZE = canvas.clientWidth || 210;
+    const dpr  = window.devicePixelRatio || 1;
+    canvas.width  = SIZE * dpr;
+    canvas.height = SIZE * dpr;
+    canvas.style.width  = SIZE + 'px';
+    canvas.style.height = SIZE + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, SIZE, SIZE);
+    // Draw compass with no shore mask (user selects manually) and no wind arrow
+    window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
+      null, null, false, spotBearings, null);
+  }
+
+  function bearingFromPointer(canvas, clientX, clientY) {
+    const rect   = canvas.getBoundingClientRect();
+    const dx     = clientX - rect.left - rect.width  / 2;
+    const dy     = clientY - rect.top  - rect.height / 2;
+    const dist   = Math.sqrt(dx * dx + dy * dy);
+    const innerR = (rect.width / 2) * 0.28;
+    if (dist < innerR || dist > rect.width / 2) return null;
+    const angle  = Math.atan2(dy, dx) * 180 / Math.PI;
+    return snapBearing((angle + 90 + 360) % 360);
+  }
+
+  function applySpotDrag(bearing) {
+    if (bearing === null || bearing === spotLastSlot) return;
+    spotLastSlot = bearing;
+    if (spotDragMode === 'add' && !spotBearings.includes(bearing)) {
+      spotBearings.push(bearing);
+      drawSpotCompass();
+    } else if (spotDragMode === 'remove' && spotBearings.includes(bearing)) {
+      spotBearings = spotBearings.filter(b => b !== bearing);
+      drawSpotCompass();
+    }
+  }
+
+  function onSpotPointerDown(e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    const canvas = getCanvas();
+    if (!canvas) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const bearing = bearingFromPointer(canvas, clientX, clientY);
+    if (bearing === null) return;
+    spotDragMode = spotBearings.includes(bearing) ? 'remove' : 'add';
+    spotLastSlot = null;
+    applySpotDrag(bearing);
+    e.preventDefault();
+  }
+
+  function onSpotPointerMove(e) {
+    if (!spotDragMode) return;
+    const canvas = getCanvas();
+    if (!canvas) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    applySpotDrag(bearingFromPointer(canvas, clientX, clientY));
+    e.preventDefault();
+  }
+
+  function onSpotPointerUp() { spotDragMode = null; spotLastSlot = null; }
+
+  const canvas = document.getElementById('kite-spot-compass-canvas');
+  if (canvas) {
+    canvas.addEventListener('mousedown',  onSpotPointerDown);
+    canvas.addEventListener('touchstart', onSpotPointerDown, { passive: false });
+    window.addEventListener('mousemove',  onSpotPointerMove);
+    window.addEventListener('touchmove',  onSpotPointerMove, { passive: false });
+    window.addEventListener('mouseup',    onSpotPointerUp);
+    window.addEventListener('touchend',   onSpotPointerUp);
+  }
+
+  cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+
+  applyBtn.addEventListener('click', () => {
+    if (pendingLat == null) return;
+    const name = nameInput.value.trim();
+    addKiteSpot({
+      id:   `spot_${Date.now()}`,
+      lat:  pendingLat,
+      lon:  pendingLon,
+      name: name || `${pendingLat.toFixed(4)}, ${pendingLon.toFixed(4)}`,
+      dirs: spotBearings.slice(),
+    });
+    overlay.classList.remove('open');
+  });
+
+  issueBtn.addEventListener('click', () => {
+    if (pendingLat == null) return;
+    const name = nameInput.value.trim();
+    const url  = window._buildKiteSpotIssueUrl({
+      lat:  pendingLat,
+      lon:  pendingLon,
+      name,
+      dirs: spotBearings,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
+  });
+
+  window.openKiteSpotDialog = function (lat, lon) {
+    pendingLat   = lat;
+    pendingLon   = lon;
+    spotBearings = [];
+    if (nameInput) nameInput.value = '';
+    overlay.classList.add('open');
+    requestAnimationFrame(() => drawSpotCompass());
+  };
+})();
+
 /* ══════════════════════════════════════════════════
    HELP MODAL
 ══════════════════════════════════════════════════ */

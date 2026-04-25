@@ -35,7 +35,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="vejr.css?v=27">
+<link rel="stylesheet" href="vejr.css?v=28">
 </head>
 <body>
 <div id="rotator">
@@ -241,6 +241,37 @@
       <button id="kite-modal-reset">Reset</button>
       <button id="kite-modal-cancel">Cancel</button>
       <button id="kite-modal-apply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Kite spot creation dialog ── -->
+<div id="kite-spot-modal-overlay">
+  <div id="kite-spot-modal">
+    <h2>🪁 New kite spot</h2>
+
+    <div class="kite-field">
+      <label>SPOT NAME</label>
+      <div class="kite-field-row">
+        <input type="text" id="kite-spot-name-input" placeholder="e.g. Amager Strand" style="flex:1;padding:7px 10px;background:#162028;border:1px solid #2a4a3a;border-radius:4px;color:#d0e8d8;font-size:13px;">
+      </div>
+    </div>
+
+    <div class="kite-field">
+      <label>SEA BEARINGS — click or drag to select/deselect</label>
+      <div id="kite-spot-compass-wrap">
+        <canvas id="kite-spot-compass-canvas" style="cursor:pointer;"></canvas>
+        <div id="shore-compass-legend" class="kite-spot-compass-legend">
+          <span class="sc-leg sel">■ Selected</span>
+          <span class="sc-leg unsel">■ Unselected</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="kite-modal-actions">
+      <button id="kite-spot-issue-btn">📋 Create GitHub issue</button>
+      <button id="kite-spot-cancel">Cancel</button>
+      <button id="kite-spot-apply">Save spot</button>
     </div>
   </div>
 </div>
