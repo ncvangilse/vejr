@@ -11,6 +11,51 @@ import vm from 'node:vm';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+// ── canvas mock helper ───────────────────────────────────────────────────────
+
+function makeTrackingCanvas() {
+  const calls = [];
+  let _fillStyle = '', _strokeStyle = '', _lineWidth = 1;
+  const ctx2d = {
+    calls,
+    get fillStyle()    { return _fillStyle; },
+    set fillStyle(v)   { _fillStyle = v; },
+    get strokeStyle()  { return _strokeStyle; },
+    set strokeStyle(v) { _strokeStyle = v; },
+    get lineWidth()    { return _lineWidth; },
+    set lineWidth(v)   { _lineWidth = v; },
+    font: '', textAlign: '', textBaseline: '', globalAlpha: 1,
+    setLineDash: () => {},
+    beginPath:   () => calls.push({ op: 'beginPath' }),
+    closePath:   () => calls.push({ op: 'closePath' }),
+    arc:   (x, y, r, s, e) => calls.push({ op: 'arc', r }),
+    arcTo: ()  => {},
+    moveTo: (x, y) => calls.push({ op: 'moveTo', x, y }),
+    lineTo: (x, y) => calls.push({ op: 'lineTo', x, y }),
+    rect:        () => calls.push({ op: 'rect' }),
+    clip:        () => calls.push({ op: 'clip' }),
+    fill:        () => calls.push({ op: 'fill' }),
+    stroke:      () => calls.push({ op: 'stroke' }),
+    clearRect:   () => {},
+    fillRect:    () => {},
+    strokeRect:  () => {},
+    fillText:    () => {},
+    measureText: () => ({ width: 10 }),
+    scale:       () => {},
+    translate:   () => {},
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    save:    () => calls.push({ op: 'save' }),
+    restore: () => calls.push({ op: 'restore' }),
+  };
+  const canvas = {
+    getContext: () => ctx2d,
+    style: {},
+    width: 0, height: 0,
+    parentElement: { clientWidth: 400 },
+  };
+  return { ctx2d, canvas };
+}
+
 function loadChartLogic({ kiteCfg = null, shoreMask = null } = {}) {
   const src = [
     readFileSync(resolve(ROOT, 'config.js'),             'utf8'),
@@ -379,5 +424,76 @@ describe('_windAxisMax', () => {
   it('filters null values in ensWind.p90', () => {
     const ensWind = { p90: [null, 14, null], p10: [null, 7, null] };
     expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(15);
+  });
+});
+
+// ── drawWind: gust dashes vs wind dots ───────────────────────────────────────
+
+describe('drawWind observed overlay — gust dash vs wind dot', () => {
+  // Build a minimal 3-slot time series starting in the past so the observation
+  // falls inside the display window.
+  const T0 = new Date('2024-06-15T10:00:00Z').getTime();
+  const times = [
+    new Date(T0).toISOString(),
+    new Date(T0 + 3600000).toISOString(),
+    new Date(T0 + 7200000).toISOString(),
+  ];
+  const winds = [5, 5, 5];
+  const gusts = [8, 8, 8];
+  const dirs  = [90, 90, 90];
+  // Observation falls in the first slot
+  const obsT = T0 + 1000;
+
+  function makeDomEl() {
+    const el = { style: {}, innerHTML: '', textContent: '', title: '', appendChild: () => {} };
+    return el;
+  }
+
+  function runDrawWind(obs) {
+    const { ctx2d, canvas } = makeTrackingCanvas();
+    const vmCtx = loadChartLogic();
+    vmCtx.lastData = null;  // app.js global; null disables kite pills and other lastData-gated sections
+    vmCtx.document = {
+      getElementById: (id) => id === 'c-wind' ? canvas : makeDomEl(),
+      createElement: () => makeDomEl(),
+    };
+    vmCtx.window.DMI_OBS = { obs };
+    vmCtx.drawWind(times, gusts, winds, dirs, null, null, null, null, false, 400, null);
+    return ctx2d.calls;
+  }
+
+  it('gust dash uses moveTo+lineTo with same y (horizontal), followed by stroke not fill', () => {
+    const calls = runDrawWind([{ t: obsT, gust: 10, wind: null, dir: 90 }]);
+    // Find the horizontal dash: a moveTo immediately followed by a lineTo at the same y
+    const dashIdx = calls.findIndex((c, i) =>
+      c.op === 'moveTo' && calls[i + 1]?.op === 'lineTo' && calls[i + 1].y === c.y
+    );
+    expect(dashIdx).toBeGreaterThanOrEqual(0);
+    // stroke appears in the same beginPath block (between this moveTo and the next beginPath)
+    const nextBegin = calls.findIndex((c, i) => i > dashIdx && c.op === 'beginPath');
+    const slice = nextBegin >= 0 ? calls.slice(dashIdx, nextBegin) : calls.slice(dashIdx);
+    expect(slice.some(c => c.op === 'stroke')).toBe(true);
+    expect(slice.some(c => c.op === 'fill')).toBe(false);
+    // no arc at all for gust-only observation (not a circle)
+    expect(calls.some(c => c.op === 'arc')).toBe(false);
+  });
+
+  it('wind dot uses arc+fill — fill() appears after arc(r=2.5)', () => {
+    const calls = runDrawWind([{ t: obsT, gust: null, wind: 5, dir: 90 }]);
+    const arcIdx = calls.findIndex(c => c.op === 'arc' && c.r === 2.5);
+    expect(arcIdx).toBeGreaterThanOrEqual(0);
+    const nextArc = calls.findIndex((c, i) => i > arcIdx && c.op === 'arc');
+    const slice = nextArc >= 0 ? calls.slice(arcIdx + 1, nextArc) : calls.slice(arcIdx + 1);
+    expect(slice.some(c => c.op === 'fill')).toBe(true);
+  });
+
+  it('with both gust and wind: horizontal dash precedes wind arc(r=2.5)', () => {
+    const calls = runDrawWind([{ t: obsT, gust: 10, wind: 5, dir: 90 }]);
+    const gustIdx = calls.findIndex((c, i) =>
+      c.op === 'moveTo' && calls[i + 1]?.op === 'lineTo' && calls[i + 1].y === c.y
+    );
+    const windIdx = calls.findIndex(c => c.op === 'arc' && c.r === 2.5);
+    expect(gustIdx).toBeGreaterThanOrEqual(0);
+    expect(windIdx).toBeGreaterThan(gustIdx);
   });
 });
