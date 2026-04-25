@@ -394,6 +394,7 @@ async function loadNearestObsStation(lat, lon, opts = {}) {
       : { dmi: true, trafikkort: true };
 
     let bestKey = null, bestStation = null, bestDist = Infinity;
+    let bestTrafikStation = null, bestTrafikDist = Infinity;
     for (const [key, station] of Object.entries(obsHistory)) {
       if (!station.obs || !station.obs.length) continue;
       if (station.lat == null || station.lon == null) continue;
@@ -402,7 +403,10 @@ async function loadNearestObsStation(lat, lon, opts = {}) {
       if (!isDmi && !vis.trafikkort) continue;
       const dist = haversine(lat, lon, station.lat, station.lon);
       if (dist < bestDist) { bestDist = dist; bestKey = key; bestStation = station; }
+      if (!isDmi && dist < bestTrafikDist) { bestTrafikDist = dist; bestTrafikStation = station; }
     }
+
+    window.TRAFIK_OBS = (bestTrafikStation && bestTrafikDist <= 100) ? bestTrafikStation.obs : null;
 
     if (!bestStation || bestDist > 100) {
       window.DMI_OBS        = null;
@@ -425,6 +429,7 @@ async function loadNearestObsStation(lat, lon, opts = {}) {
     }
   } catch (e) {
     window.DMI_OBS        = null;
+    window.TRAFIK_OBS     = null;
     window.DMI_OBS_STATUS = { state: 'error', msg: e.message || 'failed' };
     if (window.highlightNearestStation) window.highlightNearestStation(null, null);
     _setObsStationHeader(null);
