@@ -612,13 +612,10 @@ function _otherModelLineColor(invertedColors) {
   return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
 }
 
-/** Returns the wind Y-axis maximum: max ensemble wind p90 (or mean wind when no ensemble) rounded up to nearest 5 m/s,
- *  plus 2 m/s headroom so peaks never touch the top edge.
- *  obsMax: optional max observed wind speed to include in the ceiling. */
-function _windAxisMax(winds, ensWind, obsMax = 0) {
-  const base = ensWind
-    ? Math.max(...ensWind.p90.filter(v => v != null))
-    : Math.max(...winds.filter(v => v != null));
+/** Returns the wind Y-axis maximum: max mean wind speed (the drawn line) + 2 m/s headroom.
+ *  obsMax: optional max observed wind speed (ob.wind, not ob.gust) to include. */
+function _windAxisMax(winds, obsMax = 0) {
+  const base = Math.max(...winds.filter(v => v != null));
   return Math.max(base, obsMax, 5) + 2;
 }
 function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null) {
@@ -651,7 +648,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     ? Math.max(0, ...obs.map(ob => (ob.wind != null && isFinite(ob.wind) ? ob.wind : 0)))
     : 0;
   const obsMax = _obsWindMax(window.DMI_OBS?.obs);
-  const maxW = _windAxisMax(winds, ensWind, obsMax);
+  const maxW = _windAxisMax(winds, obsMax);
   const wy        = v => cY + (1 - v / maxW) * WIND_H;
   const base      = wy(0);
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);

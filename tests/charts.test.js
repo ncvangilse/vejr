@@ -383,60 +383,43 @@ describe('_windAxisMax', () => {
   beforeEach(() => { ctx = loadChartLogic(); });
 
   it('returns minimum 7 (floor 5 + 2 headroom) when all winds are calm', () => {
-    expect(ctx._windAxisMax([0, 0, 0], null)).toBe(7);
+    expect(ctx._windAxisMax([0, 0, 0])).toBe(7);
   });
 
-  it('returns raw max + 2 with no rounding', () => {
-    expect(ctx._windAxisMax([7, 8, 6], null)).toBe(10);
-    expect(ctx._windAxisMax([10, 11, 9], null)).toBe(13);
-    expect(ctx._windAxisMax([5, 5, 5], null)).toBe(7);
+  it('returns max wind + 2 with no rounding', () => {
+    expect(ctx._windAxisMax([7, 8, 6])).toBe(10);
+    expect(ctx._windAxisMax([10, 11, 9])).toBe(13);
+    expect(ctx._windAxisMax([5, 5, 5])).toBe(7);
   });
 
-  it('uses mean wind as fallback when no ensemble data', () => {
-    expect(ctx._windAxisMax([5, 8, 6], null)).toBe(10);
+  it('uses mean wind (the drawn line) regardless of ensemble data', () => {
+    // axis is based on the winds array only — ensemble p90 does not widen it
+    expect(ctx._windAxisMax([5, 8, 6])).toBe(10);
+    expect(ctx._windAxisMax([5, 17, 6])).toBe(19);
   });
 
-  it('uses ensemble wind p90 as the axis ceiling when ensemble is present', () => {
-    const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
-    expect(ctx._windAxisMax([5, 8, 6], ensWind)).toBe(15);
-  });
-
-  it('uses p90 exclusively when ensemble is present, ignoring mean winds', () => {
-    // mean winds reach 17 but p90 only 13 → axis is 13+2=15, not 17+2=19
-    const ensWind = { p90: [10, 13, 11], p10: [5, 6, 5] };
-    expect(ctx._windAxisMax([5, 17, 6], ensWind)).toBe(15);
-  });
-
-  it('uses the full p90 array including high values at the end', () => {
-    // A late-forecast storm (22 m/s) in slots 7-9 → 22+2=24.
-    const full    = [10, 12, 11, 9, 10, 11, 12, 22, 22, 22];
-    const ensWind = { p90: full };
-    expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(24);
-    // Truncated array without the storm → 12+2=14.
-    expect(ctx._windAxisMax([5, 5, 5], { p90: full.slice(0, 7) })).toBe(14);
+  it('uses the full winds array including late-forecast high values', () => {
+    const winds = [5, 5, 5, 5, 5, 5, 5, 22, 22, 22];
+    expect(ctx._windAxisMax(winds)).toBe(24);
+    expect(ctx._windAxisMax(winds.slice(0, 7))).toBe(7);
   });
 
   it('filters null values in winds array', () => {
-    expect(ctx._windAxisMax([null, 12, null], null)).toBe(14);
-  });
-
-  it('filters null values in ensWind.p90', () => {
-    const ensWind = { p90: [null, 14, null], p10: [null, 7, null] };
-    expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(16);
+    expect(ctx._windAxisMax([null, 12, null])).toBe(14);
   });
 
   it('raises axis to include obsMax when observed wind exceeds forecast', () => {
-    // forecast max 8, observed 17 → max(8,17)+2 = 19
-    expect(ctx._windAxisMax([6, 8, 7], null, 17)).toBe(19);
+    // mean forecast max 8, observed 17 → max(8,17)+2 = 19
+    expect(ctx._windAxisMax([6, 8, 7], 17)).toBe(19);
   });
 
   it('obsMax does not lower axis when forecast is already higher', () => {
-    expect(ctx._windAxisMax([6, 12, 7], null, 5)).toBe(14);
+    expect(ctx._windAxisMax([6, 12, 7], 5)).toBe(14);
   });
 
   it('obsMax=0 (default) leaves only the +2 headroom', () => {
-    expect(ctx._windAxisMax([6, 8, 7], null, 0)).toBe(10);
-    expect(ctx._windAxisMax([6, 8, 7], null)).toBe(10);
+    expect(ctx._windAxisMax([6, 8, 7], 0)).toBe(10);
+    expect(ctx._windAxisMax([6, 8, 7])).toBe(10);
   });
 });
 
@@ -540,7 +523,7 @@ describe('drawWind TRAFIK_OBS axis contribution', () => {
     const dmiObsMax = dmrObs
       ? Math.max(0, ...dmrObs.map(o => (o.wind != null && isFinite(o.wind) ? o.wind : 0)))
       : 0;
-    return vmCtx._windAxisMax(winds, null, dmiObsMax);
+    return vmCtx._windAxisMax(winds, dmiObsMax);
   }
 
   it('TRAFIK_OBS does not affect the axis (only displayed DMI_OBS points count)', () => {
