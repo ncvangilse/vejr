@@ -278,6 +278,7 @@ function renderDisplay(d, scrollToNow = false) {
 
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
+  if (window.showCurrentTimeCrosshair) window.showCurrentTimeCrosshair();
   // Scroll to current time on initial load.
   // Portrait: center "now" in the viewport. Landscape: left-align at "now" so 7 days ahead fills the screen.
   if (scrollToNow && displayData.xMap1h) {
