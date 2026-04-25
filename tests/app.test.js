@@ -1310,7 +1310,7 @@ describe('showCurrentTimeCrosshair', () => {
     expect(xDrawn['xh-top']).toBeCloseTo(30);
   });
 
-  it('mouseleave on forecast-content resets crosshair to current time', () => {
+  it('mouseleave does not reset the crosshair (no listener registered)', () => {
     const { ctx, contentEl } = loadApp();
     const xDrawn = makeXhSetup(ctx);
     ctx.lastRenderedData = {
@@ -1323,8 +1323,7 @@ describe('showCurrentTimeCrosshair', () => {
       xMap1h:    [5, 15, 25, 35, 45, 55],
       slotIdx1h: [0, 0, 0, 1, 1, 1],
     };
-    contentEl._listeners['mouseleave']();
-    // Should draw at current-time position (last slot = xMap1h[5] = 55) not clear
-    expect(xDrawn['xh-top']).toBeCloseTo(55);
+    // mouseleave is no longer registered — crosshair stays wherever it was.
+    expect(contentEl._listeners['mouseleave']).toBeUndefined();
   });
 });
