@@ -339,7 +339,7 @@ function _setObsStationHeader(name) {
   }
 }
 
-async function loadNearestObsStation(lat, lon) {
+async function loadNearestObsStation(lat, lon, opts = {}) {
   lastObsCoords = { lat, lon };
   window.DMI_OBS_STATUS = { state: 'loading', msg: 'loading…' };
   // Clear stale station highlight and header immediately so the old info
@@ -348,7 +348,7 @@ async function loadNearestObsStation(lat, lon) {
   if (window.highlightNearestStation) window.highlightNearestStation(null, null);
   updateDmiObsStatusUI();
   try {
-    let obsHistory = window.OBS_HISTORY;
+    let obsHistory = (opts.useCache && window.OBS_HISTORY) ? window.OBS_HISTORY : null;
     if (!obsHistory) {
       const fetchFn = window.fetchObsHistory;
       if (fetchFn) {
@@ -1119,6 +1119,12 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     if (e.key === 'Escape') overlay.classList.remove('open');
   });
 })();
+
+// When the radar map's obs-history refresh fires, re-run nearest-station lookup
+// using the freshly populated window.OBS_HISTORY (no extra network request).
+window.onObsHistoryRefreshed = () => {
+  if (lastObsCoords) loadNearestObsStation(lastObsCoords.lat, lastObsCoords.lon, { useCache: true }).catch(() => null);
+};
 
 // Register service worker for PWA / offline support
 if ('serviceWorker' in navigator) {
