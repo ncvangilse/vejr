@@ -1073,6 +1073,16 @@ window._onDeleteKiteSpot = id => deleteKiteSpot(id);
 // is independent and does not need to wait for this)
 fetchCuratedKiteSpots().then(() => {
   if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(getAllKiteSpots());
+  // If loadAtCoords already ran before curated spots loaded, retroactively
+  // apply proximity snap for the current position.
+  if (lastShoreCoords) {
+    const spot = findNearbyKiteSpot(lastShoreCoords.lat, lastShoreCoords.lon);
+    if (spot) {
+      setKiteParams({ ...KITE_CFG, dirs: spot.dirs });
+      if (window.moveRadarPin)              window.moveRadarPin(spot.lat, spot.lon);
+      if (window.showKiteSpotBearingOverlay) window.showKiteSpotBearingOverlay(spot.lat, spot.lon, spot.dirs);
+    }
+  }
 });
 
 // Forward forecast hover events to the radar bearing overlay
