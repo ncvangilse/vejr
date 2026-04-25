@@ -602,6 +602,10 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
         window.refreshKiteSpotMarkers(window._pendingKiteSpots);
         window._pendingKiteSpots = null;
       }
+      if (window._pendingBearingOverlay) {
+        const { lat, lon, dirs } = window._pendingBearingOverlay;
+        window.showKiteSpotBearingOverlay(lat, lon, dirs);
+      }
     }
     radarMap.setView([lat, lon], 8);
   }
@@ -805,8 +809,9 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
   // Static outline sectors for all selected bearings (shown while popup is open)
   window.showKiteSpotBearingOverlay = function (lat, lon, dirs) {
     window.hideKiteSpotBearingOverlay();
-    if (!radarMap) return;
     _activeSpotState = { lat, lon, dirs: dirs || [] };
+    if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
+    window._pendingBearingOverlay = null;
     (dirs || []).forEach(bearing => {
       const latlngs = _bearingSectorLatLngs(lat, lon, bearing, 5000);
       const poly = L.polygon(latlngs, {
@@ -823,6 +828,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     kiteSpotOutlineLayers.forEach(l => radarMap && l.removeFrom(radarMap));
     kiteSpotOutlineLayers = [];
     _activeSpotState = null;
+    window._pendingBearingOverlay = null;
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
   };
 
