@@ -149,6 +149,19 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     return pts;
   }
 
+  /** Bearing sector radius: 5 km capped at 25% of the smaller map dimension. */
+  function _bearingRadius() {
+    const maxM = 5000;
+    if (!radarMap) return maxM;
+    const b = radarMap.getBounds();
+    const c = radarMap.getCenter();
+    const R = 6371000;
+    const latRad = c.lat * Math.PI / 180;
+    const wM = Math.abs(b.getEast()  - b.getWest())  * Math.cos(latRad) * (Math.PI / 180) * R;
+    const hM = Math.abs(b.getNorth() - b.getSouth()) * (Math.PI / 180) * R;
+    return Math.min(maxM, Math.min(wM, hM) * 0.25);
+  }
+
   /** Build the popup DOM element for a kite spot marker. */
   function _buildKiteSpotPopupEl(spot) {
     const el = document.createElement('div');
@@ -813,8 +826,9 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     _activeSpotState = { lat, lon, dirs: dirs || [] };
     if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
     window._pendingBearingOverlay = null;
+    const radius = _bearingRadius();
     (dirs || []).forEach(bearing => {
-      const latlngs = _bearingSectorLatLngs(lat, lon, bearing, 5000);
+      const latlngs = _bearingSectorLatLngs(lat, lon, bearing, radius);
       const poly = L.polygon(latlngs, {
         color:  '#00c890',
         fill:   false,
@@ -841,7 +855,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     const { lat, lon, dirs } = _activeSpotState;
     const R      = 6371000;
     const latRad = lat * Math.PI / 180;
-    const radius = 5000;
+    const radius = _bearingRadius();
     const ang    = windDeg * Math.PI / 180;
     const dlat   = (radius / R) * Math.cos(ang) * 180 / Math.PI;
     const dlon   = (radius / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI;
