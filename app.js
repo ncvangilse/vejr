@@ -753,6 +753,7 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     lon = nearbySpot.lon;
     displayNameOverride = displayNameOverride || nearbySpot.name;
     setKiteParams({ ...KITE_CFG, dirs: nearbySpot.dirs });
+    if (window.moveRadarPin) window.moveRadarPin(lat, lon);
   }
 
   const forecastEl = document.getElementById('forecast-content');

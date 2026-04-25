@@ -186,6 +186,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     if (!t || !t.closest) return false;
     return t.closest('.radar-loc-wrap') ||
            t.closest('.ws-wrap') ||
+           t.closest('.kite-spot-icon') ||
            t.closest('.leaflet-popup-content-wrapper') ||
            t.closest('.leaflet-popup-close-button');
   }
@@ -758,6 +759,9 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
 
   window.loadRadar = loadRadar;
   window.fetchObsHistory = fetchObsHistory;
+  window.moveRadarPin = function (lat, lon) {
+    if (locationMarker) locationMarker.setLatLng([lat, lon]);
+  };
 
   /**
    * Register a callback that fires whenever the user drags the location
