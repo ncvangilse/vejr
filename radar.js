@@ -605,6 +605,8 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
         }, 400);
       });
 
+      radarMap.on('zoomend', _redrawBearingOutlines);
+
       // First-time init: load wind stations and start auto-refresh
       refreshWindStations();
       setInterval(refreshWindStations, 5 * 60 * 1000);
@@ -820,14 +822,13 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
 
   // ── Kite spot bearing overlay ─────────────────────────────────────────
 
-  // Static outline sectors for all selected bearings (shown while popup is open)
-  window.showKiteSpotBearingOverlay = function (lat, lon, dirs) {
-    window.hideKiteSpotBearingOverlay();
-    _activeSpotState = { lat, lon, dirs: dirs || [] };
-    if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
-    window._pendingBearingOverlay = null;
+  function _redrawBearingOutlines() {
+    kiteSpotOutlineLayers.forEach(l => radarMap && l.removeFrom(radarMap));
+    kiteSpotOutlineLayers = [];
+    if (!_activeSpotState || !radarMap) return;
+    const { lat, lon, dirs } = _activeSpotState;
     const radius = _bearingRadius();
-    (dirs || []).forEach(bearing => {
+    dirs.forEach(bearing => {
       const latlngs = _bearingSectorLatLngs(lat, lon, bearing, radius);
       const poly = L.polygon(latlngs, {
         color:  '#00c890',
@@ -837,6 +838,17 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
       }).addTo(radarMap);
       kiteSpotOutlineLayers.push(poly);
     });
+    // Clear hover layer so it's redrawn at correct radius on next hover
+    if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
+  }
+
+  // Static outline sectors for all selected bearings (shown while popup is open)
+  window.showKiteSpotBearingOverlay = function (lat, lon, dirs) {
+    window.hideKiteSpotBearingOverlay();
+    _activeSpotState = { lat, lon, dirs: dirs || [] };
+    if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
+    window._pendingBearingOverlay = null;
+    _redrawBearingOutlines();
   };
 
   window.hideKiteSpotBearingOverlay = function () {
