@@ -614,7 +614,6 @@ function _otherModelLineColor(invertedColors) {
 
 /** Returns the wind Y-axis maximum: max ensemble wind p90 (or mean wind when no ensemble) rounded up to nearest 5 m/s,
  *  plus 2 m/s headroom so peaks never touch the top edge.
- *  Caller should pre-slice winds/ensWind to the desired window (e.g. first 7 days) before calling.
  *  obsMax: optional max observed wind speed to include in the ceiling. */
 function _windAxisMax(winds, ensWind, obsMax = 0) {
   const base = ensWind
@@ -648,11 +647,6 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const safeGusts = _safeClampGusts(gusts, winds);
   const cY        = 0;
   const KITE_H    = 24;                   // kite pill icon height (pills drawn on top of chart)
-  // Axis max is based on the first-7-day window only; extended-forecast data
-  // (days 7–16) is drawn but clipped to this ceiling so a distant storm does
-  // not widen the scale for the current detailed period.
-  const n7d   = times.findIndex(t => new Date(t).getTime() >= extThreshMsWind);
-  const nAx   = n7d > 0 ? n7d : n;
   const _obsWindMax = obs => obs
     ? Math.max(0, ...obs.map(ob => (ob.wind != null && isFinite(ob.wind) ? ob.wind : 0)))
     : 0;
@@ -660,11 +654,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     _obsWindMax(window.DMI_OBS?.obs),
     _obsWindMax(window.TRAFIK_OBS),
   );
-  const maxW = _windAxisMax(
-    winds.slice(0, nAx),
-    ensWind ? { p90: ensWind.p90.slice(0, nAx) } : null,
-    obsMax
-  );
+  const maxW = _windAxisMax(winds, ensWind, obsMax);
   const wy        = v => cY + (1 - v / maxW) * WIND_H;
   const base      = wy(0);
   const wLevels   = []; for (let v = 0; v <= maxW; v += 5) wLevels.push(v);
