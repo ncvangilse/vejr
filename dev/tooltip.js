@@ -136,9 +136,7 @@ function showCurrentTimeCrosshair() {
 }
 window.showCurrentTimeCrosshair = showCurrentTimeCrosshair;
 
-function hideTooltip() {
-  showCurrentTimeCrosshair();
-}
+function hideTooltip() {}
 
 var _chartDragging = false;
 function attachHoverListeners() {
@@ -181,7 +179,7 @@ function attachHoverListeners() {
     if (!wrap) { hideTooltip(); return; }
     showTooltipAtX(e.clientX, e.target);
   });
-  content.addEventListener('mouseleave', showCurrentTimeCrosshair);
+  // No mouseleave handler — crosshair stays at last hover position.
 
   // Long press state — declared before contextmenu so cancelLp is available there.
   let lpStart = 0, lpX = 0, lpY = 0, lpEl = null;
