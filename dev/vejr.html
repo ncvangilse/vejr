@@ -149,7 +149,7 @@
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.04.25-215-claude-issue-90-E8pof</div>
+  <div id="build-number">build 2026.04.25-216-claude-issue-90-E8pof</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
   <a href="mailto:info@kitevibe.dk" id="feedback-link">Feedback</a>
@@ -258,18 +258,20 @@
     </div>
 
     <div class="kite-field">
-      <label>SEA BEARINGS — click or drag to select/deselect</label>
+      <label>SEA BEARINGS — click or drag to adjust</label>
       <div id="kite-spot-compass-wrap">
         <canvas id="kite-spot-compass-canvas" style="cursor:pointer;"></canvas>
-        <div id="shore-compass-legend" class="kite-spot-compass-legend">
+        <div class="kite-spot-compass-legend">
+          <span class="sc-leg sea">■ Sea</span>
+          <span class="sc-leg land">■ Land</span>
           <span class="sc-leg sel">■ Selected</span>
           <span class="sc-leg unsel">■ Unselected</span>
         </div>
       </div>
+      <div id="kite-spot-status"></div>
     </div>
 
     <div class="kite-modal-actions">
-      <button id="kite-spot-issue-btn">📋 Create GitHub issue</button>
       <button id="kite-spot-cancel">Cancel</button>
       <button id="kite-spot-apply">Save spot</button>
     </div>

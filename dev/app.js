@@ -1111,15 +1111,18 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   const overlay    = document.getElementById('kite-spot-modal-overlay');
   const applyBtn   = document.getElementById('kite-spot-apply');
   const cancelBtn  = document.getElementById('kite-spot-cancel');
-  const issueBtn   = document.getElementById('kite-spot-issue-btn');
   const nameInput  = document.getElementById('kite-spot-name-input');
+  const statusEl   = document.getElementById('kite-spot-status');
   if (!overlay) return;
 
-  let pendingLat      = null;
-  let pendingLon      = null;
-  let spotBearings    = [];   // currently selected bearings for this spot
-  let spotDragMode    = null; // 'add' | 'remove'
-  let spotLastSlot    = null;
+  let pendingLat   = null;
+  let pendingLon   = null;
+  let spotBearings = [];    // currently selected bearings
+  let spotMask     = null;  // Float32Array[36] from analyseShore for this spot
+  let spotDragMode = null;  // 'add' | 'remove'
+  let spotLastSlot = null;
+
+  function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
 
   function getCanvas() { return document.getElementById('kite-spot-compass-canvas'); }
 
@@ -1135,9 +1138,8 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, SIZE, SIZE);
-    // Draw compass with no shore mask (user selects manually) and no wind arrow
     window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
-      null, null, false, spotBearings, null);
+      spotMask, null, false, spotBearings, KITE_CFG.seaThresh);
   }
 
   function bearingFromPointer(canvas, clientX, clientY) {
@@ -1205,35 +1207,52 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   applyBtn.addEventListener('click', () => {
     if (pendingLat == null) return;
     const name = nameInput.value.trim();
-    addKiteSpot({
+    const spot = {
       id:   `spot_${Date.now()}`,
       lat:  pendingLat,
       lon:  pendingLon,
       name: name || `${pendingLat.toFixed(4)}, ${pendingLon.toFixed(4)}`,
       dirs: spotBearings.slice(),
-    });
+    };
+    addKiteSpot(spot);
     overlay.classList.remove('open');
-  });
-
-  issueBtn.addEventListener('click', () => {
-    if (pendingLat == null) return;
-    const name = nameInput.value.trim();
-    const url  = window._buildKiteSpotIssueUrl({
-      lat:  pendingLat,
-      lon:  pendingLon,
-      name,
-      dirs: spotBearings,
-    });
-    window.open(url, '_blank', 'noopener,noreferrer');
+    // Open pre-filled GitHub issue so the spot can be proposed for inclusion
+    if (window._buildKiteSpotIssueUrl) {
+      const url = window._buildKiteSpotIssueUrl({ lat: spot.lat, lon: spot.lon, name: spot.name, dirs: spot.dirs });
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   });
 
   window.openKiteSpotDialog = function (lat, lon) {
     pendingLat   = lat;
     pendingLon   = lon;
     spotBearings = [];
+    spotMask     = null;
     if (nameInput) nameInput.value = '';
     overlay.classList.add('open');
+    setStatus('🌊 Detecting sea bearings…');
     requestAnimationFrame(() => drawSpotCompass());
+
+    if (window.analyseShore) {
+      window.analyseShore(lat, lon, () => {
+        spotMask = window.SHORE_MASK;
+        if (spotMask) {
+          const thresh = KITE_CFG.seaThresh;
+          spotBearings = [];
+          for (let b = 0; b < SHORE_BEARINGS; b++) {
+            if (spotMask[b] >= thresh) spotBearings.push(b * 10);
+          }
+          setStatus('');
+        } else {
+          setStatus('⚠ Could not detect sea bearings — select manually');
+        }
+        drawSpotCompass();
+      }).catch(() => {
+        setStatus('⚠ Could not detect sea bearings — select manually');
+      });
+    } else {
+      setStatus('');
+    }
   };
 })();
 
