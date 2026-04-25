@@ -30,8 +30,8 @@ function makeTrackingCanvas() {
     closePath:   () => calls.push({ op: 'closePath' }),
     arc:   (x, y, r, s, e) => calls.push({ op: 'arc', r }),
     arcTo: ()  => {},
-    moveTo: () => {},
-    lineTo: () => {},
+    moveTo: (x, y) => calls.push({ op: 'moveTo', x, y }),
+    lineTo: (x, y) => calls.push({ op: 'lineTo', x, y }),
     rect:        () => calls.push({ op: 'rect' }),
     clip:        () => calls.push({ op: 'clip' }),
     fill:        () => calls.push({ op: 'fill' }),
@@ -427,9 +427,9 @@ describe('_windAxisMax', () => {
   });
 });
 
-// ── drawWind: gust rings vs wind dots ────────────────────────────────────────
+// ── drawWind: gust dashes vs wind dots ───────────────────────────────────────
 
-describe('drawWind observed overlay — gust ring vs wind dot', () => {
+describe('drawWind observed overlay — gust dash vs wind dot', () => {
   // Build a minimal 3-slot time series starting in the past so the observation
   // falls inside the display window.
   const T0 = new Date('2024-06-15T10:00:00Z').getTime();
@@ -462,18 +462,23 @@ describe('drawWind observed overlay — gust ring vs wind dot', () => {
     return ctx2d.calls;
   }
 
-  it('gust ring uses stroke() only — no fill() between arc(r=2) and the next arc', () => {
+  it('gust dash uses moveTo+lineTo with same y (horizontal), followed by stroke not fill', () => {
     const calls = runDrawWind([{ t: obsT, gust: 10, wind: null, dir: 90 }]);
-    const arcIdx = calls.findIndex(c => c.op === 'arc' && c.r === 2);
-    expect(arcIdx).toBeGreaterThanOrEqual(0);
-    // No fill() should appear after this arc before the end (or the next arc)
-    const nextArc = calls.findIndex((c, i) => i > arcIdx && c.op === 'arc');
-    const slice = nextArc >= 0 ? calls.slice(arcIdx + 1, nextArc) : calls.slice(arcIdx + 1);
-    expect(slice.some(c => c.op === 'fill')).toBe(false);
+    // Find the horizontal dash: a moveTo immediately followed by a lineTo at the same y
+    const dashIdx = calls.findIndex((c, i) =>
+      c.op === 'moveTo' && calls[i + 1]?.op === 'lineTo' && calls[i + 1].y === c.y
+    );
+    expect(dashIdx).toBeGreaterThanOrEqual(0);
+    // stroke appears in the same beginPath block (between this moveTo and the next beginPath)
+    const nextBegin = calls.findIndex((c, i) => i > dashIdx && c.op === 'beginPath');
+    const slice = nextBegin >= 0 ? calls.slice(dashIdx, nextBegin) : calls.slice(dashIdx);
     expect(slice.some(c => c.op === 'stroke')).toBe(true);
+    expect(slice.some(c => c.op === 'fill')).toBe(false);
+    // no arc at all for gust-only observation (not a circle)
+    expect(calls.some(c => c.op === 'arc')).toBe(false);
   });
 
-  it('wind dot uses fill() — fill() appears between arc(r=2.5) and the next arc', () => {
+  it('wind dot uses arc+fill — fill() appears after arc(r=2.5)', () => {
     const calls = runDrawWind([{ t: obsT, gust: null, wind: 5, dir: 90 }]);
     const arcIdx = calls.findIndex(c => c.op === 'arc' && c.r === 2.5);
     expect(arcIdx).toBeGreaterThanOrEqual(0);
@@ -482,9 +487,11 @@ describe('drawWind observed overlay — gust ring vs wind dot', () => {
     expect(slice.some(c => c.op === 'fill')).toBe(true);
   });
 
-  it('with both gust and wind: gust arc(r=2) precedes wind arc(r=2.5)', () => {
+  it('with both gust and wind: horizontal dash precedes wind arc(r=2.5)', () => {
     const calls = runDrawWind([{ t: obsT, gust: 10, wind: 5, dir: 90 }]);
-    const gustIdx = calls.findIndex(c => c.op === 'arc' && c.r === 2);
+    const gustIdx = calls.findIndex((c, i) =>
+      c.op === 'moveTo' && calls[i + 1]?.op === 'lineTo' && calls[i + 1].y === c.y
+    );
     const windIdx = calls.findIndex(c => c.op === 'arc' && c.r === 2.5);
     expect(gustIdx).toBeGreaterThanOrEqual(0);
     expect(windIdx).toBeGreaterThan(gustIdx);
