@@ -166,13 +166,15 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
       `<button data-sid="${spot.id}" class="ks-use-btn" style="width:100%;padding:6px;` +
       `background:#006644;color:#00e8b0;border:none;border-radius:4px;cursor:pointer;` +
       `font-size:12px;font-family:inherit;margin-bottom:4px">Use this spot</button>` +
-      `<button data-sid="${spot.id}" class="ks-del-btn" style="width:100%;padding:4px;` +
-      `background:transparent;color:#c04040;border:1px solid #c04040;border-radius:4px;` +
-      `cursor:pointer;font-size:11px;font-family:inherit">Delete spot</button>`;
+      (!spot.curated
+        ? `<button data-sid="${spot.id}" class="ks-del-btn" style="width:100%;padding:4px;` +
+          `background:transparent;color:#c04040;border:1px solid #c04040;border-radius:4px;` +
+          `cursor:pointer;font-size:11px;font-family:inherit">Delete spot</button>`
+        : '');
     el.querySelector('.ks-use-btn').addEventListener('click', () => {
       if (window._onKiteSpotClick) window._onKiteSpotClick(spot.id);
     });
-    el.querySelector('.ks-del-btn').addEventListener('click', () => {
+    el.querySelector('.ks-del-btn')?.addEventListener('click', () => {
       if (window._onDeleteKiteSpot) window._onDeleteKiteSpot(spot.id);
     });
     return el;

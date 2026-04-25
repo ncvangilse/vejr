@@ -10,9 +10,21 @@ let lastObsCoords   = null;  // { lat, lon } last used for nearest station looku
    KITE SPOT STORAGE
 ══════════════════════════════════════════════════ */
 const KITE_SPOTS_KEY = 'vejr_kite_spots';
+let _curatedSpots = [];
+
+async function fetchCuratedKiteSpots() {
+  try {
+    const r = await fetch('kite-spots.json');
+    if (!r.ok) return;
+    _curatedSpots = await r.json();
+  } catch (_) {}
+}
 
 function loadKiteSpots() {
   try { return JSON.parse(localStorage.getItem(KITE_SPOTS_KEY) || '[]'); } catch (_) { return []; }
+}
+function getAllKiteSpots() {
+  return [..._curatedSpots, ...loadKiteSpots()];
 }
 function saveKiteSpots(spots) {
   try { localStorage.setItem(KITE_SPOTS_KEY, JSON.stringify(spots)); } catch (_) {}
@@ -21,12 +33,12 @@ function addKiteSpot(spot) {
   const spots = loadKiteSpots();
   spots.push(spot);
   saveKiteSpots(spots);
-  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(spots);
+  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(getAllKiteSpots());
 }
 function deleteKiteSpot(id) {
   const spots = loadKiteSpots().filter(s => s.id !== id);
   saveKiteSpots(spots);
-  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(spots);
+  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(getAllKiteSpots());
 }
 
 function haversineDistance(lat1, lon1, lat2, lon2) {
@@ -40,8 +52,7 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 function findNearbyKiteSpot(lat, lon, maxDistM = 2000) {
-  const spots = loadKiteSpots();
-  for (const s of spots) {
+  for (const s of getAllKiteSpots()) {
     if (haversineDistance(lat, lon, s.lat, s.lon) <= maxDistM) return s;
   }
   return null;
@@ -1046,7 +1057,7 @@ if (window.setCreateKiteSpotCallback) {
 }
 if (window.setKiteSpotClickCallback) {
   window.setKiteSpotClickCallback(spotId => {
-    const spot = loadKiteSpots().find(s => s.id === spotId);
+    const spot = getAllKiteSpots().find(s => s.id === spotId);
     if (!spot) return;
     setKiteParams({ ...KITE_CFG, dirs: spot.dirs });
     loadAtCoords(spot.lat, spot.lon, getModel(), spot.name);
@@ -1054,8 +1065,10 @@ if (window.setKiteSpotClickCallback) {
 }
 window._onDeleteKiteSpot = id => deleteKiteSpot(id);
 
-// Seed map with any already-saved kite spots
-if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(loadKiteSpots());
+// Load curated spots then seed map markers
+fetchCuratedKiteSpots().then(() => {
+  if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(getAllKiteSpots());
+});
 
 // Forward forecast hover events to the radar bearing overlay
 window.onForecastHover = (windDeg, isOptimal) => {
