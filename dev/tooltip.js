@@ -26,13 +26,7 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   const tempDotY = tempVal != null ? TEMP_padT + (1 - (tempVal - tmin) / tRange) * TEMP_ch : null;
   const WIND_H  = 130;
   const winds1h = d.winds1h || d.winds;
-  const ens1h   = d.ensWind1h || d.ensWind;
-  const times1h = d.times1h || d.times;
-  const t0Ms    = times1h.length > 0 ? new Date(times1h[0]).getTime() : 0;
-  const ext7d   = t0Ms + 7 * 24 * 3600 * 1000;
-  const n7d     = times1h.findIndex(t => new Date(t).getTime() >= ext7d);
-  const nAx     = n7d > 0 ? n7d : winds1h.length;
-  const maxW    = _windAxisMax(winds1h.slice(0, nAx));
+  const maxW    = _windAxisMax(winds1h);
   const windVal    = winds1h[idx1h];
   const windDotY   = windVal != null ? (1 - windVal / maxW) * WIND_H : null;
   const fracX3h    = (idx3h + 0.5) / d.times.length;
