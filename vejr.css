@@ -1167,17 +1167,13 @@ body.inverted-colors #kite-modal-overlay { filter: invert(1); }
   box-shadow: 0 2px 6px rgba(0,0,0,0.5);
   cursor: pointer;
 }
-#kite-spot-issue-btn {
-  background: #1a2a38;
-  color: #8ab4d4;
-  border: 1px solid #336655;
-  border-radius: 4px;
-  padding: 7px 10px;
+#kite-spot-status {
   font-size: 11px;
-  cursor: pointer;
-  font-family: 'IBM Plex Sans', sans-serif;
+  color: #8ab4d4;
+  min-height: 14px;
+  margin-top: 4px;
+  text-align: center;
 }
-#kite-spot-issue-btn:hover { color: #00e8b0; }
 #kite-spot-cancel {
   background: #2a3a4a;
   color: #8ab4d4;
