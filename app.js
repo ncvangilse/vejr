@@ -1069,7 +1069,8 @@ if (window.setKiteSpotClickCallback) {
 }
 window._onDeleteKiteSpot = id => deleteKiteSpot(id);
 
-// Load curated spots then seed map markers
+// Load curated spots then seed map markers (fire-and-forget; location loading
+// is independent and does not need to wait for this)
 fetchCuratedKiteSpots().then(() => {
   if (window.refreshKiteSpotMarkers) window.refreshKiteSpotMarkers(getAllKiteSpots());
 });

@@ -602,10 +602,6 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
         window.refreshKiteSpotMarkers(window._pendingKiteSpots);
         window._pendingKiteSpots = null;
       }
-      if (window._pendingBearingOverlay) {
-        const { lat, lon, dirs } = window._pendingBearingOverlay;
-        window.showKiteSpotBearingOverlay(lat, lon, dirs);
-      }
     }
     radarMap.setView([lat, lon], 8);
   }
@@ -710,6 +706,11 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       if (myGen !== loadGen) return;  // superseded during rAF delay
       initMap(lat, lon);
+      // Apply any bearing overlay that was requested before the map existed
+      if (window._pendingBearingOverlay) {
+        const { lat: pLat, lon: pLon, dirs } = window._pendingBearingOverlay;
+        window.showKiteSpotBearingOverlay(pLat, pLon, dirs);
+      }
 
       clearTimeout(playTimeout);
       radarPlaying = false;
