@@ -77,17 +77,24 @@ function _buildProposeNameUrl(s) {
 
 /**
  * Build a pre-filled GitHub new-issue URL for proposing a kite spot.
+ * Uses the body parameter so coordinates and bearings appear in the issue
+ * text regardless of template field pre-fill behaviour.
  */
 function _buildKiteSpotIssueUrl({ lat, lon, name, dirs }) {
   const spotName = name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
   const title    = `Kite spot: ${spotName}`;
+  const dirsStr  = dirs && dirs.length ? dirs.map(d => d + '°').join(', ') : '—';
+  const body = [
+    `**Coordinates:** ${lat.toFixed(6)}, ${lon.toFixed(6)}`,
+    `**Sea bearings:** ${dirsStr}`,
+    '',
+    '<!-- Add any notes about the spot (launch area, obstacles, best tide, etc.) -->',
+  ].join('\n');
   return (
     'https://github.com/ncvangilse/vejr/issues/new' +
-    '?template=kite-spot.yml' +
-    `&title=${encodeURIComponent(title)}` +
-    `&lat-lon=${encodeURIComponent(`${lat.toFixed(6)},${lon.toFixed(6)}`)}` +
-    `&name=${encodeURIComponent(name || '')}` +
-    `&dirs=${encodeURIComponent((dirs || []).join(','))}`
+    `?title=${encodeURIComponent(title)}` +
+    `&body=${encodeURIComponent(body)}` +
+    `&labels=${encodeURIComponent('kite-spot')}`
   );
 }
 window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;

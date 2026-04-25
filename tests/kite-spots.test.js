@@ -181,29 +181,39 @@ describe('_buildKiteSpotIssueUrl', () => {
     expect(typeof fn).toBe('function');
   });
 
-  it('uses the kite-spot template', () => {
+  it('uses a body parameter (not template form fields)', () => {
     const url = fn({ lat: 55.123456, lon: 12.654321, name: 'Test Spot', dirs: [90, 270] });
-    expect(url).toContain('template=kite-spot.yml');
+    expect(url).toContain('body=');
+    expect(url).not.toContain('template=');
   });
 
-  it('encodes lat/lon in the lat-lon field', () => {
+  it('includes coordinates in the issue body', () => {
     const url = fn({ lat: 55.123456, lon: 12.654321, name: 'My Spot', dirs: [] });
-    expect(url).toContain(encodeURIComponent('55.123456,12.654321'));
+    const body = decodeURIComponent(url.match(/body=([^&]*)/)[1]);
+    expect(body).toContain('55.123456');
+    expect(body).toContain('12.654321');
   });
 
-  it('encodes the spot name in the title and name field', () => {
+  it('includes bearings in the issue body', () => {
+    const url = fn({ lat: 55.0, lon: 12.0, name: 'Spot', dirs: [90, 180, 270] });
+    const body = decodeURIComponent(url.match(/body=([^&]*)/)[1]);
+    expect(body).toContain('90°');
+    expect(body).toContain('270°');
+  });
+
+  it('encodes the spot name in the title', () => {
     const url = fn({ lat: 55.0, lon: 12.0, name: 'Amager Strand', dirs: [] });
     expect(url).toContain(encodeURIComponent('Amager Strand'));
   });
 
-  it('encodes dirs as comma-separated degrees', () => {
-    const url = fn({ lat: 55.0, lon: 12.0, name: 'Spot', dirs: [90, 180, 270] });
-    expect(url).toContain(encodeURIComponent('90,180,270'));
+  it('uses kite-spot label', () => {
+    const url = fn({ lat: 55.0, lon: 12.0, name: 'Spot', dirs: [] });
+    expect(url).toContain('labels=');
+    expect(decodeURIComponent(url)).toContain('kite-spot');
   });
 
-  it('handles missing name gracefully', () => {
+  it('falls back to coordinates in title when name is empty', () => {
     const url = fn({ lat: 55.1234, lon: 12.5678, name: '', dirs: [] });
-    // Should fall back to lat,lon in the title (encodeURIComponent uses %20 for spaces)
     expect(url).toContain(encodeURIComponent('Kite spot:'));
   });
 });
