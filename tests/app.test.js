@@ -1039,6 +1039,30 @@ describe('loadNearestObsStation', () => {
     expect(ctx.window.DMI_OBS.stationName).toBe('TrafikNear');
   });
 
+  it('sets TRAFIK_OBS to the nearest trafikkort obs array when a trafikkort station is within 100 km', async () => {
+    const trafikNear = { name: 'TrafikNear', lat: 55.7, lon: 12.6, obs: [{ t: Date.now(), wind: 12, gust: 15, dir: 45 }] };
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation, 'trafikkort:near': trafikNear });
+    ctx.window.getObsLayerVisibility = () => ({ dmi: true, trafikkort: true });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.TRAFIK_OBS).toBe(trafikNear.obs);
+  });
+
+  it('sets TRAFIK_OBS to null when no trafikkort station is within 100 km', async () => {
+    const trafikFar = { name: 'TrafikFar', lat: 60.0, lon: 15.0, obs: [{ t: Date.now(), wind: 8, gust: 10, dir: 0 }] };
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation, 'trafikkort:far': trafikFar });
+    ctx.window.getObsLayerVisibility = () => ({ dmi: true, trafikkort: true });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.TRAFIK_OBS).toBeNull();
+  });
+
+  it('sets TRAFIK_OBS to null when trafikkort layer is hidden', async () => {
+    const trafikNear = { name: 'TrafikNear', lat: 55.7, lon: 12.6, obs: [{ t: Date.now(), wind: 12, gust: 15, dir: 45 }] };
+    const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation, 'trafikkort:near': trafikNear });
+    ctx.window.getObsLayerVisibility = () => ({ dmi: true, trafikkort: false });
+    await ctx.loadNearestObsStation(55.68, 12.57);
+    expect(ctx.window.TRAFIK_OBS).toBeNull();
+  });
+
   it('re-runs the lookup with the last coords when the toggle callback fires', async () => {
     const { ctx } = loadAppWithObs({ 'ninjo:near': nearStation });
     // Perform initial lookup to set lastObsCoords internally.
