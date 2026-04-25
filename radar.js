@@ -187,6 +187,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     return t.closest('.radar-loc-wrap') ||
            t.closest('.ws-wrap') ||
            t.closest('.kite-spot-icon') ||
+           t.closest('.leaflet-interactive') ||
            t.closest('.leaflet-popup-content-wrapper') ||
            t.closest('.leaflet-popup-close-button');
   }

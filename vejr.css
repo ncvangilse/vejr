@@ -288,6 +288,12 @@ canvas.main-canvas {
 #radar-loading.hidden {
   opacity: 0;
 }
+/* Raise Leaflet marker/popup panes above the pan & scroll hints (z 999) */
+#radar-map .leaflet-marker-pane,
+#radar-map .leaflet-popup-pane,
+#radar-map .leaflet-tooltip-pane {
+  z-index: 1050;
+}
 #radar-pan-hint {
   position: absolute;
   inset: 0;
