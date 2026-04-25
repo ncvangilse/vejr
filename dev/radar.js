@@ -75,6 +75,31 @@ function _buildProposeNameUrl(s) {
   );
 }
 
+/**
+ * Build a pre-filled GitHub new-issue URL for proposing a kite spot.
+ * Uses the body parameter so coordinates and bearings appear in the issue
+ * text regardless of template field pre-fill behaviour.
+ */
+function _buildKiteSpotIssueUrl({ lat, lon, name, dirs }) {
+  const spotName = name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  const title    = `Kite spot: ${spotName}`;
+  const dirsStr  = dirs && dirs.length ? dirs.map(d => d + '°').join(', ') : '—';
+  const body = [
+    `**Coordinates:** ${lat.toFixed(6)}, ${lon.toFixed(6)}`,
+    `**Sea bearings:** ${dirsStr}`,
+    '',
+    'Notes:',
+  ].join('\n');
+  // ?template= (empty) bypasses the template chooser so body= is not dropped
+  return (
+    'https://github.com/ncvangilse/vejr/issues/new' +
+    '?template=' +
+    `&title=${encodeURIComponent(title)}` +
+    `&body=${encodeURIComponent(body)}`
+  );
+}
+window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -103,12 +128,65 @@ function _buildProposeNameUrl(s) {
   const zoomIn    = document.getElementById('radar-zoom-in');
   const zoomOut   = document.getElementById('radar-zoom-out');
 
+  // ── Kite spot state ───────────────────────────────────────────────────
+  let kiteSpotMarkers      = [];
+  let kiteSpotOutlineLayers = [];  // static outline sectors (shown while popup is open)
+  let _activeSpotState     = null; // { lat, lon, dirs } of currently open spot popup
+  let _hoverOverlayLayer   = null; // dynamic hover layer (wind bearing + optional fill)
+
+  /** Compute the lat/lon polygon vertices for a bearing sector at a given radius. */
+  function _bearingSectorLatLngs(lat, lon, bearingDeg, radiusM) {
+    const R      = 6371000;
+    const latRad = lat * Math.PI / 180;
+    const steps  = 6;
+    const pts    = [[lat, lon]];
+    for (let i = 0; i <= steps; i++) {
+      const ang  = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;
+      const dlat = (radiusM / R) * Math.cos(ang) * 180 / Math.PI;
+      const dlon = (radiusM / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI;
+      pts.push([lat + dlat, lon + dlon]);
+    }
+    return pts;
+  }
+
+  /** Build the popup DOM element for a kite spot marker. */
+  function _buildKiteSpotPopupEl(spot) {
+    const el = document.createElement('div');
+    el.setAttribute('style',
+      'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:180px;max-width:260px');
+    const dirsStr = spot.dirs && spot.dirs.length
+      ? spot.dirs.map(d => d + '°').join(', ')
+      : '—';
+    el.innerHTML =
+      `<div style="font-size:13px;font-weight:700;margin-bottom:2px">${
+        spot.name || 'Unnamed spot'}</div>` +
+      `<div style="color:#aaa;font-size:11px;margin-bottom:6px">${
+        spot.lat.toFixed(4)}, ${spot.lon.toFixed(4)}</div>` +
+      `<div style="color:#8ab4d4;font-size:11px;margin-bottom:8px">Sea bearings: ${dirsStr}</div>` +
+      `<button data-sid="${spot.id}" class="ks-use-btn" style="width:100%;padding:6px;` +
+      `background:#006644;color:#00e8b0;border:none;border-radius:4px;cursor:pointer;` +
+      `font-size:12px;font-family:inherit;margin-bottom:4px">Use this spot</button>` +
+      (!spot.curated
+        ? `<button data-sid="${spot.id}" class="ks-del-btn" style="width:100%;padding:4px;` +
+          `background:transparent;color:#c04040;border:1px solid #c04040;border-radius:4px;` +
+          `cursor:pointer;font-size:11px;font-family:inherit">Delete spot</button>`
+        : '');
+    el.querySelector('.ks-use-btn').addEventListener('click', () => {
+      if (window._onKiteSpotClick) window._onKiteSpotClick(spot.id);
+    });
+    el.querySelector('.ks-del-btn')?.addEventListener('click', () => {
+      if (window._onDeleteKiteSpot) window._onDeleteKiteSpot(spot.id);
+    });
+    return el;
+  }
+
   // ── Shared helper ─────────────────────────────────────────────────────
   function isMarkerTarget(e) {
     const t = e.target;
     if (!t || !t.closest) return false;
     return t.closest('.radar-loc-wrap') ||
            t.closest('.ws-wrap') ||
+           t.closest('.kite-spot-icon') ||
            t.closest('.leaflet-popup-content-wrapper') ||
            t.closest('.leaflet-popup-close-button');
   }
@@ -121,10 +199,11 @@ function _buildProposeNameUrl(s) {
     function buildMenu() {
       const div = document.createElement('div');
       div.id = 'radar-ctx-menu';
-      const item = document.createElement('div');
-      item.className = 'radar-ctx-item';
-      item.textContent = 'Set position here';
-      item.addEventListener('click', () => {
+
+      const setPosItem = document.createElement('div');
+      setPosItem.className = 'radar-ctx-item';
+      setPosItem.textContent = 'Set position here';
+      setPosItem.addEventListener('click', () => {
         div.classList.remove('visible');
         if (pendingLatLng && onMarkerDragEnd) {
           const { lat, lng } = pendingLatLng;
@@ -132,7 +211,19 @@ function _buildProposeNameUrl(s) {
           onMarkerDragEnd(lat, lng);
         }
       });
-      div.appendChild(item);
+      div.appendChild(setPosItem);
+
+      const createSpotItem = document.createElement('div');
+      createSpotItem.className = 'radar-ctx-item';
+      createSpotItem.textContent = 'Create kite spot';
+      createSpotItem.addEventListener('click', () => {
+        div.classList.remove('visible');
+        if (pendingLatLng && window._onCreateKiteSpot) {
+          window._onCreateKiteSpot(pendingLatLng.lat, pendingLatLng.lng);
+        }
+      });
+      div.appendChild(createSpotItem);
+
       document.body.appendChild(div);
       return div;
     }
@@ -504,6 +595,12 @@ function _buildProposeNameUrl(s) {
       refreshWindStations();
       setInterval(refreshWindStations, 5 * 60 * 1000);
       initOverlayToggles();
+      // Render any already-saved kite spots (app.js may have called
+      // refreshKiteSpotMarkers before the map existed)
+      if (window._pendingKiteSpots) {
+        window.refreshKiteSpotMarkers(window._pendingKiteSpots);
+        window._pendingKiteSpots = null;
+      }
     }
     radarMap.setView([lat, lon], 8);
   }
@@ -662,6 +759,9 @@ function _buildProposeNameUrl(s) {
 
   window.loadRadar = loadRadar;
   window.fetchObsHistory = fetchObsHistory;
+  window.moveRadarPin = function (lat, lon) {
+    if (locationMarker) locationMarker.setLatLng([lat, lon]);
+  };
 
   /**
    * Register a callback that fires whenever the user drags the location
@@ -669,6 +769,100 @@ function _buildProposeNameUrl(s) {
    * @param {function(lat: number, lon: number): void} cb
    */
   window.setRadarDragCallback = function (cb) { onMarkerDragEnd = cb; };
+
+  // ── Kite spot callbacks (set by app.js) ───────────────────────────────
+  window.setCreateKiteSpotCallback = function (fn) { window._onCreateKiteSpot = fn; };
+  window.setKiteSpotClickCallback  = function (fn) { window._onKiteSpotClick  = fn; };
+
+  // ── Kite spot markers ─────────────────────────────────────────────────
+  window.refreshKiteSpotMarkers = function (spots) {
+    if (!radarMap) { window._pendingKiteSpots = spots; return; }
+    kiteSpotMarkers.forEach(m => m.removeFrom(radarMap));
+    kiteSpotMarkers = [];
+    if (!spots) return;
+    spots.forEach(spot => {
+      const icon = L.divIcon({
+        className:   '',
+        html:        `<div class="kite-spot-icon">🪁</div>`,
+        iconSize:    [28, 28],
+        iconAnchor:  [14, 14],
+        popupAnchor: [0, -16],
+      });
+      const popupEl = _buildKiteSpotPopupEl(spot);
+      const marker  = L.marker([spot.lat, spot.lon], {
+        icon, interactive: true, zIndexOffset: 500,
+      }).bindPopup(popupEl, { maxWidth: 280, minWidth: 200 });
+      marker.on('popupopen',  () => window.showKiteSpotBearingOverlay(spot.lat, spot.lon, spot.dirs));
+      marker.on('popupclose', () => window.hideKiteSpotBearingOverlay());
+      marker.addTo(radarMap);
+      kiteSpotMarkers.push(marker);
+    });
+  };
+
+  // ── Kite spot bearing overlay ─────────────────────────────────────────
+
+  // Static outline sectors for all selected bearings (shown while popup is open)
+  window.showKiteSpotBearingOverlay = function (lat, lon, dirs) {
+    window.hideKiteSpotBearingOverlay();
+    if (!radarMap) return;
+    _activeSpotState = { lat, lon, dirs: dirs || [] };
+    (dirs || []).forEach(bearing => {
+      const latlngs = _bearingSectorLatLngs(lat, lon, bearing, 5000);
+      const poly = L.polygon(latlngs, {
+        color:  '#00c890',
+        fill:   false,
+        weight: 2,
+        opacity: 0.75,
+      }).addTo(radarMap);
+      kiteSpotOutlineLayers.push(poly);
+    });
+  };
+
+  window.hideKiteSpotBearingOverlay = function () {
+    kiteSpotOutlineLayers.forEach(l => radarMap && l.removeFrom(radarMap));
+    kiteSpotOutlineLayers = [];
+    _activeSpotState = null;
+    if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
+  };
+
+  // Dynamic hover layer: wind bearing line + optional filled sector
+  window.updateKiteSpotBearingHover = function (windDeg, isOptimal) {
+    if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
+    if (!_activeSpotState || windDeg == null || !radarMap) return;
+
+    const { lat, lon, dirs } = _activeSpotState;
+    const R      = 6371000;
+    const latRad = lat * Math.PI / 180;
+    const radius = 5000;
+    const ang    = windDeg * Math.PI / 180;
+    const dlat   = (radius / R) * Math.cos(ang) * 180 / Math.PI;
+    const dlon   = (radius / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI;
+
+    const group = L.layerGroup();
+
+    // Dashed line from spot center toward wind source direction
+    L.polyline([[lat, lon], [lat + dlat, lon + dlon]], {
+      color:     isOptimal ? '#00c890' : '#888888',
+      weight:    2,
+      opacity:   0.9,
+      dashArray: '5,4',
+    }).addTo(group);
+
+    // Filled sector if wind snaps to a selected bearing and conditions are optimal
+    const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
+    if (isOptimal && dirs.includes(snapped)) {
+      L.polygon(_bearingSectorLatLngs(lat, lon, snapped, radius), {
+        color:       '#00c890',
+        fillColor:   '#00c890',
+        fillOpacity: 0.35,
+        weight:      2,
+        opacity:     0.8,
+      }).addTo(group);
+    }
+
+    group.addTo(radarMap);
+    _hoverOverlayLayer = group;
+  };
 
   let obsToggleCallback = null;
   window.setObsToggleCallback  = function (cb) { obsToggleCallback = cb; };
