@@ -147,6 +147,7 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     ensemblePercentiles: () => null,
     renderAll:          renderAllSpy || (() => {}),
     isKiteOptimal:      () => false,
+    _windAxisMax:       () => 20,
     snapBearing:        (d) => d,
     FORECAST_DAYS:          7,
     FORECAST_DAYS_EXTENDED: 16,
@@ -1080,19 +1081,19 @@ describe('loadNearestObsStation', () => {
   });
 });
 
-// ── tooltip close-on-tap ──────────────────────────────────────────────────────
+// ── hover tooltip popup removed (Issue 120) ───────────────────────────────────
 
-describe('tooltip close-on-tap', () => {
-  it('registers a click listener on the tooltip element at startup', () => {
+describe('hover tooltip popup removed', () => {
+  it('does not register a click listener on the hover-tooltip element', () => {
     const { tooltipEl } = loadApp();
-    expect(tooltipEl._listeners['click']).toBeTypeOf('function');
+    expect(tooltipEl._listeners['click']).toBeUndefined();
   });
 
-  it('hides the tooltip when the click listener is invoked', () => {
-    const { tooltipEl } = loadApp();
+  it('hideTooltip does not touch the hover-tooltip DOM element', () => {
+    const { tooltipEl, ctx } = loadApp();
     tooltipEl.style.display = 'block';
-    tooltipEl._listeners['click']();
-    expect(tooltipEl.style.display).toBe('none');
+    ctx.hideTooltip();
+    expect(tooltipEl.style.display).toBe('block');
   });
 });
 
@@ -1237,5 +1238,92 @@ describe('drawCrosshairs consistent x across rows', () => {
     expect(xDrawn['xh-temp']).toBeCloseTo(25);
     expect(xDrawn['xh-dir']).toBeCloseTo(25);
     expect(xDrawn['xh-wind']).toBeCloseTo(25);
+  });
+});
+
+// ── showCurrentTimeCrosshair (Issue 120) ──────────────────────────────────────
+
+function makeXhSetup(ctx) {
+  const xDrawn = {};
+  const origGetEl = ctx.document.getElementById;
+  ctx.document.getElementById = (id) => {
+    const makeXhCtx = () => ({
+      clearRect() {}, save() {}, restore() {}, scale() {},
+      beginPath() {}, stroke() {}, fill() {}, arc() {},
+      setLineDash() {}, fillText() {},
+      moveTo(x) { xDrawn[id] = x; }, lineTo() {},
+      font: '', fillStyle: '', strokeStyle: '',
+      lineWidth: 0, textBaseline: '', textAlign: '',
+    });
+    if (['xh-top','xh-temp','xh-dir','xh-wind'].includes(id))
+      return { width: 60, height: 50, style: {}, getContext: makeXhCtx };
+    if (['c-top','c-temp','c-dir','c-wind'].includes(id))
+      return { width: 60, height: 50 };
+    return origGetEl(id);
+  };
+  ctx._windAxisMax = () => 20;
+  return xDrawn;
+}
+
+describe('showCurrentTimeCrosshair', () => {
+  it('is exposed on window', () => {
+    const { ctx } = loadApp();
+    expect(ctx.window.showCurrentTimeCrosshair).toBeTypeOf('function');
+  });
+
+  it('selects the last slot when all times are in the past', () => {
+    const { ctx } = loadApp();
+    const xDrawn = makeXhSetup(ctx);
+    ctx.lastRenderedData = {
+      times:     ['2020-01-01T00:00', '2020-01-01T03:00'],
+      times1h:   Array.from({ length: 6 }, (_, i) => `2020-01-01T0${i}:00`),
+      temps1h:   Array(6).fill(10),
+      winds1h:   Array(6).fill(5),
+      dirs1h:    Array(6).fill(180),
+      ensWind1h: null, ensGust1h: null,
+      xMap1h:    [5, 15, 25, 35, 45, 55],
+      slotIdx1h: [0, 0, 0, 1, 1, 1],
+    };
+    ctx.showCurrentTimeCrosshair();
+    // All past → idx1h = 5 (last) → xMap1h[5] = 55
+    expect(xDrawn['xh-top']).toBeCloseTo(55);
+    expect(xDrawn['xh-temp']).toBeCloseTo(55);
+  });
+
+  it('selects the first future time slot', () => {
+    const { ctx } = loadApp();
+    const xDrawn = makeXhSetup(ctx);
+    const nowMs = Date.now();
+    const t = (ms) => new Date(nowMs + ms).toISOString().slice(0, 16);
+    ctx.lastRenderedData = {
+      times:     [t(-7200000), t(3600000)],
+      times1h:   [t(-7200000), t(-3600000), t(3600000), t(7200000)],
+      temps1h:   Array(4).fill(10),
+      winds1h:   Array(4).fill(5),
+      dirs1h:    Array(4).fill(90),
+      ensWind1h: null, ensGust1h: null,
+      xMap1h:    [10, 20, 30, 40],
+      slotIdx1h: [0, 0, 1, 1],
+    };
+    ctx.showCurrentTimeCrosshair();
+    // First future entry is index 2 → xMap1h[2] = 30
+    expect(xDrawn['xh-top']).toBeCloseTo(30);
+  });
+
+  it('mouseleave does not reset the crosshair (no listener registered)', () => {
+    const { ctx, contentEl } = loadApp();
+    const xDrawn = makeXhSetup(ctx);
+    ctx.lastRenderedData = {
+      times:     ['2020-01-01T00:00', '2020-01-01T03:00'],
+      times1h:   Array.from({ length: 6 }, (_, i) => `2020-01-01T0${i}:00`),
+      temps1h:   Array(6).fill(10),
+      winds1h:   Array(6).fill(5),
+      dirs1h:    Array(6).fill(180),
+      ensWind1h: null, ensGust1h: null,
+      xMap1h:    [5, 15, 25, 35, 45, 55],
+      slotIdx1h: [0, 0, 0, 1, 1, 1],
+    };
+    // mouseleave is no longer registered — crosshair stays wherever it was.
+    expect(contentEl._listeners['mouseleave']).toBeUndefined();
   });
 });

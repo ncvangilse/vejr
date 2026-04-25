@@ -299,14 +299,22 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
   // ── Map drag ──────────────────────────────────────────────────────────
   function attachMapDrag(mapEl) {
     let dragging = false, lastX = 0, lastY = 0;
-    function onStart(x, y) { dragging = true; lastX = x; lastY = y; }
+    function onStart(x, y) {
+      dragging = true; lastX = x; lastY = y;
+      if (radarMap) radarMap.fire('movestart');
+    }
     function onMove(x, y) {
       if (!dragging || !radarMap || markerDragging) return;
       const dx = x - lastX, dy = y - lastY;
       lastX = x; lastY = y;
-      radarMap.panBy([-dx, -dy], { animate: false });
+      radarMap._rawPanBy(new L.Point(-dx, -dy));
+      radarMap.fire('move');
     }
-    function onEnd() { dragging = false; }
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      if (radarMap) radarMap.fire('moveend');
+    }
 
     // Show a brief "use two fingers to pan" hint when a single finger touches the map.
     let hintTimeout = null;
@@ -583,6 +591,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
         zoomControl: false, attributionControl: false,
         dragging: false, inertia: false,
         scrollWheelZoom: false,
+        zoomAnimation: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
