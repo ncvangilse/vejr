@@ -613,12 +613,13 @@ function _otherModelLineColor(invertedColors) {
 }
 
 /** Returns the wind Y-axis maximum: max ensemble wind p90 (or mean wind when no ensemble) rounded up to nearest 5 m/s.
- *  Caller should pre-slice winds/ensWind to the desired window (e.g. first 7 days) before calling. */
-function _windAxisMax(winds, ensWind) {
+ *  Caller should pre-slice winds/ensWind to the desired window (e.g. first 7 days) before calling.
+ *  obsMax: optional max observed wind speed to include in the ceiling. */
+function _windAxisMax(winds, ensWind, obsMax = 0) {
   const base = ensWind
     ? Math.max(...ensWind.p90.filter(v => v != null))
     : Math.max(...winds.filter(v => v != null));
-  return Math.ceil(Math.max(base, 5) / 5) * 5;
+  return Math.ceil(Math.max(base, obsMax, 5) / 5) * 5;
 }
 function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null) {
   // --- canvas setup ---
@@ -649,11 +650,15 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   // Axis max is based on the first-7-day window only; extended-forecast data
   // (days 7–16) is drawn but clipped to this ceiling so a distant storm does
   // not widen the scale for the current detailed period.
-  const n7d  = times.findIndex(t => new Date(t).getTime() >= extThreshMsWind);
-  const nAx  = n7d > 0 ? n7d : n;
+  const n7d   = times.findIndex(t => new Date(t).getTime() >= extThreshMsWind);
+  const nAx   = n7d > 0 ? n7d : n;
+  const obsMax = (window.DMI_OBS && window.DMI_OBS.obs)
+    ? Math.max(0, ...window.DMI_OBS.obs.map(ob => (ob.wind != null && isFinite(ob.wind) ? ob.wind : 0)))
+    : 0;
   const maxW = _windAxisMax(
     winds.slice(0, nAx),
-    ensWind ? { p90: ensWind.p90.slice(0, nAx) } : null
+    ensWind ? { p90: ensWind.p90.slice(0, nAx) } : null,
+    obsMax
   );
   const wy        = v => cY + (1 - v / maxW) * WIND_H;
   const base      = wy(0);

@@ -425,6 +425,20 @@ describe('_windAxisMax', () => {
     const ensWind = { p90: [null, 14, null], p10: [null, 7, null] };
     expect(ctx._windAxisMax([5, 5, 5], ensWind)).toBe(15);
   });
+
+  it('raises axis to include obsMax when observed wind exceeds forecast', () => {
+    // forecast max 8 → rounds to 10, but observed 17 → raises to 20
+    expect(ctx._windAxisMax([6, 8, 7], null, 17)).toBe(20);
+  });
+
+  it('obsMax does not lower axis when forecast is already higher', () => {
+    expect(ctx._windAxisMax([6, 12, 7], null, 5)).toBe(15);
+  });
+
+  it('obsMax=0 (default) preserves existing behaviour', () => {
+    expect(ctx._windAxisMax([6, 8, 7], null, 0)).toBe(10);
+    expect(ctx._windAxisMax([6, 8, 7], null)).toBe(10);
+  });
 });
 
 // ── drawWind: gust dashes vs wind dots ───────────────────────────────────────
