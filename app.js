@@ -754,6 +754,9 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     displayNameOverride = displayNameOverride || nearbySpot.name;
     setKiteParams({ ...KITE_CFG, dirs: nearbySpot.dirs });
     if (window.moveRadarPin) window.moveRadarPin(lat, lon);
+    if (window.showKiteSpotBearingOverlay) window.showKiteSpotBearingOverlay(lat, lon, nearbySpot.dirs);
+  } else {
+    if (window.hideKiteSpotBearingOverlay) window.hideKiteSpotBearingOverlay();
   }
 
   const forecastEl = document.getElementById('forecast-content');
