@@ -88,13 +88,14 @@ function _buildKiteSpotIssueUrl({ lat, lon, name, dirs }) {
     `**Coordinates:** ${lat.toFixed(6)}, ${lon.toFixed(6)}`,
     `**Sea bearings:** ${dirsStr}`,
     '',
-    '<!-- Add any notes about the spot (launch area, obstacles, best tide, etc.) -->',
+    'Notes:',
   ].join('\n');
+  // ?template= (empty) bypasses the template chooser so body= is not dropped
   return (
     'https://github.com/ncvangilse/vejr/issues/new' +
-    `?title=${encodeURIComponent(title)}` +
-    `&body=${encodeURIComponent(body)}` +
-    `&labels=${encodeURIComponent('kite-spot')}`
+    '?template=' +
+    `&title=${encodeURIComponent(title)}` +
+    `&body=${encodeURIComponent(body)}`
   );
 }
 window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;

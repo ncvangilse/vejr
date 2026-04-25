@@ -181,10 +181,12 @@ describe('_buildKiteSpotIssueUrl', () => {
     expect(typeof fn).toBe('function');
   });
 
-  it('uses a body parameter (not template form fields)', () => {
+  it('uses body= and empty template= to bypass template chooser', () => {
     const url = fn({ lat: 55.123456, lon: 12.654321, name: 'Test Spot', dirs: [90, 270] });
     expect(url).toContain('body=');
-    expect(url).not.toContain('template=');
+    expect(url).toContain('template=');
+    // empty template= (no value) — not a named template
+    expect(url).not.toContain('template=kite-spot');
   });
 
   it('includes coordinates in the issue body', () => {
@@ -204,12 +206,6 @@ describe('_buildKiteSpotIssueUrl', () => {
   it('encodes the spot name in the title', () => {
     const url = fn({ lat: 55.0, lon: 12.0, name: 'Amager Strand', dirs: [] });
     expect(url).toContain(encodeURIComponent('Amager Strand'));
-  });
-
-  it('uses kite-spot label', () => {
-    const url = fn({ lat: 55.0, lon: 12.0, name: 'Spot', dirs: [] });
-    expect(url).toContain('labels=');
-    expect(decodeURIComponent(url)).toContain('kite-spot');
   });
 
   it('falls back to coordinates in title when name is empty', () => {
