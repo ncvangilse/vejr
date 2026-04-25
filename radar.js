@@ -583,6 +583,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
         zoomControl: false, attributionControl: false,
         dragging: false, inertia: false,
         scrollWheelZoom: false,
+        zoomAnimation: false,
       });
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,

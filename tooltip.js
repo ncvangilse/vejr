@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════
-   HOVER CROSSHAIR + TOOLTIP
+   HOVER CROSSHAIR
 ══════════════════════════════════════════════════ */
 const XH_CANVASES = ['xh-top','xh-temp','xh-dir','xh-wind'];
 const XH_PAIR     = { 'xh-top':'c-top', 'xh-temp':'c-temp', 'xh-dir':'c-dir', 'xh-wind':'c-wind' };
@@ -102,150 +102,46 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
     ctx.restore();
   });
 }
-const WMO_DESC = {
-  0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',
-  45:'Fog',48:'Rime fog',
-  51:'Light drizzle',53:'Drizzle',55:'Dense drizzle',
-  61:'Light rain',63:'Rain',65:'Heavy rain',
-  71:'Light snow',73:'Snow',75:'Heavy snow',77:'Snow grains',
-  80:'Rain showers',81:'Heavy rain showers',82:'Violent rain showers',
-  85:'Snow showers',86:'Heavy snow showers',
-  95:'Thunderstorm',96:'Thunderstorm w/ hail',99:'Thunderstorm w/ heavy hail',
-};
+
 function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
   const d = lastRenderedData;
-  const tip = document.getElementById('hover-tooltip');
   const portrait = !!d.isPortraitMode;
-  let timeStr, temp, prec, wind, gust, dir, code, tp10, tp90, wp10, wp90, gp10, gp90, pp10, pp90;
+  let timeStr, wind, dir;
   if (portrait) {
-    // Portrait: all values from display series (same zoom as icon row).
     timeStr = d.times[idx3h];
-    temp    = d.temps[idx3h];
-    prec    = d.precips[idx3h];
     wind    = d.winds[idx3h];
-    gust    = Math.max(d.gusts[idx3h], wind);
     dir     = d.dirs[idx3h];
-    code    = d.codes[idx3h];
-    tp10    = d.ensTemp   ? d.ensTemp.p10[idx3h]   : null;
-    tp90    = d.ensTemp   ? d.ensTemp.p90[idx3h]   : null;
-    wp10    = d.ensWind   ? d.ensWind.p10[idx3h]   : null;
-    wp90    = d.ensWind   ? d.ensWind.p90[idx3h]   : null;
-    gp10    = d.ensGust   ? (d.ensGust.p10[idx3h]  ?? null) : null;
-    gp90    = d.ensGust   ? (d.ensGust.p90[idx3h]  ?? null) : null;
-    pp10    = d.ensPrecip ? d.ensPrecip.p10[idx3h] : null;
-    pp90    = d.ensPrecip ? d.ensPrecip.p90[idx3h] : null;
   } else {
-    // Landscape: full 1h resolution.
     timeStr = d.times1h[idx1h];
-    temp    = d.temps1h[idx1h];
-    prec    = d.precips1h[idx1h];
     wind    = d.winds1h[idx1h];
-    gust    = Math.max(d.gusts1h[idx1h], wind);
     dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
-    code    = d.codes1h ? d.codes1h[idx1h] : d.codes[idx3h];
-    tp10    = d.ensTemp1h   ? d.ensTemp1h.p10[idx1h]   : null;
-    tp90    = d.ensTemp1h   ? d.ensTemp1h.p90[idx1h]   : null;
-    wp10    = d.ensWind1h   ? d.ensWind1h.p10[idx1h]   : null;
-    wp90    = d.ensWind1h   ? d.ensWind1h.p90[idx1h]   : null;
-    gp10    = d.ensGust1h   ? (d.ensGust1h.p10[idx1h]  ?? null) : null;
-    gp90    = d.ensGust1h   ? (d.ensGust1h.p90[idx1h]  ?? null) : null;
-    pp10    = d.ensPrecip1h ? d.ensPrecip1h.p10[idx1h] : null;
-    pp90    = d.ensPrecip1h ? d.ensPrecip1h.p90[idx1h] : null;
-  }
-  const t   = new Date(timeStr);
-  const day = DA_DAYS[t.getDay()];
-  const h   = t.getHours().toString().padStart(2,'0');
-  const windCol = windColorStr(wind, 1);
-  const gustCol = windColorStr(gust, 1);
-  const fmt  = (v, deg) => (v >= 0 ? '+' : '') + v.toFixed(1) + (deg ? '°C' : ' m/s');
-  const tempUncRow   = (tp10 != null && tp90 != null)
-    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#bb8866;font-size:10px">${fmt(tp10,true)} → ${fmt(tp90,true)}</span></div>` : '';
-  const windUncRow   = (wp10 != null && wp90 != null)
-    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#aaa;font-size:10px">${fmt(wp10,false)} → ${fmt(wp90,false)}</span></div>` : '';
-  const gustUncRow   = (gp10 != null && gp90 != null)
-    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#cc9966;font-size:10px">${fmt(gp10,false)} → ${fmt(gp90,false)}</span></div>` : '';
-  const precipUncRow = (pp10 != null && pp90 != null)
-    ? `<div class="tt-row"><span class="tt-label">P10–P90</span><span class="tt-val" style="color:#6aaee8;font-size:10px">${pp10.toFixed(1)} → ${pp90.toFixed(1)} mm</span></div>` : '';
-  const desc    = WMO_DESC[code] || 'Unknown';
-  const kiteRow = isKiteOptimal(wind, dir, timeStr)
-    ? `<div style="color:#00c8a0;font-size:10px;font-weight:700;margin-bottom:4px;letter-spacing:0.3px;">🪁 Optimal kitesurfing wind</div>` : '';
-  // DMI observed wind nearest to this time slot (within 30 min)
-  let obsRow = '';
-  if (window.DMI_OBS && window.DMI_OBS.obs && window.DMI_OBS.obs.length) {
-    const hoverT = new Date(d.times1h[idx1h]).getTime();
-    const nearest = window.DMI_OBS.obs.reduce((a, b) =>
-      Math.abs(a.t - hoverT) < Math.abs(b.t - hoverT) ? a : b
-    );
-    if (Math.abs(nearest.t - hoverT) < 30 * 60 * 1000) {
-      const wStr = nearest.wind != null ? `${nearest.wind.toFixed(1)} m/s` : '—';
-      const gStr = nearest.gust != null
-        ? `<span style="color:rgba(255,150,50,1)"> / gust ${nearest.gust.toFixed(1)} m/s</span>`
-        : '';
-      obsRow = `<div class="tt-row">`
-             + `<span class="tt-label" title="DMI ${window.DMI_OBS.stationName} · ${window.DMI_OBS.distKm} km">Obs (DMI)</span>`
-             + `<span class="tt-val" style="color:#ffe040;font-size:10px">${wStr}${gStr}</span>`
-             + `</div>`;
-    }
-  }
-  tip.innerHTML = `
-    <div class="tt-time">${day} at ${h}:00</div>
-    ${kiteRow}
-    <div class="tt-row" style="margin-bottom:4px;align-items:center;">
-      <div style="position:relative;flex:0 0 32px;width:32px;height:32px;">
-        <canvas id="tt-icon-canvas" width="32" height="32" style="display:block;"></canvas>
-        ${isKiteOptimal(wind, dir, timeStr) ? '<span style="position:absolute;bottom:-3px;right:-5px;font-size:14px;line-height:1;">🪁</span>' : ''}
-      </div>
-      <span class="tt-val" style="font-size:11px;color:#cde">${desc}</span>
-    </div>
-    <div class="tt-row">
-      <span class="tt-label">Temp</span>
-      <span class="tt-val" style="color:${temp>=0?'#ff8866':'#88aaff'}">${temp>=0?'+':''}${temp.toFixed(1)}°C</span>
-    </div>
-    ${tempUncRow}
-    <div class="tt-row">
-      <span class="tt-label">Precip</span>
-      <span class="tt-val" style="color:#4466aa">${prec.toFixed(1)} mm</span>
-    </div>
-    ${precipUncRow}
-    <div class="tt-row">
-      <span class="tt-label">Wind</span>
-      <span class="tt-val" style="color:${windCol}">${wind.toFixed(1)} m/s</span>
-    </div>
-    ${windUncRow}
-    <div class="tt-row">
-      <span class="tt-label">Gusts</span>
-      <span class="tt-val" style="color:${gustCol}">${gust.toFixed(1)} m/s</span>
-    </div>
-    ${gustUncRow}
-    ${obsRow}
-    <div class="tt-row">
-      <span class="tt-label">Direction</span>
-      <span class="tt-val">${degToCompass(dir)} (${Math.round(dir)}°)</span>
-    </div>`;
-  tip.style.display = 'block';
-  const iconCanvas = document.getElementById('tt-icon-canvas');
-  if (iconCanvas) {
-    const sz = 32;
-    const dpr = window.devicePixelRatio || 1;
-    iconCanvas.width  = sz * dpr;
-    iconCanvas.height = sz * dpr;
-    iconCanvas.style.width  = sz + 'px';
-    iconCanvas.style.height = sz + 'px';
-    const ictx = iconCanvas.getContext('2d');
-    ictx.scale(dpr, dpr);
-    dmiIcon(ictx, wmoType(code, timeStr), sz / 2, sz / 2, sz, prec, code);
   }
   if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr));
 }
-function hideTooltip() {
-  document.getElementById('hover-tooltip').style.display = 'none';
-  clearCrosshairs();
-  if (window.onForecastHover) window.onForecastHover(null, false);
+
+function showCurrentTimeCrosshair() {
+  if (!lastRenderedData) { clearCrosshairs(); return; }
+  const d = lastRenderedData;
+  const nowMs = Date.now();
+  const times1h = d.times1h;
+  let idx1h = times1h.findIndex(t => new Date(t).getTime() >= nowMs);
+  if (idx1h < 0) idx1h = times1h.length - 1;
+  const n3h = d.times.length;
+  const idx3h = d.slotIdx1h
+    ? Math.min(n3h - 1, d.slotIdx1h[idx1h])
+    : Math.min(n3h - 1, Math.round(idx1h * n3h / times1h.length));
+  drawCrosshairs(0, idx1h, idx3h);
+  showTooltip(idx1h, idx3h);
 }
+window.showCurrentTimeCrosshair = showCurrentTimeCrosshair;
+
+function hideTooltip() {
+  showCurrentTimeCrosshair();
+}
+
 var _chartDragging = false;
 function attachHoverListeners() {
-  document.getElementById('hover-tooltip').addEventListener('click', hideTooltip);
   const content = document.getElementById('forecast-content');
 
   function showTooltipAtX(clientX, target) {
@@ -285,13 +181,13 @@ function attachHoverListeners() {
     if (!wrap) { hideTooltip(); return; }
     showTooltipAtX(e.clientX, e.target);
   });
-  content.addEventListener('mouseleave', hideTooltip);
+  content.addEventListener('mouseleave', showCurrentTimeCrosshair);
 
   // Long press state — declared before contextmenu so cancelLp is available there.
   let lpStart = 0, lpX = 0, lpY = 0, lpEl = null;
   function cancelLp() { lpStart = 0; }
 
-  // Right-click pins the tooltip without the browser context menu.
+  // Right-click pins the crosshair at that position without the browser context menu.
   // On Android, long press also fires contextmenu — cancel the lp state here
   // so the touchend handler doesn't fire a second time.
   content.addEventListener('contextmenu', e => {
