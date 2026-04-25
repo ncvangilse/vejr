@@ -619,7 +619,7 @@ function _windAxisMax(winds, ensWind, obsMax = 0) {
   const base = ensWind
     ? Math.max(...ensWind.p90.filter(v => v != null))
     : Math.max(...winds.filter(v => v != null));
-  return Math.ceil(Math.max(base, obsMax, 5) / 5) * 5 + 2;
+  return Math.max(base, obsMax, 5) + 2;
 }
 function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null) {
   // --- canvas setup ---
@@ -650,10 +650,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
   const _obsWindMax = obs => obs
     ? Math.max(0, ...obs.map(ob => (ob.wind != null && isFinite(ob.wind) ? ob.wind : 0)))
     : 0;
-  const obsMax = Math.max(
-    _obsWindMax(window.DMI_OBS?.obs),
-    _obsWindMax(window.TRAFIK_OBS),
-  );
+  const obsMax = _obsWindMax(window.DMI_OBS?.obs);
   const maxW = _windAxisMax(winds, ensWind, obsMax);
   const wy        = v => cY + (1 - v / maxW) * WIND_H;
   const base      = wy(0);
