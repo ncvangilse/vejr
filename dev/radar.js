@@ -100,6 +100,17 @@ function _buildKiteSpotIssueUrl({ lat, lon, name, dirs }) {
 }
 window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
 
+function _speedBin(w) {
+  if (w < 4)  return 0;
+  if (w < 8)  return 4;
+  if (w < 12) return 8;
+  return 12;
+}
+
+function _bearingBin(d) {
+  return Math.floor(d / 45) * 45 % 360;
+}
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -978,13 +989,18 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
   }
 
   /**
-   * Read pre-computed forecast bias for a station key from window.OBS_HISTORY.
-   * Returns { bias: number, n: number } or null when absent / insufficient data.
+   * Read pre-computed forecast bias for a station from window.OBS_HISTORY.
+   * When current obs wind/dir are supplied, tries the stratified cell first.
+   * Returns { bias, n, stratified } or null when absent / insufficient data.
    */
-  function _stationBias(key) {
+  function _stationBias(key, obsWind, obsDir) {
     const b = window.OBS_HISTORY?.[key]?.bias;
     if (!b || b.n == null || b.wind == null) return null;
-    return { bias: b.wind, n: b.n };
+    if (b.strat && obsWind != null && obsDir != null) {
+      const cell = b.strat[`${_speedBin(obsWind)}_${_bearingBin(obsDir)}`];
+      if (cell) return { bias: cell.mean, n: cell.n, stratified: true };
+    }
+    return { bias: b.wind, n: b.n, stratified: false };
   }
 
   const DIR_DEG = {
@@ -1171,13 +1187,14 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
             const biasEl = popupEl.querySelector('.dmi-bias-row');
             if (biasEl && biasEl.dataset.loaded !== '1') {
               biasEl.dataset.loaded = '1';
-              const b = _stationBias(key);
+              const b = _stationBias(key, sObj.latest.wind, sObj.latest.dir);
               if (b) {
                 const sign    = b.bias >= 0 ? '+' : '';
                 const absB    = Math.abs(b.bias);
                 const biasCol = absB > 2 ? '#e06020' : absB > 1 ? '#e0a020' : '#8899aa';
+                const label   = b.stratified ? 'Model bias (current)' : 'Model bias';
                 biasEl.innerHTML =
-                  `<span style="color:#aaa;font-size:10px">Model bias&nbsp;</span>` +
+                  `<span style="color:#aaa;font-size:10px">${label}&nbsp;</span>` +
                   `<span style="color:${biasCol};font-size:10px;font-weight:600">${sign}${b.bias.toFixed(1)}&nbsp;m/s</span>` +
                   `<span style="color:#aaa;font-size:10px">&nbsp;·&nbsp;${b.n}h</span>`;
               } else {
