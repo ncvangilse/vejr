@@ -1310,16 +1310,17 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     const tMax  = entries[entries.length - 1].t;
     const tSpan = Math.max(tMax - tMin, 1);
 
-    const gustPts = entries.filter(o => o.gust != null && isFinite(o.gust));
-    const wMax    = Math.max(
+    const gustPts  = entries.filter(o => o.gust != null && isFinite(o.gust));
+    const wMax     = Math.max(
       ...entries.map(o => o.wind),
       ...gustPts.map(o => o.gust),
       5
     );
-    const wNice = Math.ceil(wMax / 5) * 5;
+    const wNice    = Math.ceil(wMax / 5) * 5;
+    const axisSpan = wNice;  // y-axis runs from 0 to axisSpan m/s
 
     const tx = t => PAD_L + ((t - tMin) / tSpan) * CW;
-    const ty = w => PAD_T + W_H - (w / wNice) * W_H;
+    const ty = w => PAD_T + W_H - (w / axisSpan) * W_H;
 
     // inv is only used for the pixel pre-inversion at the end (same pattern as
     // the forecast charts: always draw in light-theme colours, then flip pixels
@@ -1336,7 +1337,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
     ctx.font         = `9px 'IBM Plex Mono', monospace`;
     ctx.textAlign    = 'right';
     ctx.textBaseline = 'middle';
-    for (let w = 0; w <= wNice; w += 5) {
+    for (let w = 0; w <= axisSpan; w += 5) {
       const y = ty(w);
       if (y < PAD_T - 1) continue;
       ctx.strokeStyle = inv ? 'rgba(255,255,255,0.1)' : '#dde2ea';
