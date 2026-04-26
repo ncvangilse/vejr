@@ -81,7 +81,7 @@ OPEN_METEO  = 'https://api.open-meteo.com/v1/forecast'
 
 # Rolling-window settings
 OBS_WINDOW_H  = 24   # hours of obs to keep per station
-FCST_WINDOW_D = 30   # days of forecast history to keep in SQLite
+FCST_WINDOW_D = 365  # days of forecast history to keep in SQLite
 STRAT_MIN_N   = 6    # minimum samples for a stratified bias cell to be reported
 
 # Open-Meteo batch: stations per request (comma-separated lat/lon)
@@ -584,6 +584,7 @@ class FetchNinjo(hass.Hass):
                     await self._load_state(session)
                 sha_map = await self._get_sha_map(session, gh_headers)
 
+                today_str     = datetime.now(timezone.utc).strftime('%Y-%m-%d')
                 yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
                 cutoff_str    = (datetime.now(timezone.utc) - timedelta(days=FCST_WINDOW_D)).strftime('%Y-%m-%d')
 
@@ -649,6 +650,18 @@ class FetchNinjo(hass.Hass):
                                 fcst_wind = excluded.fcst_wind,
                                 fcst_dir  = excluded.fcst_dir
                         """, fcst_rows)
+
+                        # Store today's hourly forecast per station in obs_history so
+                        # the JS popup can use forecast conditions (not obs) for bias lookup.
+                        today_fcst = clean[clean['date'] == today_str][['h', 'wind', 'dir']]
+                        self.obs_history.setdefault(key, {})['fcst'] = [
+                            {
+                                'h':    int(row['h']),
+                                'wind': round(float(row['wind']), 2),
+                                **({'dir': round(float(row['dir']), 1)} if pd.notna(row['dir']) else {}),
+                            }
+                            for _, row in today_fcst.iterrows()
+                        ]
 
                     if batch_start + FORECAST_BATCH < len(stations):
                         await asyncio.sleep(1)
