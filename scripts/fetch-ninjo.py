@@ -12,7 +12,13 @@ Pushes one gzip-compressed JSON file to gh-pages:
         "ninjo:<stationId>": {
           "name": "...", "lat": 55.6, "lon": 12.6, "source": "ninjo",
           "obs":  [{"t": <unix_ms>, "wind": 5.1, "gust": 7.2, "dir": 270}, ...],
-          "bias": {"wind": 1.3, "n": 84}   ← added daily, absent until day 1
+          "bias": {
+            "wind": 1.3, "n": 84,           ← scalar mean, added daily
+            "strat": {                       ← optional, present after ~30 days
+              "4_270": {"mean": 1.1, "n": 18},   key = "<speed_bin>_<bearing_bin>"
+              ...
+            }
+          }
         },
         "trafikkort:<featureId>": {
           "name": "Trafikkort 1018", "lat": ..., "lon": ..., "source": "trafikkort",
@@ -21,12 +27,10 @@ Pushes one gzip-compressed JSON file to gh-pages:
       }
 
 Local state (never pushed to gh-pages):
-  obs-history-local.json.gz   — written next to this file after every obs push
-  fcst-history-local.json.gz  — written after every daily forecast ingest
-
-  Both files are restored on startup (disk → gh-pages fallback → empty dict),
-  so a crash or AppDaemon restart loses at most one 10-min obs cycle and never
-  loses the 7-day forecast window needed for bias computation.
+  obs-history-local.json   — written next to this file after every obs push
+  fcst-history.db          — SQLite database; 30-day rolling window of hourly
+                             forecast/obs pairs per station for bias computation.
+                             Created automatically on first run; never pushed.
 
 Installation (Home Assistant AppDaemon add-on — a0d7b954):
   All paths are under /root/addon_configs/a0d7b954_appdaemon/
@@ -59,6 +63,7 @@ import base64
 import gzip
 import json
 import math
+import sqlite3
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -76,7 +81,8 @@ OPEN_METEO  = 'https://api.open-meteo.com/v1/forecast'
 
 # Rolling-window settings
 OBS_WINDOW_H  = 24   # hours of obs to keep per station
-FCST_WINDOW_D = 7    # days of forecast history to keep
+FCST_WINDOW_D = 30   # days of forecast history to keep in SQLite
+STRAT_MIN_N   = 6    # minimum samples for a stratified bias cell to be reported
 
 # Open-Meteo batch: stations per request (comma-separated lat/lon)
 FORECAST_BATCH = 50
@@ -85,13 +91,13 @@ FORECAST_BATCH = 50
 RAW_BASE = 'https://raw.githubusercontent.com/ncvangilse/vejr/data'
 
 # Local state files — persisted next to the app file so crashes / restarts
-# don't lose accumulated history.  fcst-history is never pushed to the data branch
-# so local persistence is the only way to survive a restart.
+# don't lose accumulated history.  The forecast DB is never pushed to gh-pages;
+# local disk is the only persistence.
 _APP_DIR   = Path(__file__).parent
 STATE_FILES = {
-    'obs_history':  _APP_DIR / 'obs-history-local.json',
-    'fcst_history': _APP_DIR / 'fcst-history-local.json',
+    'obs_history': _APP_DIR / 'obs-history-local.json',
 }
+_FCST_DB = _APP_DIR / 'fcst-history.db'
 
 # Cardinal direction → degrees (matches radar.js DIR_DEG)
 DIR_DEG = {
@@ -103,6 +109,41 @@ DIR_DEG = {
 
 
 # ── Pure helpers ───────────────────────────────────────────────────────────────
+
+def _speed_bin(w):
+    """Return the lower edge of the 4 m/s speed bin containing w."""
+    if w < 4:  return 0
+    if w < 8:  return 4
+    if w < 12: return 8
+    return 12
+
+
+def _bearing_bin(d):
+    """Return the start of the 45° bearing sector containing d (0–359°)."""
+    return int(d // 45) * 45 % 360
+
+
+def _open_fcst_db():
+    """Open (or create) the SQLite forecast-history database."""
+    conn = sqlite3.connect(str(_FCST_DB), check_same_thread=False)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS forecast_obs (
+            station_key TEXT    NOT NULL,
+            date        TEXT    NOT NULL,
+            hour        INTEGER NOT NULL,
+            fcst_wind   REAL,
+            fcst_dir    REAL,
+            obs_wind    REAL,
+            PRIMARY KEY (station_key, date, hour)
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_station_date "
+        "ON forecast_obs (station_key, date)"
+    )
+    conn.commit()
+    return conn
+
 
 _COPENHAGEN = ZoneInfo('Europe/Copenhagen')
 
@@ -185,10 +226,10 @@ class FetchNinjo(hass.Hass):
     BRANCH = 'data'
 
     def initialize(self):
-        self.token        = self.args['github_token']
-        self.obs_history  = None   # dict; loaded lazily on first run
-        self.fcst_history = None   # dict; loaded lazily on first forecast run
-        self._lock        = asyncio.Lock()
+        self.token       = self.args['github_token']
+        self.obs_history = None          # dict; loaded lazily on first run
+        self.fcst_conn   = _open_fcst_db()  # SQLite connection; persists to disk
+        self._lock       = asyncio.Lock()
 
         # Obs ingestion: every 10 minutes, starting immediately
         self.run_every(self._ingest_obs_cb, 'now', 10 * 60)
@@ -298,41 +339,36 @@ class FetchNinjo(hass.Hass):
           1. Local disk (fast, always preferred — survives crashes with no network)
           2. gh-pages raw URL for obs-history (first deploy / disk wiped)
           3. Empty dict (fresh start)
-        fcst_history is never on gh-pages, so local disk or empty are the only options.
+        fcst_conn is a SQLite DB opened in initialize(); no load needed here.
         """
-        for attr, filename in [
-            ('obs_history',  'obs-history.json.gz'),
-            ('fcst_history', None),   # not on gh-pages
-        ]:
-            if getattr(self, attr) is not None:
-                continue   # already loaded (shouldn't happen, but be safe)
+        if self.obs_history is not None:
+            return   # already loaded
 
-            # 1. Local disk
-            if self._load_local(attr):
-                continue
+        # 1. Local disk
+        if self._load_local('obs_history'):
+            return
 
-            # 2. gh-pages remote (obs-history only)
-            if filename:
-                url = f'{RAW_BASE}/{filename}'
-                try:
-                    async with session.get(
-                        url, timeout=aiohttp.ClientTimeout(total=30)
-                    ) as r:
-                        if r.status == 200:
-                            raw    = await r.read()
-                            loaded = json.loads(gzip.decompress(raw))
-                            setattr(self, attr, loaded)
-                            self.log(f'Bootstrapped {filename} from gh-pages: {len(loaded)} stations')
-                            self._save_local(attr)   # write to disk immediately
-                            continue
-                        self.log(f'{filename} not on gh-pages (HTTP {r.status}) — starting fresh')
-                except Exception as e:
-                    self.log(f'Could not fetch {filename} from gh-pages: {e}',
-                             level='WARNING')
+        # 2. gh-pages remote
+        url = f'{RAW_BASE}/obs-history.json.gz'
+        try:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=30)
+            ) as r:
+                if r.status == 200:
+                    raw    = await r.read()
+                    loaded = json.loads(gzip.decompress(raw))
+                    self.obs_history = loaded
+                    self.log(f'Bootstrapped obs-history.json.gz from gh-pages: {len(loaded)} stations')
+                    self._save_local('obs_history')
+                    return
+                self.log(f'obs-history.json.gz not on gh-pages (HTTP {r.status}) — starting fresh')
+        except Exception as e:
+            self.log(f'Could not fetch obs-history.json.gz from gh-pages: {e}',
+                     level='WARNING')
 
-            # 3. Fresh start
-            setattr(self, attr, {})
-            self.log(f'{attr} initialised as empty dict')
+        # 3. Fresh start
+        self.obs_history = {}
+        self.log('obs_history initialised as empty dict')
 
     # ── Generic JSON fetch ─────────────────────────────────────────────────────
 
@@ -415,38 +451,60 @@ class FetchNinjo(hass.Hass):
     def _compute_bias(self):
         """
         Compute forecast bias (mean forecast − obs) for every station over the
-        7-day rolling window.  Updates obs_history[key]['bias'] in-place.
+        30-day rolling window stored in SQLite.  Produces both a scalar mean
+        and a stratified table keyed by (speed_bin, bearing_bin).
+        Updates obs_history[key]['bias'] in-place.
         Returns the number of stations that received a bias value.
         """
-        all_diffs = []
-        for key, fh_entry in self.fcst_history.items():
-            for day in fh_entry.get('days', {}).values():
-                fcst = day.get('forecast',   [])
-                obs  = day.get('obs_hourly', [])
-                if not fcst or not obs:
-                    continue
-                df_f = pd.DataFrame(fcst)[['h', 'wind']].rename(columns={'wind': 'f_wind'})
-                df_o = pd.DataFrame(obs) [['h', 'wind']].rename(columns={'wind': 'o_wind'})
-                merged = df_f.merge(df_o, on='h').dropna(subset=['f_wind', 'o_wind'])
-                if merged.empty:
-                    continue
-                merged['key'] = key
-                all_diffs.append(merged[['key', 'f_wind', 'o_wind']])
+        df = pd.read_sql(
+            "SELECT station_key, fcst_wind, fcst_dir, obs_wind "
+            "FROM forecast_obs "
+            "WHERE fcst_wind IS NOT NULL AND obs_wind IS NOT NULL",
+            self.fcst_conn,
+        )
+        if df.empty:
+            for key in self.obs_history:
+                self.obs_history[key].pop('bias', None)
+            return 0
 
-        stats = {}
-        if all_diffs:
-            combined = pd.concat(all_diffs, ignore_index=True)
-            combined['diff'] = combined['f_wind'] - combined['o_wind']
-            agg = combined.groupby('key')['diff'].agg(['mean', 'count'])
-            stats = agg[agg['count'] >= 6].to_dict('index')
+        df['error'] = df['fcst_wind'] - df['obs_wind']
+
+        # Scalar bias per station
+        scalar = (
+            df.groupby('station_key')['error']
+              .agg(['mean', 'count'])
+              .query(f'count >= {STRAT_MIN_N}')
+              .to_dict('index')
+        )
+
+        # Stratified bias by (speed_bin, bearing_bin)
+        df['speed_bin']   = df['fcst_wind'].apply(_speed_bin)
+        df['bearing_bin'] = df['fcst_dir'].apply(_bearing_bin)
+        strat_rows = (
+            df.groupby(['station_key', 'speed_bin', 'bearing_bin'])['error']
+              .agg(['mean', 'count'])
+              .reset_index()
+              .query(f'count >= {STRAT_MIN_N}')
+        )
+        strat_by_key = {}
+        for _, row in strat_rows.iterrows():
+            k    = row['station_key']
+            cell = f"{int(row['speed_bin'])}_{int(row['bearing_bin'])}"
+            strat_by_key.setdefault(k, {})[cell] = {
+                'mean': round(float(row['mean']), 2),
+                'n':    int(row['count']),
+            }
 
         n_bias = 0
         for key in self.obs_history:
-            if key in stats:
-                self.obs_history[key]['bias'] = {
-                    'wind': round(float(stats[key]['mean']), 2),
-                    'n':    int(stats[key]['count']),
+            if key in scalar:
+                bias = {
+                    'wind': round(float(scalar[key]['mean']), 2),
+                    'n':    int(scalar[key]['count']),
                 }
+                if key in strat_by_key:
+                    bias['strat'] = strat_by_key[key]
+                self.obs_history[key]['bias'] = bias
                 n_bias += 1
             else:
                 self.obs_history[key].pop('bias', None)
@@ -522,7 +580,7 @@ class FetchNinjo(hass.Hass):
             }
 
             async with aiohttp.ClientSession() as session:
-                if self.obs_history is None or self.fcst_history is None:
+                if self.obs_history is None:
                     await self._load_state(session)
                 sha_map = await self._get_sha_map(session, gh_headers)
 
@@ -570,38 +628,63 @@ class FetchNinjo(hass.Hass):
                         df_f = df_f[df_f['date'] >= cutoff_str][['date', 'h', 'wind', 'dir']]
                         df_f['wind'] = pd.to_numeric(df_f['wind'], errors='coerce').round(2)
                         df_f['dir']  = pd.to_numeric(df_f['dir'],  errors='coerce').round(1)
+                        clean = df_f.dropna(subset=['wind'])
 
-                        days = self.fcst_history.setdefault(key, {'days': {}})['days']
-                        for date, grp in df_f.groupby('date'):
-                            clean = grp[['h', 'wind', 'dir']].dropna(subset=['wind'])
-                            days.setdefault(date, {'forecast': [], 'obs_hourly': []})
-                            days[date]['forecast'] = [
-                                {k: v for k, v in rec.items() if pd.notna(v)}
-                                for rec in clean.to_dict('records')
-                            ]
+                        fcst_rows = [
+                            (
+                                key,
+                                str(row['date']),
+                                int(row['h']),
+                                float(row['wind']),
+                                float(row['dir']) if pd.notna(row['dir']) else None,
+                            )
+                            for _, row in clean.iterrows()
+                        ]
+                        self.fcst_conn.executemany("""
+                            INSERT INTO forecast_obs
+                                (station_key, date, hour, fcst_wind, fcst_dir)
+                            VALUES (?,?,?,?,?)
+                            ON CONFLICT(station_key, date, hour)
+                            DO UPDATE SET
+                                fcst_wind = excluded.fcst_wind,
+                                fcst_dir  = excluded.fcst_dir
+                        """, fcst_rows)
 
                     if batch_start + FORECAST_BATCH < len(stations):
                         await asyncio.sleep(1)
 
-                # ── Attach yesterday's hourly obs, prune, compute bias ──────────
-                for key, info in self.obs_history.items():
-                    days = self.fcst_history.setdefault(key, {'days': {}})['days']
-                    days.setdefault(yesterday_str, {'forecast': [], 'obs_hourly': []})
-                    days[yesterday_str]['obs_hourly'] = _resample_hourly(
-                        info.get('obs', []), yesterday_str)
+                self.fcst_conn.commit()
 
-                for key in self.fcst_history:
-                    self.fcst_history[key]['days'] = {
-                        d: v for d, v in self.fcst_history[key]['days'].items()
-                        if d >= cutoff_str
-                    }
+                # ── Attach yesterday's hourly obs ──────────────────────────────
+                obs_rows = []
+                for key, info in self.obs_history.items():
+                    for entry in _resample_hourly(info.get('obs', []), yesterday_str):
+                        if 'wind' in entry:
+                            obs_rows.append((
+                                entry['wind'], key, yesterday_str, entry['h'],
+                            ))
+                self.fcst_conn.executemany(
+                    "UPDATE forecast_obs SET obs_wind=? "
+                    "WHERE station_key=? AND date=? AND hour=?",
+                    obs_rows,
+                )
+
+                # ── Prune old rows ─────────────────────────────────────────────
+                self.fcst_conn.execute(
+                    "DELETE FROM forecast_obs WHERE date < ?", (cutoff_str,)
+                )
+                self.fcst_conn.commit()
 
                 n_bias = self._compute_bias()
-                self.log(f'{ts}  Forecast history: {len(self.fcst_history)} stations · bias for {n_bias}')
+                row_count = self.fcst_conn.execute(
+                    "SELECT COUNT(*) FROM forecast_obs"
+                ).fetchone()[0]
+                self.log(
+                    f'{ts}  Forecast history: {row_count} rows in DB · bias for {n_bias}'
+                )
 
                 await self._push_gz(
                     session, gh_headers, sha_map,
                     'obs-history.json.gz', self.obs_history, ts,
                 )
                 self._save_local('obs_history')
-                self._save_local('fcst_history')
