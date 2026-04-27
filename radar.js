@@ -100,6 +100,17 @@ function _buildKiteSpotIssueUrl({ lat, lon, name, dirs }) {
 }
 window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
 
+function _speedBin(w) {
+  if (w < 4)  return 0;
+  if (w < 8)  return 4;
+  if (w < 12) return 8;
+  return 12;
+}
+
+function _bearingBin(d) {
+  return Math.floor(d / 45) * 45 % 360;
+}
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -978,13 +989,54 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
   }
 
   /**
-   * Read pre-computed forecast bias for a station key from window.OBS_HISTORY.
-   * Returns { bias: number, n: number } or null when absent / insufficient data.
+   * Read pre-computed forecast bias for a station from window.OBS_HISTORY.
+   * fcstWind / fcstDir are the current Open-Meteo forecast at that station —
+   * used to select the relevant (speed_bin × bearing_bin) bias cell.
+   *
+   * Lookup order:
+   *   1. Exact (speed_bin, bearing_bin) cell
+   *   2. IDW interpolation across all populated cells in the same station
+   *   3. Scalar mean fallback (no forecast conditions available or no strat data)
+   *
+   * Returns { bias, n, stratified, interpolated } or null.
    */
-  function _stationBias(key) {
+  function _stationBias(key, fcstWind, fcstDir) {
     const b = window.OBS_HISTORY?.[key]?.bias;
     if (!b || b.n == null || b.wind == null) return null;
-    return { bias: b.wind, n: b.n };
+
+    if (b.strat && fcstWind != null && fcstDir != null) {
+      const tSpd = _speedBin(fcstWind);
+      const tBrg = _bearingBin(fcstDir);
+
+      // 1. Exact match
+      const exact = b.strat[`${tSpd}_${tBrg}`];
+      if (exact) return { bias: exact.mean, n: exact.n, stratified: true, interpolated: false };
+
+      // 2. IDW interpolation across all populated cells
+      const SPEED_BINS   = [0, 4, 8, 12];
+      const BEARING_BINS = [0, 45, 90, 135, 180, 225, 270, 315];
+      const tSpdIdx = SPEED_BINS.indexOf(tSpd);
+      const tBrgIdx = BEARING_BINS.indexOf(tBrg);
+
+      let wSum = 0, bSum = 0, nMin = Infinity;
+      for (const [ck, cv] of Object.entries(b.strat)) {
+        const [cs, cb] = ck.split('_').map(Number);
+        const sSteps = Math.abs(SPEED_BINS.indexOf(cs) - tSpdIdx);
+        let bSteps = Math.abs(BEARING_BINS.indexOf(cb) - tBrgIdx);
+        if (bSteps > 4) bSteps = 8 - bSteps;  // circular wrap
+        const dist = Math.sqrt(sSteps * sSteps + bSteps * bSteps);
+        const w = 1 / (dist || 1e-9);
+        wSum += w;
+        bSum += w * cv.mean;
+        nMin = Math.min(nMin, cv.n);
+      }
+      if (wSum > 0) {
+        return { bias: bSum / wSum, n: nMin, stratified: true, interpolated: true };
+      }
+    }
+
+    // 3. Scalar fallback
+    return { bias: b.wind, n: b.n, stratified: false, interpolated: false };
   }
 
   const DIR_DEG = {
@@ -1108,6 +1160,10 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
           });
 
           const obsTime = new Date(latest.t);
+          const nowH = new Date().getUTCHours();
+          const fcstArr = station.fcst;
+          const fcstEntry = fcstArr?.find(f => f.h === nowH) ?? fcstArr?.[fcstArr.length - 1] ?? null;
+
           const sObj = {
             key,
             name:         station.name,
@@ -1118,6 +1174,7 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
             obsTime,
             obsHistory:   station.obs,
             latest:       { wind: latest.wind, gust: latest.gust ?? null, dir: latest.dir ?? null, time: latest.t },
+            fcst:         fcstEntry ? { wind: fcstEntry.wind ?? null, dir: fcstEntry.dir ?? null } : null,
           };
 
           const popupEl = _buildStationPopupEl(sObj);
@@ -1171,13 +1228,16 @@ window._buildKiteSpotIssueUrl = _buildKiteSpotIssueUrl;
             const biasEl = popupEl.querySelector('.dmi-bias-row');
             if (biasEl && biasEl.dataset.loaded !== '1') {
               biasEl.dataset.loaded = '1';
-              const b = _stationBias(key);
+              const b = _stationBias(key, sObj.fcst?.wind, sObj.fcst?.dir);
               if (b) {
                 const sign    = b.bias >= 0 ? '+' : '';
                 const absB    = Math.abs(b.bias);
                 const biasCol = absB > 2 ? '#e06020' : absB > 1 ? '#e0a020' : '#8899aa';
+                const label   = !b.stratified  ? 'Model bias'
+                              : b.interpolated ? 'Model bias (approx)'
+                              :                  'Model bias (current)';
                 biasEl.innerHTML =
-                  `<span style="color:#aaa;font-size:10px">Model bias&nbsp;</span>` +
+                  `<span style="color:#aaa;font-size:10px">${label}&nbsp;</span>` +
                   `<span style="color:${biasCol};font-size:10px;font-weight:600">${sign}${b.bias.toFixed(1)}&nbsp;m/s</span>` +
                   `<span style="color:#aaa;font-size:10px">&nbsp;·&nbsp;${b.n}h</span>`;
               } else {

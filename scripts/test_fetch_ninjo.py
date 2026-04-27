@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Unit tests for pure helpers in fetch-ninjo.py."""
+import os
+import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -112,6 +115,139 @@ class TestTrafikkDirFilter(unittest.TestCase):
         wind_dir = 'N'
         self.assertIsNotNone(wind_speed)
         self.assertIsNotNone(_map_dir(wind_dir))
+
+
+# ── Speed and bearing bin helpers ─────────────────────────────────────────────
+# Replicated from fetch-ninjo.py to test independently of AppDaemon imports.
+
+def _speed_bin(w):
+    if w < 4:  return 0
+    if w < 8:  return 4
+    if w < 12: return 8
+    return 12
+
+
+def _bearing_bin(d):
+    return int(d // 45) * 45 % 360
+
+
+class TestSpeedBin(unittest.TestCase):
+    def test_zero(self):          self.assertEqual(_speed_bin(0),    0)
+    def test_below_4(self):       self.assertEqual(_speed_bin(3.9),  0)
+    def test_at_4(self):          self.assertEqual(_speed_bin(4),    4)
+    def test_mid_bin_4_8(self):   self.assertEqual(_speed_bin(7.9),  4)
+    def test_at_8(self):          self.assertEqual(_speed_bin(8),    8)
+    def test_mid_bin_8_12(self):  self.assertEqual(_speed_bin(11.9), 8)
+    def test_at_12(self):         self.assertEqual(_speed_bin(12),   12)
+    def test_above_12(self):      self.assertEqual(_speed_bin(20),   12)
+
+
+class TestBearingBin(unittest.TestCase):
+    def test_north(self):           self.assertEqual(_bearing_bin(0),   0)
+    def test_just_below_45(self):   self.assertEqual(_bearing_bin(44),  0)
+    def test_at_45(self):           self.assertEqual(_bearing_bin(45),  45)
+    def test_ne_mid(self):          self.assertEqual(_bearing_bin(60),  45)
+    def test_south(self):           self.assertEqual(_bearing_bin(180), 180)
+    def test_west(self):            self.assertEqual(_bearing_bin(270), 270)
+    def test_exactly_315(self):     self.assertEqual(_bearing_bin(315), 315)
+    def test_near_360(self):        self.assertEqual(_bearing_bin(359), 315)
+
+
+class TestFcstDbSchema(unittest.TestCase):
+    """Verify that the SQLite schema and index are created correctly."""
+
+    def _create_db(self, path):
+        conn = sqlite3.connect(path)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS forecast_obs (
+                station_key TEXT    NOT NULL,
+                date        TEXT    NOT NULL,
+                hour        INTEGER NOT NULL,
+                fcst_wind   REAL,
+                fcst_dir    REAL,
+                obs_wind    REAL,
+                PRIMARY KEY (station_key, date, hour)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_station_date "
+            "ON forecast_obs (station_key, date)"
+        )
+        conn.commit()
+        return conn
+
+    def test_creates_table(self):
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+            path = f.name
+        try:
+            conn = self._create_db(path)
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()]
+            self.assertIn('forecast_obs', tables)
+            conn.close()
+        finally:
+            os.unlink(path)
+
+    def test_creates_index(self):
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+            path = f.name
+        try:
+            conn = self._create_db(path)
+            indexes = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            ).fetchall()]
+            self.assertIn('idx_station_date', indexes)
+            conn.close()
+        finally:
+            os.unlink(path)
+
+    def test_upsert_forecast_preserves_obs_wind(self):
+        conn = sqlite3.connect(':memory:')
+        conn.execute("""
+            CREATE TABLE forecast_obs (
+                station_key TEXT, date TEXT, hour INTEGER,
+                fcst_wind REAL, fcst_dir REAL, obs_wind REAL,
+                PRIMARY KEY (station_key, date, hour)
+            )
+        """)
+        # Insert forecast row with no obs
+        conn.execute(
+            "INSERT INTO forecast_obs (station_key,date,hour,fcst_wind,fcst_dir) "
+            "VALUES ('k1','2026-04-25',10,5.0,270.0)"
+        )
+        # Add obs separately
+        conn.execute(
+            "UPDATE forecast_obs SET obs_wind=4.5 "
+            "WHERE station_key='k1' AND date='2026-04-25' AND hour=10"
+        )
+        # Re-upsert forecast should not clear obs_wind
+        conn.execute("""
+            INSERT INTO forecast_obs (station_key,date,hour,fcst_wind,fcst_dir)
+            VALUES ('k1','2026-04-25',10,5.1,272.0)
+            ON CONFLICT(station_key,date,hour)
+            DO UPDATE SET fcst_wind=excluded.fcst_wind, fcst_dir=excluded.fcst_dir
+        """)
+        row = conn.execute(
+            "SELECT fcst_wind, obs_wind FROM forecast_obs"
+        ).fetchone()
+        self.assertAlmostEqual(row[0], 5.1)   # updated forecast
+        self.assertAlmostEqual(row[1], 4.5)   # obs preserved
+        conn.close()
+
+    def test_primary_key_uniqueness(self):
+        conn = sqlite3.connect(':memory:')
+        conn.execute("""
+            CREATE TABLE forecast_obs (
+                station_key TEXT, date TEXT, hour INTEGER,
+                fcst_wind REAL, fcst_dir REAL, obs_wind REAL,
+                PRIMARY KEY (station_key, date, hour)
+            )
+        """)
+        conn.execute("INSERT INTO forecast_obs VALUES ('k1','2026-04-25',10,5.0,270.0,4.5)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO forecast_obs VALUES ('k1','2026-04-25',10,6.0,280.0,NULL)")
+        conn.close()
 
 
 if __name__ == '__main__':

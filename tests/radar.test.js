@@ -4,7 +4,8 @@ import { loadScripts } from './helpers/loader.js';
 // radar.js is an IIFE that requires Leaflet (L). Without it the IIFE returns
 // early, but module-level helpers defined before the IIFE are still available.
 const ctx = loadScripts('radar.js');
-const { _parseNominatimPlace, _nominatimHasLocalDetail, _clampMenuPos, _buildProposeNameUrl } = ctx;
+const { _parseNominatimPlace, _nominatimHasLocalDetail, _clampMenuPos, _buildProposeNameUrl,
+        _speedBin, _bearingBin } = ctx;
 
 describe('OBS_HISTORY_URL', () => {
   it('points to raw.githubusercontent.com data branch', () => {
@@ -252,4 +253,26 @@ describe('fetchStationNames', () => {
     await ctx.window.fetchStationNames();
     expect(capturedUrl).toBe('station-names.json');
   });
+});
+
+describe('_speedBin', () => {
+  it('bins 0 to 0',    () => expect(_speedBin(0)).toBe(0));
+  it('bins 3.9 to 0',  () => expect(_speedBin(3.9)).toBe(0));
+  it('bins 4 to 4',    () => expect(_speedBin(4)).toBe(4));
+  it('bins 7.9 to 4',  () => expect(_speedBin(7.9)).toBe(4));
+  it('bins 8 to 8',    () => expect(_speedBin(8)).toBe(8));
+  it('bins 11.9 to 8', () => expect(_speedBin(11.9)).toBe(8));
+  it('bins 12 to 12',  () => expect(_speedBin(12)).toBe(12));
+  it('bins 20 to 12',  () => expect(_speedBin(20)).toBe(12));
+});
+
+describe('_bearingBin', () => {
+  it('0° → 0',     () => expect(_bearingBin(0)).toBe(0));
+  it('44° → 0',    () => expect(_bearingBin(44)).toBe(0));
+  it('45° → 45',   () => expect(_bearingBin(45)).toBe(45));
+  it('60° → 45',   () => expect(_bearingBin(60)).toBe(45));
+  it('180° → 180', () => expect(_bearingBin(180)).toBe(180));
+  it('270° → 270', () => expect(_bearingBin(270)).toBe(270));
+  it('315° → 315', () => expect(_bearingBin(315)).toBe(315));
+  it('359° → 315', () => expect(_bearingBin(359)).toBe(315));
 });
