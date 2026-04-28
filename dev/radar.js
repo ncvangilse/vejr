@@ -853,7 +853,7 @@ function _bearingBin(d) {
       const poly = L.polygon(latlngs, {
         color:  '#00c890',
         fill:   false,
-        weight: 2,
+        weight: 1,
         opacity: 0.75,
       }).addTo(radarMap);
       kiteSpotOutlineLayers.push(poly);
@@ -897,7 +897,7 @@ function _bearingBin(d) {
     // Dashed line from spot center toward wind source direction
     L.polyline([[lat, lon], [lat + dlat, lon + dlon]], {
       color:     isOptimal ? '#00c890' : '#888888',
-      weight:    2,
+      weight:    1,
       opacity:   0.9,
       dashArray: '5,4',
     }).addTo(group);
@@ -909,7 +909,7 @@ function _bearingBin(d) {
         color:       '#00c890',
         fillColor:   '#00c890',
         fillOpacity: 0.35,
-        weight:      2,
+        weight:      1,
         opacity:     0.8,
       }).addTo(group);
     }
@@ -1230,15 +1230,16 @@ function _bearingBin(d) {
               biasEl.dataset.loaded = '1';
               const b = _stationBias(key, sObj.fcst?.wind, sObj.fcst?.dir);
               if (b) {
-                const sign    = b.bias >= 0 ? '+' : '';
                 const absB    = Math.abs(b.bias);
                 const biasCol = absB > 2 ? '#e06020' : absB > 1 ? '#e0a020' : '#8899aa';
-                const label   = !b.stratified  ? 'Model bias'
-                              : b.interpolated ? 'Model bias (approx)'
-                              :                  'Model bias (current)';
+                const dir     = b.bias >= 0 ? 'overpredicts' : 'underpredicts';
+                const qual    = !b.stratified  ? ''
+                              : b.interpolated ? ' (approx)'
+                              :                  ' (current)';
+                const label   = `Model ${dir}${qual}`;
                 biasEl.innerHTML =
                   `<span style="color:#aaa;font-size:10px">${label}&nbsp;</span>` +
-                  `<span style="color:${biasCol};font-size:10px;font-weight:600">${sign}${b.bias.toFixed(1)}&nbsp;m/s</span>` +
+                  `<span style="color:${biasCol};font-size:10px;font-weight:600">${absB.toFixed(1)}&nbsp;m/s</span>` +
                   `<span style="color:#aaa;font-size:10px">&nbsp;·&nbsp;${b.n}h</span>`;
               } else {
                 biasEl.style.display = 'none';
