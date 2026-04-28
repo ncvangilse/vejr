@@ -38,14 +38,16 @@ self.addEventListener('fetch', event => {
   // Never intercept non-GET requests (POST etc.) — Cache API doesn't support them
   if (event.request.method !== 'GET') return;
 
-  // Network-only: weather APIs, radar, geocoding, and Overpass (must always be live)
+  // Network-only: weather APIs, radar, geocoding, Overpass, and dynamic data files
+  // (raw.githubusercontent.com hosts obs-history.json.gz which the RPi updates every 10 min)
   if (
     url.hostname.includes('dmi.dk') ||
     url.hostname.includes('open-meteo.com') ||
     url.hostname.includes('nominatim') ||
     url.hostname.includes('rainviewer.com') ||
     url.hostname.includes('overpass-api.de') ||
-    url.hostname.includes('overpass.kumi.systems')
+    url.hostname.includes('overpass.kumi.systems') ||
+    url.hostname === 'raw.githubusercontent.com'
   ) {
     // Tile images are not CORS-enabled — let them pass through as-is
     // without re-fetching through the SW (which would enforce CORS)
