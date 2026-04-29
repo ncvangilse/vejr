@@ -111,6 +111,58 @@ function _bearingBin(d) {
   return Math.floor(d / 45) * 45 % 360;
 }
 
+/**
+ * Read pre-computed forecast bias for a station from window.OBS_HISTORY.
+ * fcstWind / fcstDir are the current Open-Meteo forecast at that station —
+ * used to select the relevant (speed_bin × bearing_bin) bias cell.
+ *
+ * Lookup order:
+ *   1. Exact (speed_bin, bearing_bin) cell
+ *   2. IDW interpolation across all populated cells in the same station
+ *   3. Scalar mean fallback (no forecast conditions available or no strat data)
+ *
+ * Returns { bias, n, stratified, interpolated } or null.
+ */
+function _stationBias(key, fcstWind, fcstDir) {
+  const b = window.OBS_HISTORY?.[key]?.bias;
+  if (!b || b.n == null || b.wind == null) return null;
+
+  if (b.strat && fcstWind != null && fcstDir != null) {
+    const tSpd = _speedBin(fcstWind);
+    const tBrg = _bearingBin(fcstDir);
+
+    // 1. Exact match
+    const exact = b.strat[`${tSpd}_${tBrg}`];
+    if (exact) return { bias: exact.mean, n: exact.n, stratified: true, interpolated: false };
+
+    // 2. IDW interpolation across all populated cells
+    const SPEED_BINS   = [0, 4, 8, 12];
+    const BEARING_BINS = [0, 45, 90, 135, 180, 225, 270, 315];
+    const tSpdIdx = SPEED_BINS.indexOf(tSpd);
+    const tBrgIdx = BEARING_BINS.indexOf(tBrg);
+
+    let wSum = 0, bSum = 0, nMin = Infinity;
+    for (const [ck, cv] of Object.entries(b.strat)) {
+      const [cs, cb] = ck.split('_').map(Number);
+      const sSteps = Math.abs(SPEED_BINS.indexOf(cs) - tSpdIdx);
+      let bSteps = Math.abs(BEARING_BINS.indexOf(cb) - tBrgIdx);
+      if (bSteps > 4) bSteps = 8 - bSteps;  // circular wrap
+      const dist = Math.sqrt(sSteps * sSteps + bSteps * bSteps);
+      const w = 1 / (dist || 1e-9);
+      wSum += w;
+      bSum += w * cv.mean;
+      nMin = Math.min(nMin, cv.n);
+    }
+    if (wSum > 0) {
+      return { bias: bSum / wSum, n: nMin, stratified: true, interpolated: true };
+    }
+  }
+
+  // 3. Scalar fallback
+  return { bias: b.wind, n: b.n, stratified: false, interpolated: false };
+}
+window._stationBias = _stationBias;
+
 (function () {
   // Leaflet is loaded from CDN; bail out gracefully if it failed (offline / blocked).
   if (typeof L === 'undefined') {
@@ -986,57 +1038,6 @@ function _bearingBin(d) {
     } catch (_) {
       return null;
     }
-  }
-
-  /**
-   * Read pre-computed forecast bias for a station from window.OBS_HISTORY.
-   * fcstWind / fcstDir are the current Open-Meteo forecast at that station —
-   * used to select the relevant (speed_bin × bearing_bin) bias cell.
-   *
-   * Lookup order:
-   *   1. Exact (speed_bin, bearing_bin) cell
-   *   2. IDW interpolation across all populated cells in the same station
-   *   3. Scalar mean fallback (no forecast conditions available or no strat data)
-   *
-   * Returns { bias, n, stratified, interpolated } or null.
-   */
-  function _stationBias(key, fcstWind, fcstDir) {
-    const b = window.OBS_HISTORY?.[key]?.bias;
-    if (!b || b.n == null || b.wind == null) return null;
-
-    if (b.strat && fcstWind != null && fcstDir != null) {
-      const tSpd = _speedBin(fcstWind);
-      const tBrg = _bearingBin(fcstDir);
-
-      // 1. Exact match
-      const exact = b.strat[`${tSpd}_${tBrg}`];
-      if (exact) return { bias: exact.mean, n: exact.n, stratified: true, interpolated: false };
-
-      // 2. IDW interpolation across all populated cells
-      const SPEED_BINS   = [0, 4, 8, 12];
-      const BEARING_BINS = [0, 45, 90, 135, 180, 225, 270, 315];
-      const tSpdIdx = SPEED_BINS.indexOf(tSpd);
-      const tBrgIdx = BEARING_BINS.indexOf(tBrg);
-
-      let wSum = 0, bSum = 0, nMin = Infinity;
-      for (const [ck, cv] of Object.entries(b.strat)) {
-        const [cs, cb] = ck.split('_').map(Number);
-        const sSteps = Math.abs(SPEED_BINS.indexOf(cs) - tSpdIdx);
-        let bSteps = Math.abs(BEARING_BINS.indexOf(cb) - tBrgIdx);
-        if (bSteps > 4) bSteps = 8 - bSteps;  // circular wrap
-        const dist = Math.sqrt(sSteps * sSteps + bSteps * bSteps);
-        const w = 1 / (dist || 1e-9);
-        wSum += w;
-        bSum += w * cv.mean;
-        nMin = Math.min(nMin, cv.n);
-      }
-      if (wSum > 0) {
-        return { bias: bSum / wSum, n: nMin, stratified: true, interpolated: true };
-      }
-    }
-
-    // 3. Scalar fallback
-    return { bias: b.wind, n: b.n, stratified: false, interpolated: false };
   }
 
   const DIR_DEG = {
