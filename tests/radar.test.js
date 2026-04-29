@@ -5,7 +5,7 @@ import { loadScripts } from './helpers/loader.js';
 // early, but module-level helpers defined before the IIFE are still available.
 const ctx = loadScripts('radar.js');
 const { _parseNominatimPlace, _nominatimHasLocalDetail, _clampMenuPos, _buildProposeNameUrl,
-        _speedBin, _bearingBin } = ctx;
+        _speedBin, _bearingBin, _stationBias } = ctx;
 
 describe('OBS_HISTORY_URL', () => {
   it('points to raw.githubusercontent.com data branch', () => {
@@ -275,4 +275,69 @@ describe('_bearingBin', () => {
   it('270° → 270', () => expect(_bearingBin(270)).toBe(270));
   it('315° → 315', () => expect(_bearingBin(315)).toBe(315));
   it('359° → 315', () => expect(_bearingBin(359)).toBe(315));
+});
+
+describe('_stationBias', () => {
+  beforeEach(() => { ctx.window.OBS_HISTORY = {}; });
+  afterEach(()  => { ctx.window.OBS_HISTORY = undefined; });
+
+  it('returns null when station has no bias field', () => {
+    ctx.window.OBS_HISTORY = { 'ninjo:1': { obs: [] } };
+    expect(_stationBias('ninjo:1')).toBeNull();
+  });
+
+  it('returns null when OBS_HISTORY has no entry for the key', () => {
+    expect(_stationBias('ninjo:missing')).toBeNull();
+  });
+
+  it('returns scalar bias when no strat data and no fcst', () => {
+    ctx.window.OBS_HISTORY = { 'ninjo:1': { bias: { wind: 1.5, n: 30 } } };
+    const r = _stationBias('ninjo:1');
+    expect(r).toEqual({ bias: 1.5, n: 30, stratified: false, interpolated: false });
+  });
+
+  it('returns negative scalar bias (underpredicts)', () => {
+    ctx.window.OBS_HISTORY = { 'ninjo:1': { bias: { wind: -0.8, n: 12 } } };
+    const r = _stationBias('ninjo:1');
+    expect(r.bias).toBeCloseTo(-0.8);
+    expect(r.stratified).toBe(false);
+  });
+
+  it('uses scalar fallback when no fcst provided even if strat is present', () => {
+    ctx.window.OBS_HISTORY = {
+      'ninjo:1': { bias: { wind: 1.0, n: 10, strat: { '4_270': { mean: 2.0, n: 8 } } } },
+    };
+    const r = _stationBias('ninjo:1', null, null);
+    expect(r).toEqual({ bias: 1.0, n: 10, stratified: false, interpolated: false });
+  });
+
+  it('returns exact stratified cell when available', () => {
+    ctx.window.OBS_HISTORY = {
+      'ninjo:1': { bias: { wind: 1.0, n: 10, strat: { '4_270': { mean: 2.5, n: 8 } } } },
+    };
+    const r = _stationBias('ninjo:1', 5, 270);  // speed 5 → bin 4, dir 270 → bin 270
+    expect(r).toEqual({ bias: 2.5, n: 8, stratified: true, interpolated: false });
+  });
+
+  it('returns IDW-interpolated result when no exact cell matches', () => {
+    ctx.window.OBS_HISTORY = {
+      'ninjo:1': { bias: { wind: 1.0, n: 10, strat: {
+        '4_270': { mean: 2.0, n: 8 },
+        '8_270': { mean: 4.0, n: 7 },
+      }}},
+    };
+    // fcst speed 6 → bin 4, dir 350 → bin 315 — neither cell matches exactly
+    const r = _stationBias('ninjo:1', 6, 350);
+    expect(r.stratified).toBe(true);
+    expect(r.interpolated).toBe(true);
+    expect(r.bias).toBeGreaterThan(2.0);
+  });
+
+  it('falls back to scalar when strat is present but IDW produces no weight (empty strat)', () => {
+    ctx.window.OBS_HISTORY = {
+      'ninjo:1': { bias: { wind: 1.0, n: 10, strat: {} } },
+    };
+    const r = _stationBias('ninjo:1', 5, 270);
+    expect(r).toEqual({ bias: 1.0, n: 10, stratified: false, interpolated: false });
+  });
 });
