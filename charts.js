@@ -192,8 +192,9 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
     ctx.fillRect(0, 0, cssW, cssH);
   }
   const padT=8, padB=8, ch=cssH-padT-padB;
-  let tmin=Math.floor(Math.min(...temps)/5)*5;
-  let tmax=Math.ceil( Math.max(...temps)/5)*5;
+  const validTs = temps.filter(v => v != null);
+  let tmin=Math.floor(Math.min(...validTs)/5)*5;
+  let tmax=Math.ceil( Math.max(...validTs)/5)*5;
   if (tmax-tmin < 15) { const mid=(tmin+tmax)/2; tmin=Math.floor((mid-7.5)/5)*5; tmax=tmin+15; }
   const tRange=tmax-tmin;
   const ty=t=>padT+(1-(t-tmin)/tRange)*ch;

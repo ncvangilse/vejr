@@ -542,3 +542,76 @@ describe('drawWind TRAFIK_OBS axis contribution', () => {
     expect(() => getMaxW(dmiObs, null)).not.toThrow();
   });
 });
+
+// ── drawTemp: temperature scale ignores null values ───────────────────────────
+
+describe('drawTemp temperature scale with null values', () => {
+  // When temps contains null values, Math.min/max without filtering treats
+  // null as 0 (JS coercion), producing a wrong tmin/tmax.  drawTemp must
+  // filter nulls first so its scale matches drawCrosshairs (tooltip.js).
+
+  const T0 = new Date('2024-06-15T10:00:00Z').getTime();
+  const times = Array.from({ length: 6 }, (_, i) => new Date(T0 + i * 3600000).toISOString());
+
+  function makeDomEl() {
+    return { style: {}, innerHTML: '', textContent: '', title: '', appendChild: () => {} };
+  }
+
+  function runDrawTemp(temps) {
+    const { ctx2d, canvas } = makeTrackingCanvas();
+    canvas.parentElement = { clientWidth: 400 };
+    const vmCtx = loadChartLogic();
+    vmCtx.document = {
+      getElementById: (id) => id === 'c-temp' ? canvas : makeDomEl(),
+      createElement: () => makeDomEl(),
+    };
+    const precips = Array(6).fill(0);
+    // Call with xMap=null so cx2 uses uniform spacing — easy to ignore for y checks.
+    vmCtx.drawTemp(times, temps, precips, null, null, null, null, null, false, 400, null);
+    return ctx2d.calls;
+  }
+
+  it('draws the temperature line at y positions based on null-filtered scale', () => {
+    // temps: null at 0 and 5; non-null range is 12–15°C.
+    // Null-filtered: tmin=10→5 (expanded), tmax=15→20, tRange=15.
+    // Un-filtered:   tmin=0  (null→0),     tmax=15,    tRange=15 → wrong.
+    const temps = [null, 12, 13, 14, 15, null];
+    const calls = runDrawTemp(temps);
+
+    // Find the first moveTo that starts a temperature line segment.
+    // The line is drawn for indices 1→2, 2→3, 3→4 (skipping null ends).
+    // With correct scale, py(12) = 8 + (1 - (12-5)/15)*114 ≈ 68.8.
+    // With wrong scale,  py(12) = 8 + (1 - 12/15)*114      ≈ 30.8.
+    const lineMoves = calls.filter(c => c.op === 'moveTo');
+    // Pick the moveTo y-values that are above the mid-chart (> 50) — these
+    // correspond to temperatures in the valid 12–15°C range under the correct scale.
+    const TEMP_padT = 8, TEMP_ch = 114;
+    const expectedY12 = TEMP_padT + (1 - (12 - 5) / 15) * TEMP_ch; // ≈ 68.8
+    const wrongY12    = TEMP_padT + (1 -  12       / 15) * TEMP_ch; // ≈ 30.8
+
+    // At least one moveTo should match the correct y for 12°C.
+    const correctHit = lineMoves.some(c => Math.abs(c.y - expectedY12) < 1);
+    const wrongHit   = lineMoves.some(c => Math.abs(c.y - wrongY12)    < 1);
+
+    expect(correctHit).toBe(true);   // curve drawn at correct (null-filtered) scale
+    expect(wrongHit).toBe(false);    // NOT at the wrong (null-coerced-to-0) scale
+  });
+
+  it('produces the same y scale whether or not leading/trailing nulls are present', () => {
+    // A clean array and one with nulls should produce the same curve y positions.
+    const tempsClean = [12, 12, 13, 14, 15, 15];
+    const tempsNulls = [null, 12, 13, 14, 15, null];
+
+    const callsClean = runDrawTemp(tempsClean);
+    const callsNulls = runDrawTemp(tempsNulls);
+
+    const yClean = callsClean.filter(c => c.op === 'moveTo').map(c => c.y);
+    const yNulls = callsNulls.filter(c => c.op === 'moveTo').map(c => c.y);
+
+    // Both should contain y ≈ 68.8 for 12°C (correct scale).
+    const TEMP_padT = 8, TEMP_ch = 114;
+    const expected12 = TEMP_padT + (1 - (12 - 5) / 15) * TEMP_ch;
+    expect(yClean.some(y => Math.abs(y - expected12) < 1)).toBe(true);
+    expect(yNulls.some(y => Math.abs(y - expected12) < 1)).toBe(true);
+  });
+});
