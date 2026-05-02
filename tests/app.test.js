@@ -1241,6 +1241,73 @@ describe('drawCrosshairs consistent x across rows', () => {
   });
 });
 
+// ── temperature dot y tracks the curve (null-coercion guard) ─────────────────
+
+describe('drawCrosshairs temperature dot y-position', () => {
+  it('places the dot on the curve even when temps1h contains null values', () => {
+    // When temps1h has nulls, Math.min/max without filtering coerces null→0 and
+    // produces a different tmin/tmax than tooltip.js (which filters nulls).
+    // This caused the dot to appear above/below the actual temperature curve.
+    // Both drawTemp (charts.js) and drawCrosshairs (tooltip.js) must use the
+    // null-filtered scale so the dot sits exactly on the drawn line.
+
+    const { ctx } = loadApp();
+    ctx._windAxisMax = () => 20;
+
+    // temps1h has nulls at positions 0 and 5; non-null temps are all 12–15°C.
+    // Null-filtered: tmin=10 → expanded to tmin=5, tmax=20, tRange=15.
+    // Un-filtered:   tmin=0  (null→0), tmax=15, tRange=15 → completely wrong scale.
+    ctx.lastRenderedData = {
+      times:     ['2025-01-01T00:00', '2025-01-01T03:00'],
+      times1h:   Array.from({ length: 6 }, (_, i) => `2025-01-01T0${i}:00`),
+      temps1h:   [null, 12, 13, 14, 15, null],
+      winds1h:   Array(6).fill(5),
+      ensWind1h: null,
+      ensGust1h: null,
+      xMap1h:    [15, 25, 35, 45, 55, 65],
+      slotIdx1h: [0, 0, 0, 1, 1, 1],
+    };
+
+    // Capture arc(x, y, ...) on xh-temp to read the dot's y-position.
+    let tempDotY = null;
+    const origGetEl = ctx.document.getElementById;
+    ctx.document.getElementById = (id) => {
+      if (['xh-top', 'xh-temp', 'xh-dir', 'xh-wind'].includes(id)) {
+        const isTemp = id === 'xh-temp';
+        return {
+          width: 60, height: 130, style: {},
+          getContext: () => ({
+            clearRect() {}, save() {}, restore() {}, scale() {},
+            beginPath() {}, stroke() {}, fill() {}, moveTo() {}, lineTo() {},
+            setLineDash() {}, fillText() {},
+            arc(x, y) { if (isTemp) tempDotY = y; },
+            font: '', fillStyle: '', strokeStyle: '',
+            lineWidth: 0, textBaseline: '', textAlign: '',
+            measureText: () => ({ width: 0 }),
+          }),
+        };
+      }
+      if (['c-top', 'c-temp', 'c-dir', 'c-wind'].includes(id))
+        return { width: 60, height: 130 };
+      return origGetEl(id);
+    };
+
+    // idx1h=2 → tempVal = 13°C
+    ctx.drawCrosshairs(0.5, 2, 0);
+
+    // Expected scale (null-filtered): tmin=5, tmax=20, tRange=15
+    // dotY = TEMP_padT + (1 - (13-5)/15) * TEMP_ch = 8 + (7/15)*114 ≈ 61.2
+    const TEMP_padT = 8, TEMP_ch = 114;
+    const expectedY = TEMP_padT + (1 - (13 - 5) / 15) * TEMP_ch;
+    expect(tempDotY).toBeCloseTo(expectedY, 1);
+
+    // Verify it is NOT at the wrong position produced by un-filtered scale
+    // (tmin=0, dotY = 8 + (1 - 13/15)*114 ≈ 23.2) — a 38px error.
+    const wrongY = TEMP_padT + (1 - 13 / 15) * TEMP_ch;
+    expect(Math.abs(tempDotY - wrongY)).toBeGreaterThan(5);
+  });
+});
+
 // ── showCurrentTimeCrosshair (Issue 120) ──────────────────────────────────────
 
 function makeXhSetup(ctx) {
