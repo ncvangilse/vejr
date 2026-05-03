@@ -574,7 +574,7 @@ window._stationBias = _stationBias;
   function makeLayer(frame, opacity, onReady) {
     const l = new SafeTileLayer(frameUrl(frame), {
       opacity, tileSize: 256, maxNativeZoom: RADAR_NATIVE_MAX_ZOOM, maxZoom: 18,
-      keepBuffer: 0, updateWhenIdle: true,
+      keepBuffer: 0, updateWhenIdle: true, pane: 'radarPane',
     });
     let pending = 0, errors = 0, probeUrl = null;
     l.on('tileloadstart', (e) => {
@@ -656,6 +656,8 @@ window._stationBias = _stationBias;
         scrollWheelZoom: false,
         zoomAnimation: false,
       });
+      radarMap.createPane('radarPane');
+      radarMap.getPane('radarPane').style.zIndex = 250;
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
       }).addTo(radarMap);

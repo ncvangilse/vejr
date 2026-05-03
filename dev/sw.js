@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.05.02-246-claude-fix-temperature-hover-point-EOI6Q-5';
+const CACHE_NAME = 'vejr-2026.05.03-247-claude-fix-dark-mode-colors-xiU1O-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
