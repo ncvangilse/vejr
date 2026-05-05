@@ -5,7 +5,7 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { height: 100%; overflow-x: hidden; overscroll-behavior-x: none; }
+html { height: 100%; overflow-x: hidden; overscroll-behavior-x: none; touch-action: pan-x pan-y; }
 body {
   background: #c8d0d8;
   font-family: 'IBM Plex Sans', sans-serif;
