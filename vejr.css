@@ -1083,6 +1083,14 @@ body.inverted-colors .leaflet-radar-pane { filter: invert(1); }
 /* Kite spot map marker — restores green circle (#006644 bg, #00c890 border). */
 body.inverted-colors .kite-spot-icon { filter: invert(1); }
 
+/* Radar control bars below the map — covers play/zoom buttons, slider,
+   time label, and station toggle buttons without per-child rules. */
+body.inverted-colors #radar-controls    { filter: invert(1); }
+body.inverted-colors #radar-obs-controls { filter: invert(1); }
+
+/* Location pin on radar map — restores original blue dot and white ring. */
+body.inverted-colors .radar-loc-wrap { filter: invert(1); }
+
 /* ── Strategy B: pre-inverted color values ──────────────────────────── */
 
 /* Chart backgrounds: #e1d5c7 = invert(#1e2a38); OS restores the dark blue
@@ -1098,28 +1106,6 @@ body.inverted-colors #kite-cfg-btn {
   border-color: #ff376f;
 }
 body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
-
-/* Radar play/zoom buttons: outside any filter container, so pre-inverted
-   individually. Container backgrounds go dark naturally with OS inversion. */
-body.inverted-colors #radar-play-btn,
-body.inverted-colors .radar-zoom-btn {
-  background:   #d5c5af;
-  color:        #754b2b;
-  border-color: #b5957a;
-}
-body.inverted-colors #radar-play-btn:hover,
-body.inverted-colors .radar-zoom-btn:hover { background: #c5b59f; }
-body.inverted-colors .radar-overlay-toggle {
-  background:   rgba(255,255,255,0.07);
-  color:        #aaaa99;
-  border-color: #444;
-}
-body.inverted-colors .radar-overlay-toggle:hover { background: rgba(255,255,255,0.13); }
-body.inverted-colors .radar-overlay-toggle.active {
-  background:   rgba(255,55,111,0.12);
-  border-color: #ff5787;
-  color:        #ff9fbf;
-}
 
 /* ── Kite spot creation dialog ── */
 #kite-spot-modal-overlay {
