@@ -651,9 +651,18 @@ async function loadNearestObsStation(lat, lon, opts = {}) {
     updateShoreStatusUI();
   };
 
+  function openKiteModal() {
+    overlay.classList.add('open');
+    document.body.classList.add('modal-open');
+  }
+  function closeKiteModal() {
+    overlay.classList.remove('open');
+    document.body.classList.remove('modal-open');
+  }
+
   cfgBtn.addEventListener('click', () => {
     syncDialogToConfig(KITE_CFG);
-    overlay.classList.add('open');
+    openKiteModal();
     // Ensure raster + vector data is fetched (or retried if a previous attempt failed).
     // Both functions deduplicate in-flight requests, so duplicate calls are free.
     if (lastShoreCoords) {
@@ -662,14 +671,14 @@ async function loadNearestObsStation(lat, lon, opts = {}) {
     }
     requestAnimationFrame(() => { drawModalCompass(); updateShoreStatusUI(); renderShoreDebug(); });
   });
-  cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+  cancelBtn.addEventListener('click', closeKiteModal);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeKiteModal(); });
   resetBtn.addEventListener('click', () => { syncDialogToConfig(KITE_DEFAULTS); drawModalCompass(); });
   applyBtn.addEventListener('click', () => {
     const cfg = readDialogConfig();
     window.setShoreSeaThresh(cfg.seaThresh);   // commit threshold before re-render
     setKiteParams(cfg);
-    overlay.classList.remove('open');
+    closeKiteModal();
     if (lastData) renderDisplay(lastData);
   });
 
