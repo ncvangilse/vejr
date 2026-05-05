@@ -1062,10 +1062,6 @@ canvas.main-canvas {
 
 /* ── Strategy A: filter:invert(1) containers ───────────────────────── */
 
-/* Footer box — one rule covers #credits-btn, #help-btn, #feedback-link,
-   #build-number, #shore-status; no per-child rules needed. */
-body.inverted-colors #app-footer { filter: invert(1); }
-
 /* Modals — each overlay covers all interior elements in one rule. */
 body.inverted-colors #credits-modal-overlay   { filter: invert(1); }
 body.inverted-colors #help-modal-overlay      { filter: invert(1); }
@@ -1083,15 +1079,12 @@ body.inverted-colors .leaflet-radar-pane { filter: invert(1); }
 /* Kite spot map marker — restores green circle (#006644 bg, #00c890 border). */
 body.inverted-colors .kite-spot-icon { filter: invert(1); }
 
-/* Radar control bars below the map — covers play/zoom buttons, slider,
-   time label, and station toggle buttons without per-child rules. */
-body.inverted-colors #radar-controls    { filter: invert(1); }
-body.inverted-colors #radar-obs-controls { filter: invert(1); }
-
 /* Location pin on radar map — restores original blue dot and white ring. */
 body.inverted-colors .radar-loc-wrap { filter: invert(1); }
 
 /* ── Strategy B: pre-inverted color values ──────────────────────────── */
+/* Frames (footer, radar control bars) go dark naturally via OS inversion.
+   Buttons inside them use pre-inverted colors so OS restores original style. */
 
 /* Chart backgrounds: #e1d5c7 = invert(#1e2a38); OS restores the dark blue
    used by canvas draws in inverted mode. */
@@ -1106,6 +1099,40 @@ body.inverted-colors #kite-cfg-btn {
   border-color: #ff376f;
 }
 body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
+
+/* Footer buttons: pre-invert so OS restores original dark-navy appearance. */
+body.inverted-colors #credits-btn,
+body.inverted-colors #help-btn {
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
+}
+body.inverted-colors #credits-btn:hover,
+body.inverted-colors #help-btn:hover { background: #c5b59f; }
+
+/* Radar play/zoom buttons: pre-invert so OS restores original dark-navy style. */
+body.inverted-colors #radar-play-btn,
+body.inverted-colors .radar-zoom-btn {
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
+}
+body.inverted-colors #radar-play-btn:hover,
+body.inverted-colors .radar-zoom-btn:hover { background: #c5b59f; }
+
+/* Radar overlay toggles: pre-invert muted styles; active state pre-inverts
+   the highlight so OS restores the original pink/red accent. */
+body.inverted-colors .radar-overlay-toggle {
+  background:   rgba(255,255,255,0.07);
+  color:        #aaaa99;
+  border-color: #444;
+}
+body.inverted-colors .radar-overlay-toggle:hover { background: rgba(255,255,255,0.13); }
+body.inverted-colors .radar-overlay-toggle.active {
+  background:   rgba(255,55,111,0.12);
+  border-color: #ff5787;
+  color:        #ff9fbf;
+}
 
 /* ── Kite spot creation dialog ── */
 #kite-spot-modal-overlay {
