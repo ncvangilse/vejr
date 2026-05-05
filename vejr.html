@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -35,7 +35,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="vejr.css?v=32">
+<link rel="stylesheet" href="vejr.css?v=33">
 </head>
 <body>
 <div id="rotator">
@@ -149,7 +149,7 @@
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.05.05-83</div>
+  <div id="build-number">build 2026.05.05-84</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
   <a href="mailto:info@kitevibe.dk" id="feedback-link">Feedback</a>
@@ -428,6 +428,21 @@ Trafikinfo weather stations sometimes have unhelpful auto-generated names. If yo
 <script src="shore-debug.js?v=1"></script>
 <script src="tooltip.js?v=1"></script>
 <script src="app.js?v=28"></script>
+<!-- Disable page pinch-zoom on iOS (which ignores user-scalable=no since iOS 10).
+     Touches inside #radar-map pass through so Leaflet zoom still works. -->
+<script>
+(function () {
+  var mapEl = null;
+  document.addEventListener('DOMContentLoaded', function () {
+    mapEl = document.getElementById('radar-map');
+  });
+  document.addEventListener('touchmove', function (e) {
+    if (e.touches.length > 1 && !(mapEl && mapEl.contains(e.target))) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+})();
+</script>
 <!-- 100% privacy-first analytics -->
 <script data-collect-dnt="true" async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
 </body>
