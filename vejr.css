@@ -1083,13 +1083,16 @@ body.inverted-colors .kite-spot-icon { filter: invert(1); }
 body.inverted-colors .radar-loc-wrap { filter: invert(1); }
 
 /* ── Strategy B: pre-inverted color values ──────────────────────────── */
-/* Frames (footer, radar control bars) go dark naturally via OS inversion.
-   Buttons inside them use pre-inverted colors so OS restores original style. */
-
-/* Chart backgrounds: #e1d5c7 = invert(#1e2a38); OS restores the dark blue
-   used by canvas draws in inverted mode. */
-body.inverted-colors .chart-row    { background: #e1d5c7 !important; }
-body.inverted-colors .y-axis       { background: #e1d5c7 !important; }
+/* All UI frames use #e1d5c7 = invert(#1e2a38) so OS restores the same
+   dark-blue background as the kite config modal. */
+body.inverted-colors #forecast-container,
+body.inverted-colors #header,
+body.inverted-colors #radar-section,
+body.inverted-colors #radar-controls,
+body.inverted-colors #radar-obs-controls,
+body.inverted-colors #app-footer,
+body.inverted-colors .chart-row,
+body.inverted-colors .y-axis,
 body.inverted-colors .y-axis-right { background: #e1d5c7 !important; }
 
 /* Kite config button: pre-invert green so OS restores original green. */
