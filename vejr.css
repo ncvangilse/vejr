@@ -500,7 +500,7 @@ canvas.main-canvas {
 #credits-modal-overlay.open { display: flex; }
 #credits-modal {
   background: #1e2a38;
-  border: 1px solid #3a5a7a;
+  border: 1px solid #00c890;
   border-radius: 6px;
   padding: 18px 22px 16px;
   min-width: 280px;
@@ -583,16 +583,6 @@ canvas.main-canvas {
 }
 .credits-actions button:hover { background: #334455; }
 
-/* Credits modal inverted-colors pre-invert */
-body.inverted-colors #credits-modal-overlay { filter: invert(1); }
-body.inverted-colors #credits-btn {
-  background:   #d5c5af;
-  color:        #754b2b;
-  border-color: #b5957a;
-}
-body.inverted-colors #credits-btn:hover { background: #c5b59f; }
-body.inverted-colors #app-footer { filter: invert(1); }
-
 /* ── Help button (in footer) ── */
 #help-btn {
   padding: 7px 14px;
@@ -623,7 +613,7 @@ body.inverted-colors #app-footer { filter: invert(1); }
 #help-modal-overlay.open { display: flex; }
 #help-modal {
   background: #1e2a38;
-  border: 1px solid #3a5a7a;
+  border: 1px solid #00c890;
   border-radius: 6px;
   padding: 18px 22px 16px;
   min-width: 280px;
@@ -676,14 +666,6 @@ body.inverted-colors #app-footer { filter: invert(1); }
 #help-modal-body em { color: #9abcd4; font-style: italic; }
 #help-modal-body a { color: #5a9ac8; text-decoration: none; }
 #help-modal-body a:hover { color: #8ac4f0; text-decoration: underline; }
-
-body.inverted-colors #help-modal-overlay { filter: invert(1); }
-body.inverted-colors #help-btn {
-  background:   #d5c5af;
-  color:        #754b2b;
-  border-color: #b5957a;
-}
-body.inverted-colors #help-btn:hover { background: #c5b59f; }
 
 /* ── Kite config modal ── */
 #kite-modal-overlay {
@@ -1058,17 +1040,62 @@ body.inverted-colors #help-btn:hover { background: #c5b59f; }
 }
 
 
-/* ── Inverted colours (iOS): applied via JS body class (matchMedia works;
-      @media (inverted-colors) does not reliably fire in WKWebView) ── */
+/* ══════════════════════════════════════════════════════════════════════
+   Inverted colours (iOS a11y "Classic Invert" / "Smart Invert")
+   Applied via JS body class — matchMedia('(inverted-colors: inverted)')
+   works reliably; @media (inverted-colors) does not fire in WKWebView.
 
-/* Pre-invert all chart backgrounds so OS double-inversion restores the same
-   dark blue (#1e2a38) used by the canvas draws in inverted mode.
-   #e1d5c7 = 255-#1e2a38 = invert(#1e2a38). */
-body.inverted-colors .chart-row    { background: #e1d5c7 !important; }
-body.inverted-colors .y-axis       { background: #e1d5c7 !important; }
+   TWO STRATEGIES — never apply both to the same element (triple inversion):
+
+   A) filter:invert(1) on a container: CSS pre-inverts the entire subtree;
+      OS then re-inverts → all children display original colors.
+      Use for modals, the footer, map panes, canvas wrappers.
+
+   B) Pre-inverted color values: CSS props set to 255-complement;
+      OS inversion → original colors appear.
+      Use for isolated elements outside any filter:invert(1) scope.
+
+   To add a new element: if it sits inside an existing filter container
+   (e.g. a modal overlay) no extra rule is needed. Otherwise add a
+   filter:invert(1) on a suitable wrapper, or pre-inverted colors, here.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Strategy A: filter:invert(1) containers ───────────────────────── */
+
+/* Modals — each overlay covers all interior elements in one rule. */
+body.inverted-colors #credits-modal-overlay   { filter: invert(1); }
+body.inverted-colors #help-modal-overlay      { filter: invert(1); }
+body.inverted-colors #kite-modal-overlay      { filter: invert(1); }
+body.inverted-colors #kite-spot-modal-overlay { filter: invert(1); }
+
+/* Tooltip — preserves dark background, light text, and weather icon canvas. */
+body.inverted-colors #hover-tooltip { filter: invert(1); }
+
+/* Radar precipitation tiles — radarPane is a custom Leaflet pane containing
+   only the RainViewer tiles (not the base map). Inverting only this pane
+   restores the original precipitation color scale after OS double-inversion. */
+body.inverted-colors .leaflet-radar-pane { filter: invert(1); }
+
+/* Kite spot map marker — restores green circle (#006644 bg, #00c890 border). */
+body.inverted-colors .kite-spot-icon { filter: invert(1); }
+
+/* Location pin on radar map — restores original blue dot and white ring. */
+body.inverted-colors .radar-loc-wrap { filter: invert(1); }
+
+/* ── Strategy B: pre-inverted color values ──────────────────────────── */
+/* All UI frames use #e1d5c7 = invert(#1e2a38) so OS restores the same
+   dark-blue background as the kite config modal. */
+body.inverted-colors #forecast-container,
+body.inverted-colors #header,
+body.inverted-colors #radar-section,
+body.inverted-colors #radar-controls,
+body.inverted-colors #radar-obs-controls,
+body.inverted-colors #app-footer,
+body.inverted-colors .chart-row,
+body.inverted-colors .y-axis,
 body.inverted-colors .y-axis-right { background: #e1d5c7 !important; }
 
-/* Kite button: pre-invert all green colors so OS restores the original green */
+/* Kite config button: pre-invert green so OS restores original green. */
 body.inverted-colors #kite-cfg-btn {
   background:   #e5b5d1;
   color:        #ff174f;
@@ -1076,9 +1103,17 @@ body.inverted-colors #kite-cfg-btn {
 }
 body.inverted-colors #kite-cfg-btn:hover { background: #dda5c7; }
 
-/* Radar buttons: pre-invert only the button elements so OS double-inversion
-   restores their original colors. The container backgrounds go dark naturally
-   with OS inversion, matching the forecast frame appearance. */
+/* Footer buttons: pre-invert so OS restores original dark-navy appearance. */
+body.inverted-colors #credits-btn,
+body.inverted-colors #help-btn {
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
+}
+body.inverted-colors #credits-btn:hover,
+body.inverted-colors #help-btn:hover { background: #c5b59f; }
+
+/* Radar play/zoom buttons: pre-invert so OS restores original dark-navy style. */
 body.inverted-colors #radar-play-btn,
 body.inverted-colors .radar-zoom-btn {
   background:   #d5c5af;
@@ -1087,22 +1122,31 @@ body.inverted-colors .radar-zoom-btn {
 }
 body.inverted-colors #radar-play-btn:hover,
 body.inverted-colors .radar-zoom-btn:hover { background: #c5b59f; }
+
+/* Radar overlay toggles: pre-invert to show as blue (normal) / green (active). */
 body.inverted-colors .radar-overlay-toggle {
-  background:   rgba(255,255,255,0.07);
-  color:        #aaaa99;
-  border-color: #444;
+  background:   #d5c5af;
+  color:        #754b2b;
+  border-color: #b5957a;
 }
-body.inverted-colors .radar-overlay-toggle:hover { background: rgba(255,255,255,0.13); }
+body.inverted-colors .radar-overlay-toggle:hover { background: #c5b59f; }
 body.inverted-colors .radar-overlay-toggle.active {
   background:   rgba(255,55,111,0.12);
   border-color: #ff5787;
-  color:        #ff9fbf;
+  color:        #ff174f;
 }
 
-/* Kite modal: pre-invert the entire overlay so the OS double-inversion
-   restores all original dark-theme colors (background, text, borders,
-   compass canvas). One rule covers all children. */
-body.inverted-colors #kite-modal-overlay { filter: invert(1); }
+/* Kite-spot popup buttons: inline styles need !important override.
+   Pre-invert green "Use this spot" so OS restores #006644/#00e8b0.
+   Pre-invert "Delete spot" to show as blue (avoids unexpected cyan). */
+body.inverted-colors .ks-use-btn {
+  background: #ff99bb !important;
+  color:      #ff174f !important;
+}
+body.inverted-colors .ks-del-btn {
+  color:        #754b2b !important;
+  border-color: #b5957a !important;
+}
 
 /* ── Kite spot creation dialog ── */
 #kite-spot-modal-overlay {
@@ -1202,11 +1246,6 @@ body.inverted-colors #kite-modal-overlay { filter: invert(1); }
   font-family: 'IBM Plex Sans', sans-serif;
 }
 #kite-spot-apply:hover { background: #007755; }
-body.inverted-colors #kite-spot-modal-overlay { filter: invert(1); }
-
-/* Tooltip: same pre-invert trick — preserves dark background, light text,
-   and the weather icon canvas after OS double-inversion. */
-body.inverted-colors #hover-tooltip { filter: invert(1); }
 
 
 
