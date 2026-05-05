@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vejr-2026.05.05-251-claude-fix-dark-mode-colors-xiU1O-5';
+const CACHE_NAME = 'vejr-2026.05.05-252-claude-disable-page-zoom-sMANL-5';
 
 // Only cache truly static assets — never the HTML or SW itself
 const ASSETS = [
