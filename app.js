@@ -1068,8 +1068,8 @@ if (window.setObsToggleCallback) {
 
 // ── Kite spot callbacks ───────────────────────────────────────────────────
 if (window.setCreateKiteSpotCallback) {
-  window.setCreateKiteSpotCallback((lat, lon) => {
-    if (window.openKiteSpotDialog) window.openKiteSpotDialog(lat, lon);
+  window.setCreateKiteSpotCallback((lat, lon, name) => {
+    if (window.openKiteSpotDialog) window.openKiteSpotDialog(lat, lon, name);
   });
 }
 if (window.setKiteSpotClickCallback) {
@@ -1164,7 +1164,6 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   let pendingLat   = null;
   let pendingLon   = null;
   let spotBearings = [];    // currently selected bearings
-  let spotMask     = null;  // Float32Array[36] from analyseShore for this spot
   let spotDragMode = null;  // 'add' | 'remove'
   let spotLastSlot = null;
 
@@ -1185,7 +1184,7 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, SIZE, SIZE);
     window.drawShoreCompass(ctx, SIZE / 2, SIZE / 2, SIZE / 2 - 2,
-      spotMask, null, false, spotBearings, KITE_CFG.seaThresh);
+      window.SHORE_MASK, null, false, spotBearings, KITE_CFG.seaThresh);
   }
 
   function bearingFromPointer(canvas, clientX, clientY) {
@@ -1248,10 +1247,21 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
   }
 
   // Redraw spot compass when Overpass vector coastline data arrives.
-  // The raster analysis and vector fetch run in parallel; without this listener
-  // the coastline overlay would never appear if the vector fetch finishes last.
   window.addEventListener('shore-vector-ready', () => {
     if (overlay.classList.contains('open')) requestAnimationFrame(() => drawSpotCompass());
+  });
+
+  // Auto-populate bearings and redraw when raster analysis completes.
+  window.addEventListener('shore-mask-ready', () => {
+    if (!overlay.classList.contains('open')) return;
+    if (window.SHORE_MASK && spotBearings.length === 0) {
+      const thresh = KITE_CFG.seaThresh;
+      for (let b = 0; b < SHORE_BEARINGS; b++) {
+        if (window.SHORE_MASK[b] >= thresh) spotBearings.push(b * 10);
+      }
+    }
+    setStatus('');
+    requestAnimationFrame(() => drawSpotCompass());
   });
 
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
@@ -1276,36 +1286,55 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     }
   });
 
-  window.openKiteSpotDialog = function (lat, lon) {
+  window.openKiteSpotDialog = function (lat, lon, suggestedName) {
     pendingLat   = lat;
     pendingLon   = lon;
     spotBearings = [];
-    spotMask     = null;
-    if (nameInput) nameInput.value = '';
     overlay.classList.add('open');
-    setStatus('🌊 Detecting sea bearings…');
-    requestAnimationFrame(() => drawSpotCompass());
 
+    if (nameInput) {
+      if (suggestedName) {
+        nameInput.value = suggestedName;
+      } else {
+        nameInput.value = '';
+        // Async fallback: geocode the spot location for a readable name.
+        fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
+          { headers: { 'Accept-Language': 'en' } }
+        ).then(r => r.ok ? r.json() : null).then(d => {
+          if (!d || !nameInput) return;
+          const a = d.address || {};
+          const name = a.beach || a.leisure || a.natural
+                    || a.neighbourhood || a.suburb || a.hamlet || a.village
+                    || a.town || a.city_district || a.city
+                    || (d.display_name ? d.display_name.split(',')[0] : null);
+          if (name && nameInput.value === '') nameInput.value = name;
+        }).catch(() => null);
+      }
+    }
+
+    // Trigger/chain analysis (deduplicates if already in-flight from context-menu prefetch).
+    // If fast-path hits (cached coords), SHORE_MASK is already populated after this call.
     if (window.analyseShore) {
-      window.analyseShore(lat, lon, () => {
-        spotMask = window.SHORE_MASK;
-        if (spotMask) {
-          const thresh = KITE_CFG.seaThresh;
-          spotBearings = [];
-          for (let b = 0; b < SHORE_BEARINGS; b++) {
-            if (spotMask[b] >= thresh) spotBearings.push(b * 10);
-          }
-          setStatus('');
-        } else {
+      Promise.resolve(window.analyseShore(lat, lon)).then(() => {
+        if (overlay.classList.contains('open') && !window.SHORE_MASK && spotBearings.length === 0) {
           setStatus('⚠ Could not detect sea bearings — select manually');
         }
-        drawSpotCompass();
-      }).catch(() => {
-        setStatus('⚠ Could not detect sea bearings — select manually');
-      });
-    } else {
-      setStatus('');
+      }).catch(() => null);
     }
+
+    // Immediately use cached mask if available (fast-path or completed prefetch).
+    if (window.SHORE_MASK) {
+      const thresh = KITE_CFG.seaThresh;
+      for (let b = 0; b < SHORE_BEARINGS; b++) {
+        if (window.SHORE_MASK[b] >= thresh) spotBearings.push(b * 10);
+      }
+      setStatus('');
+    } else {
+      setStatus('🌊 Detecting sea bearings…');
+    }
+
+    requestAnimationFrame(() => drawSpotCompass());
   };
 })();
 
