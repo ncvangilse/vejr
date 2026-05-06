@@ -225,37 +225,6 @@ window._stationBias = _stationBias;
     return Math.min(maxM, Math.min(wM, hM) * 0.25);
   }
 
-  /** Build the popup DOM element for a kite spot marker. */
-  function _buildKiteSpotPopupEl(spot) {
-    const el = document.createElement('div');
-    el.setAttribute('style',
-      'font-family:"IBM Plex Sans",sans-serif;font-size:12px;line-height:1.6;min-width:180px;max-width:260px');
-    const dirsStr = spot.dirs && spot.dirs.length
-      ? spot.dirs.map(d => d + '°').join(', ')
-      : '—';
-    el.innerHTML =
-      `<div style="font-size:13px;font-weight:700;margin-bottom:2px">${
-        spot.name || 'Unnamed spot'}</div>` +
-      `<div style="color:#aaa;font-size:11px;margin-bottom:6px">${
-        spot.lat.toFixed(4)}, ${spot.lon.toFixed(4)}</div>` +
-      `<div style="color:#8ab4d4;font-size:11px;margin-bottom:8px">Sea bearings: ${dirsStr}</div>` +
-      `<button data-sid="${spot.id}" class="ks-use-btn" style="width:100%;padding:6px;` +
-      `background:#006644;color:#00e8b0;border:none;border-radius:4px;cursor:pointer;` +
-      `font-size:12px;font-family:inherit;margin-bottom:4px">Use this spot</button>` +
-      (!spot.curated
-        ? `<button data-sid="${spot.id}" class="ks-del-btn" style="width:100%;padding:4px;` +
-          `background:transparent;color:#c04040;border:1px solid #c04040;border-radius:4px;` +
-          `cursor:pointer;font-size:11px;font-family:inherit">Delete spot</button>`
-        : '');
-    el.querySelector('.ks-use-btn').addEventListener('click', () => {
-      if (window._onKiteSpotClick) window._onKiteSpotClick(spot.id);
-    });
-    el.querySelector('.ks-del-btn')?.addEventListener('click', () => {
-      if (window._onDeleteKiteSpot) window._onDeleteKiteSpot(spot.id);
-    });
-    return el;
-  }
-
   // ── Shared helper ─────────────────────────────────────────────────────
   function isMarkerTarget(e) {
     const t = e.target;
@@ -900,12 +869,12 @@ window._stationBias = _stationBias;
         iconAnchor:  [14, 14],
         popupAnchor: [0, -16],
       });
-      const popupEl = _buildKiteSpotPopupEl(spot);
       const marker  = L.marker([spot.lat, spot.lon], {
         icon, interactive: true, zIndexOffset: 500,
-      }).bindPopup(popupEl, { maxWidth: 280, minWidth: 200 });
-      marker.on('popupopen',  () => window.showKiteSpotBearingOverlay(spot.lat, spot.lon, spot.dirs));
-      marker.on('popupclose', () => window.hideKiteSpotBearingOverlay());
+      });
+      marker.on('click', () => {
+        if (window._onKiteSpotClick) window._onKiteSpotClick(spot.id);
+      });
       marker.addTo(radarMap);
       kiteSpotMarkers.push(marker);
     });
