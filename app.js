@@ -1247,6 +1247,13 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
     window.addEventListener('touchend',   onSpotPointerUp);
   }
 
+  // Redraw spot compass when Overpass vector coastline data arrives.
+  // The raster analysis and vector fetch run in parallel; without this listener
+  // the coastline overlay would never appear if the vector fetch finishes last.
+  window.addEventListener('shore-vector-ready', () => {
+    if (overlay.classList.contains('open')) requestAnimationFrame(() => drawSpotCompass());
+  });
+
   cancelBtn.addEventListener('click', () => overlay.classList.remove('open'));
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 

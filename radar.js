@@ -312,6 +312,10 @@ window._stationBias = _stationBias;
       pendingLatLng = radarMap.containerPointToLatLng(
         [clientX - rect.left, clientY - rect.top]
       );
+      // Prefetch shore data immediately so the Create kite spot modal shows
+      // the coastline without waiting for network requests after opening.
+      if (window.fetchShoreVector) window.fetchShoreVector(pendingLatLng.lat, pendingLatLng.lng).catch(() => null);
+      if (window.analyseShore)     window.analyseShore(pendingLatLng.lat, pendingLatLng.lng).catch(() => null);
       const { x, y } = _clampMenuPos(clientX, clientY, window.innerWidth, window.innerHeight);
       ctxMenuEl.style.left = x + 'px';
       ctxMenuEl.style.top  = y + 'px';
