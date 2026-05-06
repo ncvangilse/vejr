@@ -63,6 +63,74 @@ function syncInvertedColorsClass() {
   document.body.classList.toggle('inverted-colors', on);
 }
 /* ══════════════════════════════════════════════════
+   MODEL / ENSEMBLE LABELS  (shared by load, loadAtCoords, applyEnsembleData)
+══════════════════════════════════════════════════ */
+const MODEL_LABEL = {
+  'best_match':          'Auto',
+  'dmi_seamless':        'DMI HARMONIE',
+  'icon_seamless':       'DWD ICON',
+  'ecmwf_ifs025':        'ECMWF IFS',
+  'meteofrance_seamless':'Météo-France',
+  'gfs_seamless':        'NOAA GFS',
+};
+const ENS_LABEL = {
+  'best_match':          'ICON-EPS',
+  'dmi_seamless':        'ICON-EPS',
+  'icon_seamless':       'ICON-EPS',
+  'ecmwf_ifs025':        'IFS-EPS',
+  'meteofrance_seamless':'ICON-EPS',
+  'gfs_seamless':        'GFS-EPS',
+};
+
+// Applies ensemble percentile data onto an existing lastData object, rebuilding
+// the merged center-line arrays from the stored deterministic snapshots.
+// Called asynchronously once ensPromise resolves so weather renders first.
+function applyEnsembleData(d, ensData, model) {
+  const modelLabel = MODEL_LABEL[model] || model;
+  const ensLabel   = ENS_LABEL[model]   || 'ensemble';
+  const ensStatus  = document.getElementById('ens-status');
+  if (ensData && ensData.hourly) {
+    const ensTemp    = ensemblePercentiles(ensData.hourly, 'temperature_2m');
+    const ensWind    = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
+    const ensGust    = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
+    const ensPrecip  = ensemblePercentiles(ensData.hourly, 'precipitation');
+    const ensTemp1h  = ensemblePercentiles(ensData.hourly, 'temperature_2m',  STEP1H);
+    const ensWind1h  = ensemblePercentiles(ensData.hourly, 'windspeed_10m',   STEP1H);
+    const ensGust1h  = ensemblePercentiles(ensData.hourly, 'windgusts_10m',   STEP1H);
+    const ensPrecip1h = ensemblePercentiles(ensData.hourly, 'precipitation',  STEP1H);
+    // Rebuild merged arrays from stored deterministic originals
+    const temps    = d.detTemps.slice(),     winds    = d.detWinds.slice();
+    const precips  = d.detPrecips.slice(),   gusts    = d.detGusts.slice();
+    const temps1h  = d.detTemps1h.slice(),   winds1h  = d.detWinds1h.slice();
+    const precips1h = d.detPrecips1h.slice(), gusts1h = d.detGusts1h.slice();
+    if (ensTemp)    for (let i = 0; i < temps.length;    i++) { if (ensTemp.p50[i]    != null) temps[i]    = ensTemp.p50[i];    }
+    if (ensWind)    for (let i = 0; i < winds.length;    i++) { if (ensWind.p50[i]    != null) winds[i]    = ensWind.p50[i];    }
+    if (ensPrecip)  for (let i = 0; i < precips.length;  i++) { if (ensPrecip.p50[i]  != null) precips[i]  = ensPrecip.p50[i];  }
+    if (ensTemp1h)  for (let i = 0; i < temps1h.length;  i++) { if (ensTemp1h.p50[i]  != null) temps1h[i]  = ensTemp1h.p50[i];  }
+    if (ensWind1h)  for (let i = 0; i < winds1h.length;  i++) { if (ensWind1h.p50[i]  != null) winds1h[i]  = ensWind1h.p50[i];  }
+    if (ensPrecip1h) for (let i = 0; i < precips1h.length; i++) { if (ensPrecip1h.p50[i] != null) precips1h[i] = ensPrecip1h.p50[i]; }
+    // Gusts must stay >= ensemble-merged wind line
+    for (let i = 0; i < gusts.length;   i++) gusts[i]   = Math.max(gusts[i],   winds[i]);
+    for (let i = 0; i < gusts1h.length; i++) gusts1h[i] = Math.max(gusts1h[i], winds1h[i]);
+    d.temps = temps; d.winds = winds; d.precips = precips; d.gusts = gusts;
+    d.temps1h = temps1h; d.winds1h = winds1h; d.precips1h = precips1h; d.gusts1h = gusts1h;
+    d.ensTemp = ensTemp; d.ensWind = ensWind; d.ensGust = ensGust; d.ensPrecip = ensPrecip;
+    d.ensTemp1h = ensTemp1h; d.ensWind1h = ensWind1h; d.ensGust1h = ensGust1h; d.ensPrecip1h = ensPrecip1h;
+    const memberCount = Object.keys(ensData.hourly).filter(k => k.startsWith('temperature_2m_member')).length;
+    if (ensStatus) { ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`; ensStatus.style.color = '#5a9'; }
+  } else {
+    d.ensTemp = null; d.ensWind = null; d.ensGust = null; d.ensPrecip = null;
+    d.ensTemp1h = null; d.ensWind1h = null; d.ensGust1h = null; d.ensPrecip1h = null;
+    // Reset center-line arrays to deterministic values
+    d.temps = d.detTemps.slice(); d.winds = d.detWinds.slice();
+    d.precips = d.detPrecips.slice(); d.gusts = d.detGusts.slice();
+    d.temps1h = d.detTemps1h.slice(); d.winds1h = d.detWinds1h.slice();
+    d.precips1h = d.detPrecips1h.slice(); d.gusts1h = d.detGusts1h.slice();
+    if (ensStatus) { ensStatus.textContent = `${modelLabel} — ensemble not available`; ensStatus.style.color = '#a77'; }
+  }
+}
+
+/* ══════════════════════════════════════════════════
    LOAD
 ══════════════════════════════════════════════════ */
 async function load(cityName, model) {
@@ -85,14 +153,16 @@ async function load(cityName, model) {
     lastShoreCoords = { lat: loc.latitude, lon: loc.longitude };
     if (window.fetchShoreVector) window.fetchShoreVector(loc.latitude, loc.longitude).catch(() => null);
     if (window.analyseShore)     window.analyseShore(loc.latitude, loc.longitude).catch(() => null);
-    // fetch main forecast + ensemble in parallel; ensemble failure is non-fatal.
+    // Start ensemble and obs lookup immediately — they run in parallel with weather.
+    // Only weather is on the critical path; ensemble bands are applied after first render.
+    const ensPromise = fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null);
+    loadNearestObsStation(loc.latitude, loc.longitude).catch(() => null);
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
           .then(r => r.ok ? r.json() : null).catch(() => null)
       : Promise.resolve(null);
-    const [data, ensData, iconData] = await Promise.all([
+    const [data, iconData] = await Promise.all([
       fetchWeather(loc.latitude, loc.longitude, model),
-      fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null),
       iconCodeFetch,
     ]);
     const H = data.hourly;
@@ -142,65 +212,15 @@ async function load(cityName, model) {
         ? iconCode1h : dmiCode1h);
       dirs1h.push(H.winddirection_10m[i]);
     }
-    const MODEL_LABEL = {
-      'best_match':          'Auto',
-      'dmi_seamless':        'DMI HARMONIE',
-      'icon_seamless':       'DWD ICON',
-      'ecmwf_ifs025':        'ECMWF IFS',
-      'meteofrance_seamless':'Météo-France',
-      'gfs_seamless':        'NOAA GFS',
-    };
-    const ENS_LABEL = {
-      'best_match':          'ICON-EPS',
-      'dmi_seamless':        'ICON-EPS',
-      'icon_seamless':       'ICON-EPS',
-      'ecmwf_ifs025':        'IFS-EPS',
-      'meteofrance_seamless':'ICON-EPS',
-      'gfs_seamless':        'GFS-EPS',
-    };
+    // Snapshot deterministic arrays before any ensemble merge; stored in lastData so
+    // applyEnsembleData can rebuild them correctly when ensPromise resolves.
+    const detTemps    = temps.slice(),    detWinds    = winds.slice();
+    const detPrecips  = precips.slice(),  detGusts    = gusts.slice();
+    const detTemps1h  = temps1h.slice(),  detWinds1h  = winds1h.slice();
+    const detPrecips1h = precips1h.slice(), detGusts1h = gusts1h.slice();
     const modelLabel = MODEL_LABEL[model] || model;
-    const ensLabel   = ENS_LABEL[model]   || 'ensemble';
-    let ensTemp = null, ensWind = null, ensGust = null, ensPrecip = null;
-    let ensTemp1h = null, ensWind1h = null, ensGust1h = null, ensPrecip1h = null;
     const ensStatus = document.getElementById('ens-status');
-    if (ensData && ensData.hourly) {
-      ensTemp   = ensemblePercentiles(ensData.hourly, 'temperature_2m');
-      ensWind   = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
-      ensGust   = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
-      ensPrecip = ensemblePercentiles(ensData.hourly, 'precipitation');
-      ensTemp1h   = ensemblePercentiles(ensData.hourly, 'temperature_2m',   STEP1H);
-      ensWind1h   = ensemblePercentiles(ensData.hourly, 'windspeed_10m',    STEP1H);
-      ensGust1h   = ensemblePercentiles(ensData.hourly, 'windgusts_10m',    STEP1H);
-      ensPrecip1h = ensemblePercentiles(ensData.hourly, 'precipitation',    STEP1H);
-      // Snapshot the deterministic gusts BEFORE merging ensemble wind into winds[].
-      // The ensemble p50 wind is often higher than the deterministic wind; if we let
-      // gusts get clamped against it the gust-wind gap collapses to zero.
-      const detGusts = gusts.slice();
-      const detGusts1h = gusts1h.slice();
-      // Replace deterministic slots with ensemble median (p50) where available.
-      if (ensTemp)
-        for (let i = 0; i < temps.length;   i++) { if (ensTemp.p50[i]   != null) temps[i]   = ensTemp.p50[i];   }
-      if (ensWind)
-        for (let i = 0; i < winds.length;   i++) { if (ensWind.p50[i]   != null) winds[i]   = ensWind.p50[i];   }
-      if (ensPrecip)
-        for (let i = 0; i < precips.length; i++) { if (ensPrecip.p50[i] != null) precips[i] = ensPrecip.p50[i]; }
-      if (ensTemp1h)
-        for (let i = 0; i < temps1h.length;   i++) { if (ensTemp1h.p50[i]   != null) temps1h[i]   = ensTemp1h.p50[i];   }
-      if (ensWind1h)
-        for (let i = 0; i < winds1h.length;   i++) { if (ensWind1h.p50[i]   != null) winds1h[i]   = ensWind1h.p50[i];   }
-      if (ensPrecip1h)
-        for (let i = 0; i < precips1h.length; i++) { if (ensPrecip1h.p50[i] != null) precips1h[i] = ensPrecip1h.p50[i]; }
-      // Restore deterministic gusts unchanged — they are already >= det wind from the
-      // initial data loop, and they must stay above the (now ensemble-merged) wind line.
-      for (let i = 0; i < gusts.length;   i++) gusts[i]   = Math.max(detGusts[i],   winds[i]);
-      for (let i = 0; i < gusts1h.length; i++) gusts1h[i] = Math.max(detGusts1h[i], winds1h[i]);
-      const memberCount = Object.keys(ensData.hourly).filter(k => k.startsWith('temperature_2m_member')).length;
-      ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
-      ensStatus.style.color = '#5a9';
-    } else {
-      ensStatus.textContent = `${modelLabel} — ensemble not available`;
-      ensStatus.style.color = '#a77';
-    }
+    if (ensStatus) { ensStatus.textContent = `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
     document.getElementById('city-name').textContent =
       loc.name+(loc.country_code?', '+loc.country_code:'');
     document.getElementById('loading').style.display='none';
@@ -208,9 +228,11 @@ async function load(cityName, model) {
     forecastEl.classList.remove('updating');
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
-      ensTemp, ensWind, ensGust, ensPrecip,
+      detTemps, detWinds, detPrecips, detGusts,
+      ensTemp: null, ensWind: null, ensGust: null, ensPrecip: null,
       times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
-      ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
+      detTemps1h, detWinds1h, detPrecips1h, detGusts1h,
+      ensTemp1h: null, ensWind1h: null, ensGust1h: null, ensPrecip1h: null,
       otherModelsWind1h: null,
     };
     // Double rAF ensures layout is complete before measuring canvas width
@@ -226,10 +248,15 @@ async function load(cityName, model) {
         })
         .catch(() => null);
     }));
+    // Apply ensemble bands when ready; re-render once.
+    const capturedForEns = lastData;
+    ensPromise.then(ensData => {
+      if (lastData !== capturedForEns) return;
+      applyEnsembleData(lastData, ensData, model);
+      renderDisplay(lastData);
+    }).catch(() => null);
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
-    // Find nearest obs station and overlay its wind history on the wind chart.
-    loadNearestObsStation(loc.latitude, loc.longitude).catch(() => null);
     updateShoreStatusUI();
   } catch(e) {
     console.error(e);
@@ -781,11 +808,13 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
   try {
     window.SHORE_MASK   = null;
     window.SHORE_STATUS = { state: 'loading', msg: 'Fetching coastline…' };
-    // Coords are already known — start the Overpass fetch immediately so it
-    // runs in parallel with the reverse-geocode and weather requests.
+    // Coords are already known — start shore, ensemble, and obs lookups immediately
+    // so they run in parallel with the reverse-geocode and weather requests.
     lastShoreCoords = { lat, lon };
     if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
     if (window.analyseShore)     window.analyseShore(lat, lon).catch(() => null);
+    const ensPromise = fetchEnsemble(lat, lon, model).catch(() => null);
+    loadNearestObsStation(lat, lon).catch(() => null);
 
     // Persist coords before any awaits: both a page reload and an iOS Home
     // Screen launch (which always opens the manifest start_url without query
@@ -818,9 +847,8 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
           .then(r => r.ok ? r.json() : null).catch(() => null)
       : Promise.resolve(null);
-    const [data, ensData, iconData] = await Promise.all([
+    const [data, iconData] = await Promise.all([
       fetchWeather(lat, lon, model),
-      fetchEnsemble(lat, lon, model).catch(() => null),
       iconCodeFetch,
     ]);
     const H = data.hourly;
@@ -866,46 +894,13 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
         ? iconCode1h : dmiCode1h);
       dirs1h.push(H.winddirection_10m[i]);
     }
-    const MODEL_LABEL = {
-      'best_match':          'Auto',      'dmi_seamless':        'DMI HARMONIE',
-      'icon_seamless':       'DWD ICON',  'ecmwf_ifs025':        'ECMWF IFS',
-      'meteofrance_seamless':'Météo-France', 'gfs_seamless':     'NOAA GFS',
-    };
-    const ENS_LABEL = {
-      'best_match':'ICON-EPS', 'dmi_seamless':'ICON-EPS', 'icon_seamless':'ICON-EPS',
-      'ecmwf_ifs025':'IFS-EPS', 'meteofrance_seamless':'ICON-EPS', 'gfs_seamless':'GFS-EPS',
-    };
+    const detTemps    = temps.slice(),    detWinds    = winds.slice();
+    const detPrecips  = precips.slice(),  detGusts    = gusts.slice();
+    const detTemps1h  = temps1h.slice(),  detWinds1h  = winds1h.slice();
+    const detPrecips1h = precips1h.slice(), detGusts1h = gusts1h.slice();
     const modelLabel = MODEL_LABEL[model] || model;
-    const ensLabel   = ENS_LABEL[model]   || 'ensemble';
-    let ensTemp=null,ensWind=null,ensGust=null,ensPrecip=null;
-    let ensTemp1h=null,ensWind1h=null,ensGust1h=null,ensPrecip1h=null;
     const ensStatus = document.getElementById('ens-status');
-    if (ensData && ensData.hourly) {
-      ensTemp    = ensemblePercentiles(ensData.hourly, 'temperature_2m');
-      ensWind    = ensemblePercentiles(ensData.hourly, 'windspeed_10m');
-      ensGust    = ensemblePercentiles(ensData.hourly, 'windgusts_10m');
-      ensPrecip  = ensemblePercentiles(ensData.hourly, 'precipitation');
-      ensTemp1h  = ensemblePercentiles(ensData.hourly, 'temperature_2m',  STEP1H);
-      ensWind1h  = ensemblePercentiles(ensData.hourly, 'windspeed_10m',   STEP1H);
-      ensGust1h  = ensemblePercentiles(ensData.hourly, 'windgusts_10m',   STEP1H);
-      ensPrecip1h= ensemblePercentiles(ensData.hourly, 'precipitation',   STEP1H);
-      const detGusts   = gusts.slice();
-      const detGusts1h = gusts1h.slice();
-      if (ensTemp)    for (let i=0;i<temps.length;  i++) { if (ensTemp.p50[i]   !=null) temps[i]  =ensTemp.p50[i];   }
-      if (ensWind)    for (let i=0;i<winds.length;  i++) { if (ensWind.p50[i]   !=null) winds[i]  =ensWind.p50[i];   }
-      if (ensPrecip)  for (let i=0;i<precips.length;i++) { if (ensPrecip.p50[i] !=null) precips[i]=ensPrecip.p50[i]; }
-      if (ensTemp1h)  for (let i=0;i<temps1h.length;  i++) { if (ensTemp1h.p50[i]  !=null) temps1h[i]  =ensTemp1h.p50[i];   }
-      if (ensWind1h)  for (let i=0;i<winds1h.length;  i++) { if (ensWind1h.p50[i]  !=null) winds1h[i]  =ensWind1h.p50[i];   }
-      if (ensPrecip1h)for (let i=0;i<precips1h.length;i++) { if (ensPrecip1h.p50[i]!=null) precips1h[i]=ensPrecip1h.p50[i]; }
-      for (let i=0;i<gusts.length;  i++) gusts[i]  =Math.max(detGusts[i],   winds[i]);
-      for (let i=0;i<gusts1h.length;i++) gusts1h[i]=Math.max(detGusts1h[i], winds1h[i]);
-      const memberCount = Object.keys(ensData.hourly).filter(k=>k.startsWith('temperature_2m_member')).length;
-      ensStatus.textContent = `${modelLabel} + ${ensLabel} (${memberCount} mdl) ✓`;
-      ensStatus.style.color = '#5a9';
-    } else {
-      ensStatus.textContent = `${modelLabel} — ensemble not available`;
-      ensStatus.style.color = '#a77';
-    }
+    if (ensStatus) { ensStatus.textContent = `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
     document.getElementById('city-name').textContent = displayName;
     document.getElementById('loading').style.display = 'none';
     forecastEl.style.display = 'block';
@@ -913,9 +908,11 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     const isFirstLoad = !isReload;
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
-      ensTemp, ensWind, ensGust, ensPrecip,
+      detTemps, detWinds, detPrecips, detGusts,
+      ensTemp: null, ensWind: null, ensGust: null, ensPrecip: null,
       times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
-      ensTemp1h, ensWind1h, ensGust1h, ensPrecip1h,
+      detTemps1h, detWinds1h, detPrecips1h, detGusts1h,
+      ensTemp1h: null, ensWind1h: null, ensGust1h: null, ensPrecip1h: null,
       otherModelsWind1h: null,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -930,6 +927,13 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
         })
         .catch(() => null);
     }));
+    // Apply ensemble bands when ready; re-render once.
+    const capturedForEns = lastData;
+    ensPromise.then(ensData => {
+      if (lastData !== capturedForEns) return;
+      applyEnsembleData(lastData, ensData, model);
+      renderDisplay(lastData);
+    }).catch(() => null);
     // Call loadRadar only when the section is not yet visible (i.e. on a fresh
     // page load restored from a dragged-pin URL).  When called from a live drag
     // the radar is already initialised and correctly positioned, so skip it.
@@ -940,7 +944,6 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
       }
     }
     updateShoreStatusUI();
-    loadNearestObsStation(lat, lon).catch(() => null);
   } catch(e) {
     console.error(e);
     document.getElementById('loading').style.display = 'none';
@@ -1397,6 +1400,14 @@ function decideInitialLocation(qParam, typedInput, savedCity) {
 window.onObsHistoryRefreshed = () => {
   if (lastObsCoords) loadNearestObsStation(lastObsCoords.lat, lastObsCoords.lon, { useCache: true }).catch(() => null);
 };
+
+// Re-fetch obs data whenever the page becomes visible again (e.g. returning to
+// a backgrounded PWA tab), ensuring the wind chart always shows current readings.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && lastObsCoords) {
+    loadNearestObsStation(lastObsCoords.lat, lastObsCoords.lon).catch(() => null);
+  }
+});
 
 // Register service worker for PWA / offline support
 if ('serviceWorker' in navigator) {
