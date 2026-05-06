@@ -149,7 +149,7 @@
 
 <footer id="app-footer">
   <div id="shore-status"></div>
-  <div id="build-number">build 2026.05.06-257-claude-async-component-loading-lEaf6</div>
+  <div id="build-number">build 2026.05.06-258-claude-fix-current-issues-ObMIx</div>
   <button id="help-btn" title="Help">? Help</button>
   <button id="credits-btn" title="Data sources &amp; credits">ⓘ Credits</button>
   <a href="mailto:info@kitevibe.dk" id="feedback-link">Feedback</a>
@@ -337,6 +337,14 @@ When good conditions are forecast, those hours are highlighted in green on the w
 The compass rose in the kitesurfing settings shows which directions have enough open water for safe kitesurfing. The app fetches an ESA WorldCover satellite land-cover map around your location and classifies each compass bearing by the fraction of open water in that direction.
 
 A bearing is marked as "sea" when the water fraction exceeds the **sea threshold** (adjustable from 10 % to 100 % with the slider). A lower threshold accepts more marginal directions; a higher threshold requires mostly open water.
+
+## Kite spots
+
+Kite spots are saved locations with pre-configured sea bearings. They appear as 🪁 markers on the radar map.
+
+**Curated spots** are built into the app and cover well-known kitesurfing beaches. Tap a 🪁 marker and press **Use this spot** to load the forecast and apply its sea bearings. Dragging the location pin within 2 km of a curated spot snaps it to that spot automatically.
+
+**Creating your own spot:** Right-click (desktop) or long-press (mobile) on any point on the radar map, then choose **Create kite spot**. Give the spot a name, drag on the compass to select the sea bearings, and tap **Save spot**. The spot is saved locally on your device and a pre-filled GitHub issue opens so you can propose it for inclusion in the curated list.
 
 ## Trafikkort station names
 
