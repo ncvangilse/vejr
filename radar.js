@@ -272,6 +272,7 @@ window._stationBias = _stationBias;
   function attachContextMenu(mapEl) {
     let ctxMenuEl = null;
     let pendingLatLng = null;
+    let _prefetchedName = null;
 
     function buildMenu() {
       const div = document.createElement('div');
@@ -296,7 +297,7 @@ window._stationBias = _stationBias;
       createSpotItem.addEventListener('click', () => {
         div.classList.remove('visible');
         if (pendingLatLng && window._onCreateKiteSpot) {
-          window._onCreateKiteSpot(pendingLatLng.lat, pendingLatLng.lng);
+          window._onCreateKiteSpot(pendingLatLng.lat, pendingLatLng.lng, _prefetchedName);
         }
       });
       div.appendChild(createSpotItem);
@@ -312,6 +313,22 @@ window._stationBias = _stationBias;
       pendingLatLng = radarMap.containerPointToLatLng(
         [clientX - rect.left, clientY - rect.top]
       );
+      // Prefetch shore data and reverse-geocode the location so the Create kite
+      // spot modal opens with the coastline and a readable name already ready.
+      _prefetchedName = null;
+      if (window.fetchShoreVector) window.fetchShoreVector(pendingLatLng.lat, pendingLatLng.lng).catch(() => null);
+      if (window.analyseShore)     window.analyseShore(pendingLatLng.lat, pendingLatLng.lng).catch(() => null);
+      fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${pendingLatLng.lat}&lon=${pendingLatLng.lng}&format=json&addressdetails=1`,
+        { headers: { 'Accept-Language': 'en' } }
+      ).then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        const a = d.address || {};
+        _prefetchedName = a.beach || a.leisure || a.natural
+                       || a.neighbourhood || a.suburb || a.hamlet || a.village
+                       || a.town || a.city_district || a.city
+                       || (d.display_name ? d.display_name.split(',')[0] : null) || null;
+      }).catch(() => null);
       const { x, y } = _clampMenuPos(clientX, clientY, window.innerWidth, window.innerHeight);
       ctxMenuEl.style.left = x + 'px';
       ctxMenuEl.style.top  = y + 'px';

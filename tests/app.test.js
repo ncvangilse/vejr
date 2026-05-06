@@ -38,7 +38,8 @@ function makeEl(value = '') {
  * @param {boolean} opts.portrait     – simulate portrait orientation (default: false)
  * @param {Function|null} opts.renderAllSpy – optional spy to replace the renderAll stub
  */
-function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, invertedColors = false, renderAllSpy = null, kiteDirs = [] } = {}) {
+function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait = false, invertedColors = false, renderAllSpy = null, kiteDirs = [],
+                   fetchWeatherImpl = null, fetchEnsembleImpl = null, rAFImmediate = false } = {}) {
   const cityInput         = makeEl();
   const geoCalls          = [];
   const replaceStateCalls = [];
@@ -135,14 +136,14 @@ function loadApp({ qParam = '', savedCity = null, geoAvailable = false, portrait
     encodeURIComponent, decodeURIComponent,
     Promise, Error,
     setTimeout, clearTimeout, performance,
-    requestAnimationFrame: () => {},
+    requestAnimationFrame: rAFImmediate ? (cb) => cb() : () => {},
     fetch: () => Promise.reject(new Error('fetch not mocked')),
     // Stubs for functions/constants defined in other scripts.
     // Use a never-settling promise so async chains stall silently rather than
     // logging unhandled-rejection noise to stderr.
     geocode:            () => new Promise(() => {}),
-    fetchWeather:       () => new Promise(() => {}),
-    fetchEnsemble:      () => new Promise(() => {}),
+    fetchWeather:       fetchWeatherImpl || (() => new Promise(() => {})),
+    fetchEnsemble:      fetchEnsembleImpl || (() => new Promise(() => {})),
     fetchOtherModelsWind: () => Promise.resolve([]),
     ensemblePercentiles: () => null,
     renderAll:          renderAllSpy || (() => {}),
@@ -1392,5 +1393,128 @@ describe('showCurrentTimeCrosshair', () => {
     };
     // mouseleave is no longer registered — crosshair stays wherever it was.
     expect(contentEl._listeners['mouseleave']).toBeUndefined();
+  });
+});
+
+// ── Progressive ensemble loading ──────────────────────────────────────────────
+
+describe('progressive ensemble loading', () => {
+  function makeMinimalWeatherData() {
+    const hours = 7 * 24;
+    const time = Array.from({ length: hours }, (_, i) =>
+      `2024-01-${String(Math.floor(i / 24) + 1).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00`);
+    const vals = new Array(hours).fill(10);
+    return {
+      hourly: {
+        time,
+        temperature_2m:    vals,
+        precipitation:     vals.map(() => 0),
+        windspeed_10m:     vals,
+        windgusts_10m:     vals,
+        winddirection_10m: vals,
+        weathercode:       vals,
+      },
+      daily: {
+        sunrise: Array.from({ length: 7 }, (_, i) => `2024-01-${String(i + 1).padStart(2, '0')}T07:00`),
+        sunset:  Array.from({ length: 7 }, (_, i) => `2024-01-${String(i + 1).padStart(2, '0')}T16:00`),
+      },
+    };
+  }
+
+  function makeMinimalEnsData() {
+    const hours = 7 * 24;
+    const time = Array.from({ length: hours }, (_, i) =>
+      `2024-01-${String(Math.floor(i / 24) + 1).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00`);
+    return { hourly: { time, temperature_2m_member01: new Array(hours).fill(10) } };
+  }
+
+  it('renders with deterministic data as soon as weather resolves, before ensemble', async () => {
+    let resolveWeather;
+    const weatherPromise = new Promise(r => { resolveWeather = r; });
+    const renderCalls = [];
+
+    const { ctx } = loadApp({
+      qParam: '55.0,12.0',
+      renderAllSpy: (...args) => renderCalls.push(args),
+      fetchWeatherImpl: () => weatherPromise,
+      // fetchEnsemble stays never-settling (default) to simulate slow ensemble
+      rAFImmediate: true,
+    });
+
+    expect(ctx.lastData).toBeNull();
+    expect(renderCalls).toHaveLength(0);
+
+    resolveWeather(makeMinimalWeatherData());
+    await new Promise(r => setTimeout(r, 0)); // drain microtasks
+
+    expect(ctx.lastData).not.toBeNull();
+    expect(ctx.lastData.ensTemp).toBeNull();
+    expect(ctx.lastData.ensWind).toBeNull();
+    // At least one render happened via the double-rAF path
+    expect(renderCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('triggers a second render with ensemble bands once ensemble resolves', async () => {
+    let resolveWeather, resolveEnsemble;
+    const weatherPromise  = new Promise(r => { resolveWeather  = r; });
+    const ensemblePromise = new Promise(r => { resolveEnsemble = r; });
+    const renderCalls = [];
+
+    const { ctx } = loadApp({
+      qParam: '55.0,12.0',
+      renderAllSpy: (...args) => renderCalls.push(args),
+      fetchWeatherImpl:  () => weatherPromise,
+      fetchEnsembleImpl: () => ensemblePromise,
+      rAFImmediate: true,
+    });
+
+    // Override ensemblePercentiles so applyEnsembleData returns non-null bands.
+    // This must be set before ensPromise resolves (done here before resolveEnsemble).
+    const hours = 7 * 24;
+    const fakePct = { p10: new Array(hours).fill(8), p50: new Array(hours).fill(10), p90: new Array(hours).fill(12) };
+    ctx.ensemblePercentiles = () => fakePct;
+
+    resolveWeather(makeMinimalWeatherData());
+    await new Promise(r => setTimeout(r, 0));
+
+    const rendersAfterWeather = renderCalls.length;
+    expect(ctx.lastData.ensTemp).toBeNull();
+
+    resolveEnsemble(makeMinimalEnsData());
+    await new Promise(r => setTimeout(r, 0));
+
+    // A second render was triggered after ensemble arrived
+    expect(renderCalls.length).toBeGreaterThan(rendersAfterWeather);
+    // Ensemble fields are now populated
+    expect(ctx.lastData.ensTemp).not.toBeNull();
+    expect(ctx.lastData.ensWind).not.toBeNull();
+  });
+
+  it('does not apply stale ensemble to a newer load', async () => {
+    let resolveWeather1, resolveEnsemble1;
+    const weather1  = new Promise(r => { resolveWeather1  = r; });
+    const ensemble1 = new Promise(r => { resolveEnsemble1 = r; });
+    const renderCalls = [];
+
+    const { ctx } = loadApp({
+      qParam: '55.0,12.0',
+      renderAllSpy: (...args) => renderCalls.push(args),
+      fetchWeatherImpl:  () => weather1,
+      fetchEnsembleImpl: () => ensemble1,
+      rAFImmediate: true,
+    });
+
+    resolveWeather1(makeMinimalWeatherData());
+    await new Promise(r => setTimeout(r, 0));
+    const dataAfterFirstLoad = ctx.lastData;
+
+    // Simulate a second load (different city) overwriting lastData
+    ctx.lastData = { placeholder: true };
+
+    // Now the stale ensemble from first load resolves — should be discarded
+    resolveEnsemble1(makeMinimalEnsData());
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(ctx.lastData).toEqual({ placeholder: true });
   });
 });
