@@ -22,6 +22,7 @@ body {
            max(8px, env(safe-area-inset-bottom))
            max(8px, env(safe-area-inset-left));
 }
+body.modal-open { overflow: hidden; }
 #header-left {
   display: flex;
   flex-direction: column;
@@ -686,6 +687,8 @@ canvas.main-canvas {
   min-width: 280px;
   max-width: 360px;
   width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
   color: #e8f5ef;
   font-family: 'IBM Plex Sans', sans-serif;
   box-shadow: 0 8px 32px rgba(0,0,0,0.55);
