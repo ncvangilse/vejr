@@ -909,6 +909,7 @@ window._stationBias = _stationBias;
     if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
     window._pendingBearingOverlay = null;
     _redrawBearingOutlines();
+    if (window.refireHoverIndicator) window.refireHoverIndicator();
   };
 
   window.hideKiteSpotBearingOverlay = function () {
@@ -929,7 +930,7 @@ window._stationBias = _stationBias;
     if (radius < 50) return;
 
     const col = windColor(windSpeed);
-    _hoverOverlayLayer = L.polygon(_bearingSectorLatLngs(lat, lon, windDeg, radius), {
+    _hoverOverlayLayer = L.polygon(_bearingSectorLatLngs(lat, lon, snapBearing(windDeg), radius), {
       color:       col,
       fillColor:   col,
       fillOpacity: 0.55,
