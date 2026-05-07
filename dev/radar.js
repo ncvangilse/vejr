@@ -201,7 +201,7 @@ window._stationBias = _stationBias;
   function _bearingSectorLatLngs(lat, lon, bearingDeg, radiusM) {
     const R      = 6371000;
     const latRad = lat * Math.PI / 180;
-    const steps  = 6;
+    const steps  = 24;
     const pts    = [[lat, lon]];
     for (let i = 0; i <= steps; i++) {
       const ang  = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;
@@ -216,7 +216,7 @@ window._stationBias = _stationBias;
   function _annularSectorLatLngs(lat, lon, bearingDeg, innerRadiusM, outerRadiusM) {
     const R      = 6371000;
     const latRad = lat * Math.PI / 180;
-    const steps  = 8;
+    const steps  = 32;
     const pts    = [];
     const _pt = (r, i) => {
       const ang = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;

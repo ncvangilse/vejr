@@ -1,6 +1,50 @@
 /* ══════════════════════════════════════════════════
    CANVAS DRAWING HELPERS
 ══════════════════════════════════════════════════ */
+
+/**
+ * Returns the canvas x-pixel position of the current moment within a time series.
+ * When xMap is provided (portrait 1h→display grid), interpolates between adjacent
+ * mapped positions. Without xMap uses uniform column width.
+ * Returns null when now falls outside the charted period.
+ * @param {number} [_nowMs] - override for Date.now() (used in tests)
+ */
+function _nowLineX(times, cssW, xMap, _nowMs) {
+  const now = _nowMs != null ? _nowMs : Date.now();
+  const ts  = times.map(t => new Date(t).getTime());
+  const n   = ts.length;
+  if (now < ts[0]) return null;
+  const colW = cssW / n;
+  for (let i = 0; i < n - 1; i++) {
+    if (now >= ts[i] && now < ts[i + 1]) {
+      const frac = (now - ts[i]) / (ts[i + 1] - ts[i]);
+      if (xMap) return xMap[i] + frac * (xMap[i + 1] - xMap[i]);
+      return (i + frac) * colW;
+    }
+  }
+  // Within the last slot
+  const step = n >= 2 ? ts[n - 1] - ts[n - 2] : 3600000;
+  if (now >= ts[n - 1] && now < ts[n - 1] + step) {
+    const frac = (now - ts[n - 1]) / step;
+    if (xMap) return xMap[n - 1] + frac * (xMap[n - 1] - xMap[n - 2]);
+    return (n - 1 + frac) * colW;
+  }
+  return null;
+}
+
+/** Draws a red dashed "now" vertical line at pixel x spanning from top to H. */
+function _drawNowLine(ctx, x, H, top) {
+  if (x == null) return;
+  ctx.save();
+  ctx.strokeStyle = '#cc2200';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(x, top ?? 0);
+  ctx.lineTo(x, H);
+  ctx.stroke();
+  ctx.restore();
+}
 function dayDivs(times) {
   const d=[];
   for(let i=1;i<times.length;i++)
@@ -173,6 +217,9 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 
   // set axis label
   document.getElementById('ax-top').textContent = '';
+
+  // Current-time indicator
+  _drawNowLine(ctx, _nowLineX(times, cssW, null), cssH);
 }
 
 /* ══════════════════════════════════════════════════
@@ -328,6 +375,9 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
     axP.appendChild(sp);
   });
   axP.style.position = 'relative';
+
+  // Current-time indicator
+  _drawNowLine(ctx, _nowLineX(times, cssW, xMap), cssH);
 }
 
 // Wind colour helpers and kite predicates moved to charts-wind-utils.js
@@ -391,6 +441,9 @@ function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null) {
     const cy = DIR_H / 2 + arrowSize * 0.13;
     drawWindArrow(ctx, cx, cy, deg, winds[i], arrowSize);
   });
+
+  // Current-time indicator
+  _drawNowLine(ctx, _nowLineX(times, cssW, null), DIR_H);
 }
 
 /* ══════════════════════════════════════════════════
@@ -823,6 +876,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     }
     ctx.restore();
   }
+
+  // --- current-time indicator ---
+  _drawNowLine(ctx, _nowLineX(times, cssW, xMap), WIND_H);
 
   // --- axis labels ---
   _drawWindAxisLabels(wLevels, wy, WIND_H);
