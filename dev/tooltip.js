@@ -104,13 +104,13 @@ function showTooltip(idx1h, idx3h) {
   _lastHoverIdx1h = idx1h;
   _lastHoverIdx3h = idx3h;
   const d = lastRenderedData;
-  // Use the 3h display-series slot values for the radar pie indicator so it is
-  // consistent with the kite column highlights in the chart (which also use the
-  // 3h representative slot: d.winds[idx3h], d.dirs[idx3h], d.times[idx3h]).
-  // Fall back to 1h values when the 3h arrays are absent (e.g. minimal test fixtures).
-  const wind    = d.winds?.[idx3h]  ?? d.winds1h?.[idx1h];
-  const dir     = d.dirs?.[idx3h]   ?? d.dirs1h?.[idx1h];
-  const timeStr = d.times?.[idx3h]  ?? d.times1h?.[idx1h];
+  // Use the 1h-resolution values at the crosshair position so the pie fill
+  // reflects the exact moment the crosshair points to — same scale as the
+  // temp and wind values shown in the crosshair labels.
+  // Fall back to the 3h display-series slot when 1h arrays are absent.
+  const wind    = d.winds1h?.[idx1h] ?? d.winds?.[idx3h];
+  const dir     = d.dirs1h?.[idx1h]  ?? d.dirs?.[idx3h];
+  const timeStr = d.times1h?.[idx1h] ?? d.times?.[idx3h];
   if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
 }
 
