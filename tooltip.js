@@ -97,8 +97,12 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
   });
 }
 
+let _lastHoverIdx1h = null, _lastHoverIdx3h = null;
+
 function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
+  _lastHoverIdx1h = idx1h;
+  _lastHoverIdx3h = idx3h;
   const d = lastRenderedData;
   const portrait = !!d.isPortraitMode;
   let timeStr, wind, dir;
@@ -111,8 +115,13 @@ function showTooltip(idx1h, idx3h) {
     wind    = d.winds1h[idx1h];
     dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
   }
-  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr));
+  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
 }
+
+window.refireHoverIndicator = function () {
+  if (_lastHoverIdx1h != null) showTooltip(_lastHoverIdx1h, _lastHoverIdx3h);
+  else showCurrentTimeCrosshair();
+};
 
 function showCurrentTimeCrosshair() {
   if (!lastRenderedData) { clearCrosshairs(); return; }
