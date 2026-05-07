@@ -104,17 +104,13 @@ function showTooltip(idx1h, idx3h) {
   _lastHoverIdx1h = idx1h;
   _lastHoverIdx3h = idx3h;
   const d = lastRenderedData;
-  const portrait = !!d.isPortraitMode;
-  let timeStr, wind, dir;
-  if (portrait) {
-    timeStr = d.times[idx3h];
-    wind    = d.winds[idx3h];
-    dir     = d.dirs[idx3h];
-  } else {
-    timeStr = d.times1h[idx1h];
-    wind    = d.winds1h[idx1h];
-    dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
-  }
+  // Use the 3h display-series slot values for the radar pie indicator so it is
+  // consistent with the kite column highlights in the chart (which also use the
+  // 3h representative slot: d.winds[idx3h], d.dirs[idx3h], d.times[idx3h]).
+  // Fall back to 1h values when the 3h arrays are absent (e.g. minimal test fixtures).
+  const wind    = d.winds?.[idx3h]  ?? d.winds1h?.[idx1h];
+  const dir     = d.dirs?.[idx3h]   ?? d.dirs1h?.[idx1h];
+  const timeStr = d.times?.[idx3h]  ?? d.times1h?.[idx1h];
   if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
 }
 
