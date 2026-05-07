@@ -212,6 +212,22 @@ window._stationBias = _stationBias;
     return pts;
   }
 
+  /** Annular (ring) sector: outer arc then inner arc reversed, forming a truncated pie slice. */
+  function _annularSectorLatLngs(lat, lon, bearingDeg, innerRadiusM, outerRadiusM) {
+    const R      = 6371000;
+    const latRad = lat * Math.PI / 180;
+    const steps  = 8;
+    const pts    = [];
+    const _pt = (r, i) => {
+      const ang = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;
+      return [lat + (r / R) * Math.cos(ang) * 180 / Math.PI,
+              lon + (r / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI];
+    };
+    for (let i = 0; i <= steps; i++) pts.push(_pt(outerRadiusM, i));
+    for (let i = steps; i >= 0; i--) pts.push(_pt(innerRadiusM, i));
+    return pts;
+  }
+
   /** Bearing sector radius: 5 km capped at 25% of the smaller map dimension. */
   function _bearingRadius() {
     const maxM = 5000;
@@ -887,14 +903,17 @@ window._stationBias = _stationBias;
     kiteSpotOutlineLayers = [];
     if (!_activeSpotState || !radarMap) return;
     const { lat, lon, dirs } = _activeSpotState;
-    const radius = _bearingRadius();
+    const base        = _bearingRadius();
+    const innerRadius = base;
+    const outerRadius = base * KITE_CFG.max / KITE_CFG.min;
     dirs.forEach(bearing => {
-      const latlngs = _bearingSectorLatLngs(lat, lon, bearing, radius);
+      const latlngs = _annularSectorLatLngs(lat, lon, bearing, innerRadius, outerRadius);
       const poly = L.polygon(latlngs, {
-        color:  '#00c890',
-        fill:   false,
-        weight: 1,
-        opacity: 0.75,
+        color:       '#00c890',
+        fillColor:   '#00c890',
+        fillOpacity: 0.25,
+        weight:      1,
+        opacity:     0.8,
       }).addTo(radarMap);
       kiteSpotOutlineLayers.push(poly);
     });
@@ -929,8 +948,9 @@ window._stationBias = _stationBias;
     const radius = _bearingRadius() * windSpeed / KITE_CFG.min;
     if (radius < 50) return;
 
+    const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
     const col = windColor(windSpeed);
-    _hoverOverlayLayer = L.polygon(_bearingSectorLatLngs(lat, lon, snapBearing(windDeg), radius), {
+    _hoverOverlayLayer = L.polygon(_bearingSectorLatLngs(lat, lon, snapped, radius), {
       color:       col,
       fillColor:   col,
       fillOpacity: 0.55,
