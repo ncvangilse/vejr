@@ -917,8 +917,10 @@ window._stationBias = _stationBias;
       }).addTo(radarMap);
       kiteSpotOutlineLayers.push(poly);
     });
-    // Clear hover layer so it's redrawn at correct radius on next hover
+    // Remove stale hover layer — it will be redrawn at the correct radius by refireHoverIndicator.
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
+    // Restore the hover layer immediately so zoom/resize doesn't leave the pie dark.
+    if (window.refireHoverIndicator) window.refireHoverIndicator();
   }
 
   // Static outline sectors for all selected bearings (shown while popup is open)
@@ -928,7 +930,7 @@ window._stationBias = _stationBias;
     if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
     window._pendingBearingOverlay = null;
     _redrawBearingOutlines();
-    if (window.refireHoverIndicator) window.refireHoverIndicator();
+    // Note: _redrawBearingOutlines already calls refireHoverIndicator.
   };
 
   window.hideKiteSpotBearingOverlay = function () {
