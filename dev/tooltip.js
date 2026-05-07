@@ -160,6 +160,8 @@ function attachHoverListeners() {
         const mid = (lo + hi) >> 1;
         if (xMap[mid] < relX) lo = mid + 1; else hi = mid;
       }
+      // lo is now the first index where xMap[lo] >= relX; pick nearest neighbour.
+      if (lo > 0 && Math.abs(xMap[lo - 1] - relX) < Math.abs(xMap[lo] - relX)) lo--;
       idx1h = lo;
       idx3h = lastRenderedData.slotIdx1h
         ? Math.min(n3h - 1, lastRenderedData.slotIdx1h[idx1h])
