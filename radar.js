@@ -939,21 +939,26 @@ window._stationBias = _stationBias;
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
   };
 
-  // Dynamic hover layer: wind bearing pie-piece colored by speed, radius scaled by kite minimum
-  window.updateKiteSpotBearingHover = function (windDeg, _isOptimal, windSpeed) {
+  // Dynamic hover layer: annular ring slice, inner edge = icon boundary, outer scaled by speed
+  window.updateKiteSpotBearingHover = function (windDeg, isOptimal, windSpeed) {
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
     if (!_activeSpotState || windDeg == null || windSpeed == null || !radarMap) return;
 
     const { lat, lon } = _activeSpotState;
-    const radius = _bearingRadius() * windSpeed / KITE_CFG.min;
-    if (radius < 50) return;
+    const base = _bearingRadius();
+
+    // Icon half-width in metres at current zoom (14 px for the 28 px kite spot icon)
+    const mPerPx      = (40075016.686 * Math.cos(lat * Math.PI / 180)) / (256 * Math.pow(2, radarMap.getZoom()));
+    const innerRadius = 14 * mPerPx;
+    const outerRadius = base * windSpeed / KITE_CFG.min;
+    if (outerRadius <= innerRadius) return;
 
     const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
     const col = windColor(windSpeed);
-    _hoverOverlayLayer = L.polygon(_bearingSectorLatLngs(lat, lon, snapped, radius), {
+    _hoverOverlayLayer = L.polygon(_annularSectorLatLngs(lat, lon, snapped, innerRadius, outerRadius), {
       color:       col,
       fillColor:   col,
-      fillOpacity: 0.55,
+      fillOpacity: isOptimal ? 0.55 : 0,
       weight:      1.5,
       opacity:     0.9,
     }).addTo(radarMap);
