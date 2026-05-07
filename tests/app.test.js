@@ -1358,7 +1358,7 @@ describe('showCurrentTimeCrosshair', () => {
     expect(xDrawn['xh-temp']).toBeCloseTo(55);
   });
 
-  it('selects the first future time slot', () => {
+  it('selects the current time slot (last slot at or before now)', () => {
     const { ctx } = loadApp();
     const xDrawn = makeXhSetup(ctx);
     const nowMs = Date.now();
@@ -1374,8 +1374,9 @@ describe('showCurrentTimeCrosshair', () => {
       slotIdx1h: [0, 0, 1, 1],
     };
     ctx.showCurrentTimeCrosshair();
-    // First future entry is index 2 → xMap1h[2] = 30
-    expect(xDrawn['xh-top']).toBeCloseTo(30);
+    // now is between index 1 (now-1h) and index 2 (now+1h)
+    // current slot = last slot ≤ now = index 1 → xMap1h[1] = 20
+    expect(xDrawn['xh-top']).toBeCloseTo(20);
   });
 
   it('mouseleave does not reset the crosshair (no listener registered)', () => {
