@@ -212,6 +212,22 @@ window._stationBias = _stationBias;
     return pts;
   }
 
+  /** Annular (ring) sector: outer arc then inner arc reversed, forming a truncated pie slice. */
+  function _annularSectorLatLngs(lat, lon, bearingDeg, innerRadiusM, outerRadiusM) {
+    const R      = 6371000;
+    const latRad = lat * Math.PI / 180;
+    const steps  = 8;
+    const pts    = [];
+    const _pt = (r, i) => {
+      const ang = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;
+      return [lat + (r / R) * Math.cos(ang) * 180 / Math.PI,
+              lon + (r / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI];
+    };
+    for (let i = 0; i <= steps; i++) pts.push(_pt(outerRadiusM, i));
+    for (let i = steps; i >= 0; i--) pts.push(_pt(innerRadiusM, i));
+    return pts;
+  }
+
   /** Bearing sector radius: 5 km capped at 25% of the smaller map dimension. */
   function _bearingRadius() {
     const maxM = 5000;
@@ -887,14 +903,17 @@ window._stationBias = _stationBias;
     kiteSpotOutlineLayers = [];
     if (!_activeSpotState || !radarMap) return;
     const { lat, lon, dirs } = _activeSpotState;
-    const radius = _bearingRadius();
+    const base        = _bearingRadius();
+    const innerRadius = base;
+    const outerRadius = base * KITE_CFG.max / KITE_CFG.min;
     dirs.forEach(bearing => {
-      const latlngs = _bearingSectorLatLngs(lat, lon, bearing, radius);
+      const latlngs = _annularSectorLatLngs(lat, lon, bearing, innerRadius, outerRadius);
       const poly = L.polygon(latlngs, {
-        color:  '#00c890',
-        fill:   false,
-        weight: 1,
-        opacity: 0.75,
+        color:       '#00c890',
+        fillColor:   '#00c890',
+        fillOpacity: 0.25,
+        weight:      1,
+        opacity:     0.8,
       }).addTo(radarMap);
       kiteSpotOutlineLayers.push(poly);
     });
@@ -909,6 +928,7 @@ window._stationBias = _stationBias;
     if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
     window._pendingBearingOverlay = null;
     _redrawBearingOutlines();
+    if (window.refireHoverIndicator) window.refireHoverIndicator();
   };
 
   window.hideKiteSpotBearingOverlay = function () {
@@ -919,43 +939,29 @@ window._stationBias = _stationBias;
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
   };
 
-  // Dynamic hover layer: wind bearing line + optional filled sector
-  window.updateKiteSpotBearingHover = function (windDeg, isOptimal) {
+  // Dynamic hover layer: annular ring slice, inner edge = icon boundary, outer scaled by speed
+  window.updateKiteSpotBearingHover = function (windDeg, isOptimal, windSpeed) {
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
-    if (!_activeSpotState || windDeg == null || !radarMap) return;
+    if (!_activeSpotState || windDeg == null || windSpeed == null || !radarMap) return;
 
-    const { lat, lon, dirs } = _activeSpotState;
-    const R      = 6371000;
-    const latRad = lat * Math.PI / 180;
-    const radius = _bearingRadius();
-    const ang    = windDeg * Math.PI / 180;
-    const dlat   = (radius / R) * Math.cos(ang) * 180 / Math.PI;
-    const dlon   = (radius / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI;
+    const { lat, lon } = _activeSpotState;
+    const base = _bearingRadius();
 
-    const group = L.layerGroup();
+    // Icon half-width in metres at current zoom (14 px for the 28 px kite spot icon)
+    const mPerPx      = (40075016.686 * Math.cos(lat * Math.PI / 180)) / (256 * Math.pow(2, radarMap.getZoom()));
+    const innerRadius = 14 * mPerPx;
+    const outerRadius = base * windSpeed / KITE_CFG.min;
+    if (outerRadius <= innerRadius) return;
 
-    // Dashed line from spot center toward wind source direction
-    L.polyline([[lat, lon], [lat + dlat, lon + dlon]], {
-      color:     isOptimal ? '#00c890' : '#888888',
-      weight:    1,
-      opacity:   0.9,
-      dashArray: '5,4',
-    }).addTo(group);
-
-    // Filled sector if wind snaps to a selected bearing and conditions are optimal
     const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
-    if (isOptimal && dirs.includes(snapped)) {
-      L.polygon(_bearingSectorLatLngs(lat, lon, snapped, radius), {
-        color:       '#00c890',
-        fillColor:   '#00c890',
-        fillOpacity: 0.35,
-        weight:      1,
-        opacity:     0.8,
-      }).addTo(group);
-    }
-
-    group.addTo(radarMap);
-    _hoverOverlayLayer = group;
+    const col = windColor(windSpeed);
+    _hoverOverlayLayer = L.polygon(_annularSectorLatLngs(lat, lon, snapped, innerRadius, outerRadius), {
+      color:       col,
+      fillColor:   col,
+      fillOpacity: isOptimal ? 0.55 : 0,
+      weight:      1.5,
+      opacity:     0.9,
+    }).addTo(radarMap);
   };
 
   let obsToggleCallback = null;

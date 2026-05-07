@@ -1099,8 +1099,8 @@ fetchCuratedKiteSpots().then(() => {
 });
 
 // Forward forecast hover events to the radar bearing overlay
-window.onForecastHover = (windDeg, isOptimal) => {
-  if (window.updateKiteSpotBearingHover) window.updateKiteSpotBearingHover(windDeg, isOptimal);
+window.onForecastHover = (windDeg, isOptimal, windSpeed) => {
+  if (window.updateKiteSpotBearingHover) window.updateKiteSpotBearingHover(windDeg, isOptimal, windSpeed);
 };
 
 // ── Initial load ──────────────────────────────────────────────────────────
