@@ -124,8 +124,8 @@ function showCurrentTimeCrosshair() {
   const d = lastRenderedData;
   const nowMs = Date.now();
   const times1h = d.times1h;
-  let idx1h = times1h.findIndex(t => new Date(t).getTime() >= nowMs);
-  if (idx1h < 0) idx1h = times1h.length - 1;
+  const afterIdx = times1h.findIndex(t => new Date(t).getTime() > nowMs);
+  let idx1h = afterIdx < 0 ? times1h.length - 1 : Math.max(0, afterIdx - 1);
   const n3h = d.times.length;
   const idx3h = d.slotIdx1h
     ? Math.min(n3h - 1, d.slotIdx1h[idx1h])
