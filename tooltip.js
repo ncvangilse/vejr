@@ -111,7 +111,7 @@ function showTooltip(idx1h, idx3h) {
     wind    = d.winds1h[idx1h];
     dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
   }
-  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr));
+  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
 }
 
 function showCurrentTimeCrosshair() {

@@ -919,43 +919,23 @@ window._stationBias = _stationBias;
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
   };
 
-  // Dynamic hover layer: wind bearing line + optional filled sector
-  window.updateKiteSpotBearingHover = function (windDeg, isOptimal) {
+  // Dynamic hover layer: wind bearing pie-piece colored by speed, radius scaled by kite minimum
+  window.updateKiteSpotBearingHover = function (windDeg, _isOptimal, windSpeed) {
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
-    if (!_activeSpotState || windDeg == null || !radarMap) return;
+    if (!_activeSpotState || windDeg == null || windSpeed == null || !radarMap) return;
 
-    const { lat, lon, dirs } = _activeSpotState;
-    const R      = 6371000;
-    const latRad = lat * Math.PI / 180;
-    const radius = _bearingRadius();
-    const ang    = windDeg * Math.PI / 180;
-    const dlat   = (radius / R) * Math.cos(ang) * 180 / Math.PI;
-    const dlon   = (radius / R) * Math.sin(ang) / Math.cos(latRad) * 180 / Math.PI;
+    const { lat, lon } = _activeSpotState;
+    const radius = _bearingRadius() * windSpeed / KITE_CFG.min;
+    if (radius < 50) return;
 
-    const group = L.layerGroup();
-
-    // Dashed line from spot center toward wind source direction
-    L.polyline([[lat, lon], [lat + dlat, lon + dlon]], {
-      color:     isOptimal ? '#00c890' : '#888888',
-      weight:    1,
-      opacity:   0.9,
-      dashArray: '5,4',
-    }).addTo(group);
-
-    // Filled sector if wind snaps to a selected bearing and conditions are optimal
-    const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
-    if (isOptimal && dirs.includes(snapped)) {
-      L.polygon(_bearingSectorLatLngs(lat, lon, snapped, radius), {
-        color:       '#00c890',
-        fillColor:   '#00c890',
-        fillOpacity: 0.35,
-        weight:      1,
-        opacity:     0.8,
-      }).addTo(group);
-    }
-
-    group.addTo(radarMap);
-    _hoverOverlayLayer = group;
+    const col = windColor(windSpeed);
+    _hoverOverlayLayer = L.polygon(_bearingSectorLatLngs(lat, lon, windDeg, radius), {
+      color:       col,
+      fillColor:   col,
+      fillOpacity: 0.55,
+      weight:      1.5,
+      opacity:     0.9,
+    }).addTo(radarMap);
   };
 
   let obsToggleCallback = null;
