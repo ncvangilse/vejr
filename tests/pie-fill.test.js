@@ -251,7 +251,8 @@ describe('showTooltip integration: onForecastHover receives correct isOptimal', 
     const calls = [];
     ctx.window.onForecastHover = (dir, isOptimal, wind) => calls.push({ dir, isOptimal, wind });
 
-    // Display-series slot is clearly optimal: 8 m/s, dir=270, daytime
+    // Display-series slot: 8 m/s, dir=270, daytime. 1h data is wrong direction/speed
+    // to confirm display series is used, not 1h.
     ctx.lastRenderedData = {
       winds:   [8],
       dirs:    [270],
@@ -263,7 +264,6 @@ describe('showTooltip integration: onForecastHover receives correct isOptimal', 
       slotIdx1h: [0],
     };
 
-    // Override global KITE_CFG so the non-_cfg code path also works.
     ctx.KITE_CFG = { min: 7, max: 12, dirs: [270], daylight: true };
 
     ctx.showTooltip(0, 0);
@@ -272,6 +272,31 @@ describe('showTooltip integration: onForecastHover receives correct isOptimal', 
     expect(calls[0].isOptimal).toBe(true);
     expect(calls[0].dir).toBe(270);
     expect(calls[0].wind).toBe(8);
+  });
+
+  it('fills pie at night even when daylight=true (daylight only gates forecast icons)', () => {
+    const ctx = makeCtx();
+    const calls = [];
+    ctx.window.onForecastHover = (dir, isOptimal, wind) => calls.push({ dir, isOptimal, wind });
+
+    ctx.lastRenderedData = {
+      winds:   [9],
+      dirs:    [270],
+      times:   ['2024-06-15T22:00'],   // 22:00 = night
+      winds1h: [9],
+      dirs1h:  [270],
+      times1h: ['2024-06-15T22:00'],
+      xMap1h:  [100],
+      slotIdx1h: [0],
+    };
+
+    // daylight=true would block isKiteOptimal normally, but pie ignores it
+    ctx.KITE_CFG = { min: 7, max: 12, dirs: [270], daylight: true };
+
+    ctx.showTooltip(0, 0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].isOptimal).toBe(true);
   });
 
   it('fires onForecastHover with isOptimal=false when display-series slot is suboptimal', () => {
