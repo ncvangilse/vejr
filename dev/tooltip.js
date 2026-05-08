@@ -119,7 +119,10 @@ function showTooltip(idx1h, idx3h) {
   _lastHoverIdx1h = idx1h;
   _lastHoverIdx3h = idx3h;
   const { wind, dir, timeStr } = _hoverPayload(lastRenderedData, idx1h, idx3h);
-  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
+  // Pie fill ignores daylight — it shows wind suitability regardless of time of day.
+  // The daylight restriction only applies to kite-column highlights in the forecast chart.
+  const pieCfg = KITE_CFG ? { ...KITE_CFG, daylight: false } : undefined;
+  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr, pieCfg), wind);
 }
 
 window.refireHoverIndicator = function () {
