@@ -79,19 +79,22 @@ function drawWindArrow(ctx, cx, cy, deg, speed, size) {
 /* ══════════════════════════════════════════════════
    KITESURFING OPTIMAL WINDOW
 ══════════════════════════════════════════════════ */
-function isKiteDir(deg) {
+function isKiteDir(deg, _cfg) {
   const slot = snapBearing(deg);
-  return KITE_CFG.dirs.includes(slot);
+  return (_cfg || KITE_CFG).dirs.includes(slot);
 }
-function isKiteOptimal(speed, deg, timeStr) {
-  if (KITE_CFG.daylight && isNight(timeStr)) return false;
-  if (!isKiteDir(deg)) return false;
-  if (speed < KITE_CFG.min || speed > KITE_CFG.max) return false;
+// Optional _cfg overrides KITE_CFG — used in tests to inject config without touching global state.
+function isKiteOptimal(speed, deg, timeStr, _cfg) {
+  const cfg = _cfg || KITE_CFG;
+  if (cfg.daylight && isNight(timeStr)) return false;
+  if (!isKiteDir(deg, cfg)) return false;
+  if (speed < cfg.min || speed > cfg.max) return false;
   return true;
 }
 /** Direction and daylight match but speed may be outside the kite window. */
-function isKiteDirOnly(deg, timeStr) {
-  if (KITE_CFG.daylight && isNight(timeStr)) return false;
-  if (!isKiteDir(deg)) return false;
+function isKiteDirOnly(deg, timeStr, _cfg) {
+  const cfg = _cfg || KITE_CFG;
+  if (cfg.daylight && isNight(timeStr)) return false;
+  if (!isKiteDir(deg, cfg)) return false;
   return true;
 }

@@ -99,23 +99,30 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
 
 let _lastHoverIdx1h = null, _lastHoverIdx3h = null;
 
+/**
+ * Pure function — picks the wind/dir/timeStr values used to evaluate the pie fill.
+ * Deliberately uses the DISPLAY-SERIES slot (idx3h) rather than the raw 1h slot so
+ * the pie decision is made with exactly the same data that determines whether the
+ * chart column is highlighted teal (isKiteOptimal is called with the same values in
+ * _drawWindKiteColumns).  Falls back to the 1h value if the display series is absent.
+ */
+function _hoverPayload(d, idx1h, idx3h) {
+  return {
+    wind:    d.winds?.[idx3h]  ?? d.winds1h?.[idx1h],
+    dir:     d.dirs?.[idx3h]   ?? d.dirs1h?.[idx1h],
+    timeStr: d.times?.[idx3h]  ?? d.times1h?.[idx1h],
+  };
+}
+
 function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
   _lastHoverIdx1h = idx1h;
   _lastHoverIdx3h = idx3h;
-  const d = lastRenderedData;
-  const portrait = !!d.isPortraitMode;
-  let timeStr, wind, dir;
-  if (portrait) {
-    timeStr = d.times[idx3h];
-    wind    = d.winds[idx3h];
-    dir     = d.dirs[idx3h];
-  } else {
-    timeStr = d.times1h[idx1h];
-    wind    = d.winds1h[idx1h];
-    dir     = d.dirs1h ? d.dirs1h[idx1h] : d.dirs[idx3h];
-  }
-  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
+  const { wind, dir, timeStr } = _hoverPayload(lastRenderedData, idx1h, idx3h);
+  // Pie fill ignores daylight — it shows wind suitability regardless of time of day.
+  // The daylight restriction only applies to kite-column highlights in the forecast chart.
+  const pieCfg = KITE_CFG ? { ...KITE_CFG, daylight: false } : undefined;
+  if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr, pieCfg), wind);
 }
 
 window.refireHoverIndicator = function () {
@@ -128,8 +135,8 @@ function showCurrentTimeCrosshair() {
   const d = lastRenderedData;
   const nowMs = Date.now();
   const times1h = d.times1h;
-  let idx1h = times1h.findIndex(t => new Date(t).getTime() >= nowMs);
-  if (idx1h < 0) idx1h = times1h.length - 1;
+  const afterIdx = times1h.findIndex(t => new Date(t).getTime() > nowMs);
+  let idx1h = afterIdx < 0 ? times1h.length - 1 : Math.max(0, afterIdx - 1);
   const n3h = d.times.length;
   const idx3h = d.slotIdx1h
     ? Math.min(n3h - 1, d.slotIdx1h[idx1h])
@@ -164,6 +171,8 @@ function attachHoverListeners() {
         const mid = (lo + hi) >> 1;
         if (xMap[mid] < relX) lo = mid + 1; else hi = mid;
       }
+      // lo is now the first index where xMap[lo] >= relX; pick nearest neighbour.
+      if (lo > 0 && Math.abs(xMap[lo - 1] - relX) < Math.abs(xMap[lo] - relX)) lo--;
       idx1h = lo;
       idx3h = lastRenderedData.slotIdx1h
         ? Math.min(n3h - 1, lastRenderedData.slotIdx1h[idx1h])
