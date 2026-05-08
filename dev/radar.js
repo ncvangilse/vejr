@@ -956,7 +956,7 @@ window._stationBias = _stationBias;
     if (outerRadius <= innerRadius) return;
 
     const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
-    const col = windColor(windSpeed);
+    const col = windColorStr(windSpeed, 1);
     _hoverOverlayLayer = L.polygon(_annularSectorLatLngs(lat, lon, snapped, innerRadius, outerRadius), {
       color:       col,
       fillColor:   col,

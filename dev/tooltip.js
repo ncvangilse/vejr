@@ -99,18 +99,26 @@ function drawCrosshairs(fracX, idx1h, idx3h) {
 
 let _lastHoverIdx1h = null, _lastHoverIdx3h = null;
 
+/**
+ * Pure function — picks the wind/dir/timeStr values used to evaluate the pie fill.
+ * Deliberately uses the DISPLAY-SERIES slot (idx3h) rather than the raw 1h slot so
+ * the pie decision is made with exactly the same data that determines whether the
+ * chart column is highlighted teal (isKiteOptimal is called with the same values in
+ * _drawWindKiteColumns).  Falls back to the 1h value if the display series is absent.
+ */
+function _hoverPayload(d, idx1h, idx3h) {
+  return {
+    wind:    d.winds?.[idx3h]  ?? d.winds1h?.[idx1h],
+    dir:     d.dirs?.[idx3h]   ?? d.dirs1h?.[idx1h],
+    timeStr: d.times?.[idx3h]  ?? d.times1h?.[idx1h],
+  };
+}
+
 function showTooltip(idx1h, idx3h) {
   if (!lastRenderedData) return;
   _lastHoverIdx1h = idx1h;
   _lastHoverIdx3h = idx3h;
-  const d = lastRenderedData;
-  // Use the 1h-resolution values at the crosshair position so the pie fill
-  // reflects the exact moment the crosshair points to — same scale as the
-  // temp and wind values shown in the crosshair labels.
-  // Fall back to the 3h display-series slot when 1h arrays are absent.
-  const wind    = d.winds1h?.[idx1h] ?? d.winds?.[idx3h];
-  const dir     = d.dirs1h?.[idx1h]  ?? d.dirs?.[idx3h];
-  const timeStr = d.times1h?.[idx1h] ?? d.times?.[idx3h];
+  const { wind, dir, timeStr } = _hoverPayload(lastRenderedData, idx1h, idx3h);
   if (window.onForecastHover) window.onForecastHover(dir, isKiteOptimal(wind, dir, timeStr), wind);
 }
 
