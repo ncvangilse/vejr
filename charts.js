@@ -1,6 +1,50 @@
 /* ══════════════════════════════════════════════════
    CANVAS DRAWING HELPERS
 ══════════════════════════════════════════════════ */
+
+/**
+ * Returns the canvas x-pixel position of the current moment within a time series.
+ * When xMap is provided (portrait 1h→display grid), interpolates between adjacent
+ * mapped positions. Without xMap uses uniform column width.
+ * Returns null when now falls outside the charted period.
+ * @param {number} [_nowMs] - override for Date.now() (used in tests)
+ */
+function _nowLineX(times, cssW, xMap, _nowMs) {
+  const now = _nowMs != null ? _nowMs : Date.now();
+  const ts  = times.map(t => new Date(t).getTime());
+  const n   = ts.length;
+  if (now < ts[0]) return null;
+  const colW = cssW / n;
+  for (let i = 0; i < n - 1; i++) {
+    if (now >= ts[i] && now < ts[i + 1]) {
+      const frac = (now - ts[i]) / (ts[i + 1] - ts[i]);
+      if (xMap) return xMap[i] + frac * (xMap[i + 1] - xMap[i]);
+      return (i + frac) * colW;
+    }
+  }
+  // Within the last slot
+  const step = n >= 2 ? ts[n - 1] - ts[n - 2] : 3600000;
+  if (now >= ts[n - 1] && now < ts[n - 1] + step) {
+    const frac = (now - ts[n - 1]) / step;
+    if (xMap) return xMap[n - 1] + frac * (xMap[n - 1] - xMap[n - 2]);
+    return (n - 1 + frac) * colW;
+  }
+  return null;
+}
+
+/** Draws a red dashed "now" vertical line at pixel x spanning from top to H. */
+function _drawNowLine(ctx, x, H, top) {
+  if (x == null) return;
+  ctx.save();
+  ctx.strokeStyle = '#cc2200';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(x, top ?? 0);
+  ctx.lineTo(x, H);
+  ctx.stroke();
+  ctx.restore();
+}
 function dayDivs(times) {
   const d=[];
   for(let i=1;i<times.length;i++)
@@ -38,7 +82,7 @@ function resolveDPI(canvas, cssW, cssH) {
 /* ══════════════════════════════════════════════════
    DRAW TOP ROW (time axis + icons + UV + wind dirs)
 ══════════════════════════════════════════════════ */
-function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
+function drawTopRow(times, codes, precips, invertedColors, totalCssW = null, nowLineX = null) {
   const canvas = document.getElementById('c-top');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -173,12 +217,15 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null) {
 
   // set axis label
   document.getElementById('ax-top').textContent = '';
+
+  // Current-time indicator — use pre-computed x when supplied (portrait alignment)
+  _drawNowLine(ctx, nowLineX ?? _nowLineX(times, cssW, null), cssH);
 }
 
 /* ══════════════════════════════════════════════════
    DRAW TEMP + PRECIP
 ══════════════════════════════════════════════════ */
-function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null, xMap = null, divXs = null) {
+function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h, ensPrecip3h, invertedColors = false, totalCssW = null, xMap = null, divXs = null, nowLineX = null) {
   const canvas = document.getElementById('c-temp');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -328,6 +375,9 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
     axP.appendChild(sp);
   });
   axP.style.position = 'relative';
+
+  // Current-time indicator — use pre-computed x when supplied (portrait alignment)
+  _drawNowLine(ctx, nowLineX ?? _nowLineX(times, cssW, xMap), cssH);
 }
 
 // Wind colour helpers and kite predicates moved to charts-wind-utils.js
@@ -335,7 +385,7 @@ function drawTemp(times, temps, precips, ensTemp, ensPrecip, times3h, precips3h,
 /* ══════════════════════════════════════════════════
    DRAW WIND DIRECTION ROW
 ══════════════════════════════════════════════════ */
-function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null) {
+function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null, nowLineX = null) {
   const canvas = document.getElementById('c-dir');
   const wrap   = canvas.parentElement;
   const n      = times.length;
@@ -391,6 +441,9 @@ function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null) {
     const cy = DIR_H / 2 + arrowSize * 0.13;
     drawWindArrow(ctx, cx, cy, deg, winds[i], arrowSize);
   });
+
+  // Current-time indicator — use pre-computed x when supplied (portrait alignment)
+  _drawNowLine(ctx, nowLineX ?? _nowLineX(times, cssW, null), DIR_H);
 }
 
 /* ══════════════════════════════════════════════════
@@ -619,7 +672,7 @@ function _windAxisMax(winds, obsMax = 0) {
   const base = Math.max(...winds.filter(v => v != null));
   return Math.max(base, obsMax, 5) + 2;
 }
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null, nowLineX = null) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const n      = times.length;
@@ -824,6 +877,9 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     ctx.restore();
   }
 
+  // --- current-time indicator — use pre-computed x when supplied (portrait alignment) ---
+  _drawNowLine(ctx, nowLineX ?? _nowLineX(times, cssW, xMap), WIND_H);
+
   // --- axis labels ---
   _drawWindAxisLabels(wLevels, wy, WIND_H);
 }
@@ -846,24 +902,32 @@ function renderAll(d, invertedColors, portraitColW = null) {
     .filter(i => new Date(d.times[i]).getTime() < extThreshMsAll)
     .map(i => i * portraitColW) : null;
 
-  drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW);
-  drawWindDir(d.times, d.winds, d.dirs, totalCssW, divXs);
+  // Compute the now-line x once from the 1h series + xMap so every chart row
+  // uses the same pixel — same approach as the white crosshair (drawCrosshairs).
+  // In portrait mode xMap1h provides the non-uniform grid positions; in landscape
+  // mode (totalCssW=null) each function falls back to its own consistent value.
+  const nowX = totalCssW != null
+    ? _nowLineX(d.times1h, totalCssW, d.xMap1h ?? null)
+    : null;
+
+  drawTopRow(d.times, d.codes, d.precips, invertedColors, totalCssW, nowX);
+  drawWindDir(d.times, d.winds, d.dirs, totalCssW, divXs, nowX);
   if (portrait) {
     // Portrait: temp curve uses 1h data + xMap1h for smooth rendering across
     // the variable-resolution display grid. Precip bars use the display series.
     // divXs ensures day dividers align with the icon row regardless of curve resolution.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs);
+             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs, nowX);
     drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
              d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null,
-             d.otherModelsWind1h || null, d.xMap1h || null, divXs);
+             d.otherModelsWind1h || null, d.xMap1h || null, divXs, nowX);
   } else {
     // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
-             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, null);
+             d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, null, null, nowX);
     drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
              d.times, d.winds, invertedColors, totalCssW, null,
-             d.otherModelsWind1h || null, null);
+             d.otherModelsWind1h || null, null, null, nowX);
   }
 }
 

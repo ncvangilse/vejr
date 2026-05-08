@@ -1358,7 +1358,7 @@ describe('showCurrentTimeCrosshair', () => {
     expect(xDrawn['xh-temp']).toBeCloseTo(55);
   });
 
-  it('selects the first future time slot', () => {
+  it('selects the current time slot (last slot at or before now)', () => {
     const { ctx } = loadApp();
     const xDrawn = makeXhSetup(ctx);
     const nowMs = Date.now();
@@ -1374,8 +1374,9 @@ describe('showCurrentTimeCrosshair', () => {
       slotIdx1h: [0, 0, 1, 1],
     };
     ctx.showCurrentTimeCrosshair();
-    // First future entry is index 2 → xMap1h[2] = 30
-    expect(xDrawn['xh-top']).toBeCloseTo(30);
+    // now is between index 1 (now-1h) and index 2 (now+1h)
+    // current slot = last slot ≤ now = index 1 → xMap1h[1] = 20
+    expect(xDrawn['xh-top']).toBeCloseTo(20);
   });
 
   it('mouseleave does not reset the crosshair (no listener registered)', () => {
@@ -1393,6 +1394,72 @@ describe('showCurrentTimeCrosshair', () => {
     };
     // mouseleave is no longer registered — crosshair stays wherever it was.
     expect(contentEl._listeners['mouseleave']).toBeUndefined();
+  });
+});
+
+// ── showTooltipAtX nearest-neighbour snap ─────────────────────────────────────
+
+describe('showTooltipAtX nearest-neighbour snap', () => {
+  it('snaps to the left slot when cursor is closer to it than the right slot', () => {
+    const { ctx, contentEl } = loadApp();
+    const xDrawn = {};
+    const origGetEl = ctx.document.getElementById;
+    ctx.document.getElementById = (id) => {
+      const makeXhCtx = () => ({
+        clearRect() {}, save() {}, restore() {}, scale() {},
+        beginPath() {}, stroke() {}, fill() {}, arc() {},
+        setLineDash() {}, fillText() {},
+        moveTo(x) { xDrawn[id] = x; }, lineTo() {},
+        font: '', fillStyle: '', strokeStyle: '',
+        lineWidth: 0, textBaseline: '', textAlign: '',
+      });
+      if (['xh-top','xh-temp','xh-dir','xh-wind'].includes(id))
+        return { width: 60, height: 50, style: {}, getContext: makeXhCtx };
+      if (['c-top','c-temp','c-dir','c-wind'].includes(id))
+        return { width: 60, height: 50 };
+      return origGetEl(id);
+    };
+    ctx._windAxisMax = () => 20;
+    // xMap1h: slot centres at 10, 30, 50. Cursor at 22 is closer to 10 (|22-10|=12)
+    // than to 30 (|22-30|=8) — wait, actually 22 is closer to 30. Let's use 18:
+    // |18-10|=8, |18-30|=12 → nearest is index 0 (x=10).
+    ctx.lastRenderedData = {
+      times:     ['2020-01-01T00:00', '2020-01-01T03:00', '2020-01-01T06:00'],
+      times1h:   ['2020-01-01T00:00', '2020-01-01T02:00', '2020-01-01T04:00'],
+      temps1h:   [10, 11, 12],
+      winds1h:   [5, 6, 7],
+      dirs1h:    [90, 90, 90],
+      ensWind1h: null, ensGust1h: null,
+      xMap1h:    [10, 30, 50],
+      slotIdx1h: [0, 1, 2],
+    };
+    // Simulate mousemove at clientX such that relX = 18 (closer to slot 0 at x=10 than slot 1 at x=30)
+    const wrap = contentEl._listeners['mousemove'] && (() => {
+      const wrapEl = {
+        closest: (sel) => sel === '.chart-canvas-wrap' ? wrapEl : null,
+        getBoundingClientRect: () => ({ left: 0, top: 0, right: 60, bottom: 50 }),
+        scrollLeft: 0,
+        scrollWidth: 60,
+      };
+      return wrapEl;
+    })();
+    // Directly invoke the internal slot-snapping logic via a mousemove event
+    const fakeWrap = {
+      closest: (sel) => sel === '.chart-canvas-wrap' ? fakeWrap : null,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 60, bottom: 50 }),
+      scrollLeft: 0,
+      scrollWidth: 60,
+    };
+    const fakeTarget = { closest: (sel) => sel === '.chart-canvas-wrap' ? fakeWrap : null };
+    const moveListeners = contentEl._listeners['mousemove'];
+    if (Array.isArray(moveListeners)) {
+      moveListeners.forEach(fn => fn({ clientX: 18, target: fakeTarget }));
+    } else if (moveListeners) {
+      moveListeners({ clientX: 18, target: fakeTarget });
+    }
+    // relX=18, xMap=[10,30,50]: lower-bound finds index 1 (30>=18), nearest is index 0 (|10-18|=8 < |30-18|=12)
+    // crosshair should be at xMap1h[0] = 10
+    expect(xDrawn['xh-top']).toBeCloseTo(10);
   });
 });
 

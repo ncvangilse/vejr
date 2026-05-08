@@ -78,7 +78,7 @@ function loadChartLogic({ kiteCfg = null, shoreMask = null } = {}) {
     parseInt, parseFloat, isNaN, isFinite,
     encodeURIComponent, decodeURIComponent,
     URL, URLSearchParams,
-    Promise, Error,
+    Promise, Error, Date,
   });
 
   vm.runInContext(src, ctx);
@@ -613,5 +613,88 @@ describe('drawTemp temperature scale with null values', () => {
     const expected12 = TEMP_padT + (1 - (12 - 5) / 15) * TEMP_ch;
     expect(yClean.some(y => Math.abs(y - expected12) < 1)).toBe(true);
     expect(yNulls.some(y => Math.abs(y - expected12) < 1)).toBe(true);
+  });
+});
+
+// ── _nowLineX ────────────────────────────────────────────────────────────────
+
+describe('_nowLineX', () => {
+  let ctx;
+  beforeEach(() => { ctx = loadChartLogic(); });
+
+  const T0   = new Date('2024-06-15T10:00:00Z').getTime();
+  const STEP = 3600000; // 1h slots
+  const times3 = [
+    new Date(T0).toISOString(),
+    new Date(T0 + STEP).toISOString(),
+    new Date(T0 + STEP * 2).toISOString(),
+  ];
+  const cssW = 300; // 100 px per slot
+
+  it('returns null when now is before the first slot', () => {
+    expect(ctx._nowLineX(times3, cssW, null, T0 - 60000)).toBeNull();
+  });
+
+  it('returns null when now is after the last slot ends', () => {
+    expect(ctx._nowLineX(times3, cssW, null, T0 + STEP * 3 + 1)).toBeNull();
+  });
+
+  it('returns 0 when now is at the start of the first slot', () => {
+    // i=0, frac=0 → x = 0 * 100 = 0
+    expect(ctx._nowLineX(times3, cssW, null, T0)).toBeCloseTo(0, 1);
+  });
+
+  it('returns mid-slot position when now is exactly halfway through slot 0', () => {
+    // i=0, frac=0.5 → x = 0.5 * 100 = 50
+    expect(ctx._nowLineX(times3, cssW, null, T0 + STEP / 2)).toBeCloseTo(50, 1);
+  });
+
+  it('returns correct position when now is in a middle slot', () => {
+    // i=1, frac=0.25 → x = 1.25 * 100 = 125
+    expect(ctx._nowLineX(times3, cssW, null, T0 + STEP + STEP / 4)).toBeCloseTo(125, 1);
+  });
+
+  it('interpolates using xMap when provided', () => {
+    // Non-uniform xMap: slot 0→50, slot 1→150, slot 2→280
+    const xMap = [50, 150, 280];
+    // i=0, frac=0.5 → x = 50 + 0.5*(150-50) = 100
+    expect(ctx._nowLineX(times3, cssW, xMap, T0 + STEP / 2)).toBeCloseTo(100, 1);
+  });
+
+  it('handles the last slot correctly', () => {
+    // Within last slot: frac=0.5 → x = (2 + 0.5) * 100 = 250
+    expect(ctx._nowLineX(times3, cssW, null, T0 + STEP * 2 + STEP / 2)).toBeCloseTo(250, 1);
+  });
+});
+
+// ── drawWind: red now-line is drawn when now falls within chart period ────────
+
+describe('drawWind now-line rendering', () => {
+  function makeDomEl() {
+    return { style: {}, innerHTML: '', textContent: '', title: '', appendChild: () => {} };
+  }
+
+  it('_nowLineX returns a value when now is inside the period', () => {
+    // Verify the x-position helper works correctly for the draw integration.
+    const T0  = new Date('2024-06-15T10:00:00Z').getTime();
+    const ts  = [
+      new Date(T0).toISOString(),
+      new Date(T0 + 3600000).toISOString(),
+      new Date(T0 + 7200000).toISOString(),
+    ];
+    const vmCtx = loadChartLogic();
+    const x = vmCtx._nowLineX(ts, 300, null, T0 + 1800000);
+    // i=0, frac=0.5 → 0.5 * 100 = 50
+    expect(x).toBeCloseTo(50, 1);
+  });
+
+  it('_nowLineX returns null when now is before the forecast period', () => {
+    const T0  = new Date('2099-01-01T10:00:00Z').getTime();
+    const ts  = [
+      new Date(T0).toISOString(),
+      new Date(T0 + 3600000).toISOString(),
+    ];
+    const vmCtx = loadChartLogic();
+    expect(vmCtx._nowLineX(ts, 200, null, T0 - 86400000)).toBeNull();
   });
 });

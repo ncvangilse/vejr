@@ -201,7 +201,7 @@ window._stationBias = _stationBias;
   function _bearingSectorLatLngs(lat, lon, bearingDeg, radiusM) {
     const R      = 6371000;
     const latRad = lat * Math.PI / 180;
-    const steps  = 6;
+    const steps  = 24;
     const pts    = [[lat, lon]];
     for (let i = 0; i <= steps; i++) {
       const ang  = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;
@@ -216,7 +216,7 @@ window._stationBias = _stationBias;
   function _annularSectorLatLngs(lat, lon, bearingDeg, innerRadiusM, outerRadiusM) {
     const R      = 6371000;
     const latRad = lat * Math.PI / 180;
-    const steps  = 8;
+    const steps  = 32;
     const pts    = [];
     const _pt = (r, i) => {
       const ang = ((bearingDeg - 5) + i * 10 / steps) * Math.PI / 180;
@@ -917,8 +917,10 @@ window._stationBias = _stationBias;
       }).addTo(radarMap);
       kiteSpotOutlineLayers.push(poly);
     });
-    // Clear hover layer so it's redrawn at correct radius on next hover
+    // Remove stale hover layer — it will be redrawn at the correct radius by refireHoverIndicator.
     if (_hoverOverlayLayer) { _hoverOverlayLayer.removeFrom(radarMap); _hoverOverlayLayer = null; }
+    // Restore the hover layer immediately so zoom/resize doesn't leave the pie dark.
+    if (window.refireHoverIndicator) window.refireHoverIndicator();
   }
 
   // Static outline sectors for all selected bearings (shown while popup is open)
@@ -928,7 +930,7 @@ window._stationBias = _stationBias;
     if (!radarMap) { window._pendingBearingOverlay = { lat, lon, dirs }; return; }
     window._pendingBearingOverlay = null;
     _redrawBearingOutlines();
-    if (window.refireHoverIndicator) window.refireHoverIndicator();
+    // Note: _redrawBearingOutlines already calls refireHoverIndicator.
   };
 
   window.hideKiteSpotBearingOverlay = function () {
@@ -954,7 +956,7 @@ window._stationBias = _stationBias;
     if (outerRadius <= innerRadius) return;
 
     const snapped = Math.round(((windDeg % 360) + 360) % 360 / 10) * 10 % 360;
-    const col = windColor(windSpeed);
+    const col = windColorStr(windSpeed, 1);
     _hoverOverlayLayer = L.polygon(_annularSectorLatLngs(lat, lon, snapped, innerRadius, outerRadius), {
       color:       col,
       fillColor:   col,
