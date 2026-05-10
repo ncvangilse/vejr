@@ -205,6 +205,31 @@ describe('fetchYrWeather', () => {
     expect(result.precip_uncertainty.precip_max).toEqual([1.8]);
   });
 
+  it('inherits 6h precip uncertainty for 1h entries lacking their own min/max', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 10, wind_speed: 3, wind_from_direction: 0 };
+    // Entry at T+0: has both h1 (no min/max) and h6 (min/max covering T+0..T+5)
+    const h1Details = { precipitation_amount: 0.5 };
+    const h6Details = { precipitation_amount: 3, precipitation_amount_min: 0, precipitation_amount_max: 12 };
+    const entry0 = {
+      time: '2026-05-10T00:00:00Z',
+      data: { instant: { details: inst }, next_1_hours: { summary: { symbol_code: 'clearsky_day' }, details: h1Details }, next_6_hours: { summary: { symbol_code: 'clearsky_day' }, details: h6Details } },
+    };
+    // Entry at T+1: only h1, no h6 — should inherit h6 min/max from T+0
+    const entry1 = {
+      time: '2026-05-10T01:00:00Z',
+      data: { instant: { details: inst }, next_1_hours: { summary: { symbol_code: 'clearsky_day' }, details: h1Details } },
+    };
+    const resp = makeYrResponse([entry0, entry1]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    // Both entries should use the h6 min/max (0 and 12) divided by 6
+    expect(result.precip_uncertainty.precip_min[0]).toBeCloseTo(0);
+    expect(result.precip_uncertainty.precip_max[0]).toBeCloseTo(2.0);   // 12/6
+    expect(result.precip_uncertainty.precip_min[1]).toBeCloseTo(0);
+    expect(result.precip_uncertainty.precip_max[1]).toBeCloseTo(2.0);   // carried over from T+0's h6
+  });
+
   it('spreads 6h precip min/max evenly across expanded hourly slots', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 5, wind_speed: 2, wind_from_direction: 0 };
