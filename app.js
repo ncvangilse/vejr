@@ -326,6 +326,7 @@ function renderDisplay(d, scrollToNow = false) {
     displayData = buildLandscapeSeries(s, colW);
   }
 
+  displayData.yrModel = getModel() === 'yr';
   renderAll(displayData, invertedColors, colW);
   lastRenderedData = displayData;
   if (window.showCurrentTimeCrosshair) window.showCurrentTimeCrosshair();

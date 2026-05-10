@@ -142,7 +142,7 @@ describe('fetchYrWeather', () => {
     expect(result.hourly.winddirection_10m[3]).toBeCloseTo(0, 0);
   });
 
-  it('pads hours before first data point with first-entry values (zero precip)', async () => {
+  it('pads hours before first data point with null weather values and zero precip', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 10, wind_speed: 5, wind_speed_of_gust: 8, wind_from_direction: 90 };
     // 06:00 UTC = 06:00 local in TZ=UTC → 6 hours of padding expected
@@ -153,10 +153,14 @@ describe('fetchYrWeather', () => {
     expect(result.hourly.time[0]).toBe('2026-05-10T00:00');
     // 6 padded + 1 data = 7 total
     expect(result.hourly.time).toHaveLength(7);
-    // Padded entries carry first temperature, zero precip
-    expect(result.hourly.temperature_2m[0]).toBe(10);
+    // Padded entries are null for weather data, zero for precip
+    expect(result.hourly.temperature_2m[0]).toBeNull();
+    expect(result.hourly.windspeed_10m[0]).toBeNull();
+    expect(result.hourly.winddirection_10m[0]).toBeNull();
+    expect(result.hourly.weathercode[0]).toBeNull();
     expect(result.hourly.precipitation[0]).toBe(0);
     // The real data entry sits at index 6
+    expect(result.hourly.temperature_2m[6]).toBe(10);
     expect(result.hourly.precipitation[6]).toBe(1.0);
   });
 
