@@ -150,7 +150,7 @@ function yrUtcToLocal(isoUtc) {
 async function fetchYrWeather(lat, lon) {
   const url = `https://api.met.no/weatherapi/locationforecast/2.0/complete`
     + `?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
-  const r = await fetch(url, { headers: { 'User-Agent': 'vejr.app/1.0 github.com/ncvangilse/vejr' } });
+  const r = await fetch(url);
   if (!r.ok) throw new Error('Yr fetch failed');
   const json = await r.json();
   const timeseries = json.properties.timeseries;
