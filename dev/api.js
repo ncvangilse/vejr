@@ -187,6 +187,12 @@ async function fetchYrWeather(lat, lon) {
   const time = [], temperature_2m = [], precipitation = [], precip_min = [], precip_max = [],
         windspeed_10m = [], windgusts_10m = [], winddirection_10m = [], weathercode = [];
 
+  // Track the most-recent 6h precipitation uncertainty window so 1h entries
+  // can inherit the per-hour min/max from their containing 6h block.
+  // Met.no only provides precipitation_amount_min/max in next_6_hours, not
+  // next_1_hours, but entries at T+0, T+6, T+12 … have both blocks.
+  let lastH6PMin = null, lastH6PMax = null, lastH6Rem = 0;
+
   for (let i = 0; i < timeseries.length; i++) {
     const entry = timeseries[i];
     const inst  = entry.data.instant.details;
@@ -194,6 +200,13 @@ async function fetchYrWeather(lat, lon) {
     const h6    = entry.data.next_6_hours;
 
     if (h1) {
+      // When h6 is also present (T+0, T+6, …), refresh the running window.
+      if (h6) {
+        const h6d = h6.details;
+        lastH6PMin = (h6d.precipitation_amount_min ?? h6d.precipitation_amount ?? 0) / 6;
+        lastH6PMax = (h6d.precipitation_amount_max ?? h6d.precipitation_amount ?? 0) / 6;
+        lastH6Rem  = 6;
+      }
       const d = h1.details;
       time.push(yrUtcToLocal(entry.time));
       temperature_2m.push(inst.air_temperature);
@@ -201,9 +214,10 @@ async function fetchYrWeather(lat, lon) {
       windgusts_10m.push(inst.wind_speed_of_gust ?? inst.wind_speed);
       winddirection_10m.push(inst.wind_from_direction);
       precipitation.push(d.precipitation_amount ?? 0);
-      precip_min.push(d.precipitation_amount_min ?? d.precipitation_amount ?? 0);
-      precip_max.push(d.precipitation_amount_max ?? d.precipitation_amount ?? 0);
+      precip_min.push(d.precipitation_amount_min ?? (lastH6Rem > 0 ? lastH6PMin : null) ?? d.precipitation_amount ?? 0);
+      precip_max.push(d.precipitation_amount_max ?? (lastH6Rem > 0 ? lastH6PMax : null) ?? d.precipitation_amount ?? 0);
       weathercode.push(yrSymbolToWmo(h1.summary?.symbol_code));
+      if (lastH6Rem > 0) lastH6Rem--;
     } else if (h6) {
       // Expand 6-hour block into 6 hourly slots.
       // Cubic Catmull-Rom interpolation for smooth scalar fields; linear shortest-arc for direction.
