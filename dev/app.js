@@ -165,9 +165,9 @@ async function load(cityName, model) {
     if (window.analyseShore)     window.analyseShore(loc.latitude, loc.longitude).catch(() => null);
     // Start ensemble and obs lookup immediately — they run in parallel with weather.
     // Only weather is on the critical path; ensemble bands are applied after first render.
-    // Yr uses its own API and has no ensemble.
+    // Yr has no ensemble; its precip uncertainty comes from the forecast itself.
     const ensPromise = model === 'yr'
-      ? Promise.resolve(null)
+      ? null
       : fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null);
     loadNearestObsStation(loc.latitude, loc.longitude).catch(() => null);
     const iconCodeFetch = (model === 'dmi_seamless')
@@ -232,8 +232,16 @@ async function load(cityName, model) {
     const detTemps1h  = temps1h.slice(),  detWinds1h  = winds1h.slice();
     const detPrecips1h = precips1h.slice(), detGusts1h = gusts1h.slice();
     const modelLabel = MODEL_LABEL[model] || model;
-    const ensStatus = document.getElementById('ens-status');
-    if (ensStatus) { ensStatus.textContent = model === 'yr' ? modelLabel : `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
+    const ensStatus  = document.getElementById('ens-status');
+    const yrPU       = model === 'yr' ? data.precip_uncertainty : null;
+    const yrEnsPrecip   = yrPU ? yrPrecipBands(data.hourly.precipitation, yrPU.precip_min, yrPU.precip_max, STEP)   : null;
+    const yrEnsPrecip1h = yrPU ? yrPrecipBands(data.hourly.precipitation, yrPU.precip_min, yrPU.precip_max, STEP1H) : null;
+    if (ensStatus) {
+      ensStatus.textContent = model === 'yr'
+        ? modelLabel + (yrPU ? ' + precip range ✓' : '')
+        : `${modelLabel} — loading ensemble…`;
+      ensStatus.style.color = (model === 'yr' && yrPU) ? '#5a9' : '#888';
+    }
     document.getElementById('city-name').textContent =
       loc.name+(loc.country_code?', '+loc.country_code:'');
     document.getElementById('loading').style.display='none';
@@ -242,10 +250,10 @@ async function load(cityName, model) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       detTemps, detWinds, detPrecips, detGusts,
-      ensTemp: null, ensWind: null, ensGust: null, ensPrecip: null,
+      ensTemp: null, ensWind: null, ensGust: null, ensPrecip: yrEnsPrecip,
       times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       detTemps1h, detWinds1h, detPrecips1h, detGusts1h,
-      ensTemp1h: null, ensWind1h: null, ensGust1h: null, ensPrecip1h: null,
+      ensTemp1h: null, ensWind1h: null, ensGust1h: null, ensPrecip1h: yrEnsPrecip1h,
       otherModelsWind1h: null,
     };
     // Double rAF ensures layout is complete before measuring canvas width
@@ -261,13 +269,15 @@ async function load(cityName, model) {
         })
         .catch(() => null);
     }));
-    // Apply ensemble bands when ready; re-render once.
-    const capturedForEns = lastData;
-    ensPromise.then(ensData => {
-      if (lastData !== capturedForEns) return;
-      applyEnsembleData(lastData, ensData, model);
-      renderDisplay(lastData);
-    }).catch(() => null);
+    // Apply ensemble bands when ready; re-render once. Skipped for Yr (no ensemble).
+    if (ensPromise) {
+      const capturedForEns = lastData;
+      ensPromise.then(ensData => {
+        if (lastData !== capturedForEns) return;
+        applyEnsembleData(lastData, ensData, model);
+        renderDisplay(lastData);
+      }).catch(() => null);
+    }
     // Load RainViewer radar centred on the selected city
     if (window.loadRadar) window.loadRadar(loc.latitude, loc.longitude);
     updateShoreStatusUI();
@@ -827,7 +837,7 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
     if (window.analyseShore)     window.analyseShore(lat, lon).catch(() => null);
     const ensPromise = model === 'yr'
-      ? Promise.resolve(null)
+      ? null
       : fetchEnsemble(lat, lon, model).catch(() => null);
     loadNearestObsStation(lat, lon).catch(() => null);
 
@@ -914,8 +924,16 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     const detTemps1h  = temps1h.slice(),  detWinds1h  = winds1h.slice();
     const detPrecips1h = precips1h.slice(), detGusts1h = gusts1h.slice();
     const modelLabel = MODEL_LABEL[model] || model;
-    const ensStatus = document.getElementById('ens-status');
-    if (ensStatus) { ensStatus.textContent = model === 'yr' ? modelLabel : `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
+    const ensStatus  = document.getElementById('ens-status');
+    const yrPU       = model === 'yr' ? data.precip_uncertainty : null;
+    const yrEnsPrecip   = yrPU ? yrPrecipBands(data.hourly.precipitation, yrPU.precip_min, yrPU.precip_max, STEP)   : null;
+    const yrEnsPrecip1h = yrPU ? yrPrecipBands(data.hourly.precipitation, yrPU.precip_min, yrPU.precip_max, STEP1H) : null;
+    if (ensStatus) {
+      ensStatus.textContent = model === 'yr'
+        ? modelLabel + (yrPU ? ' + precip range ✓' : '')
+        : `${modelLabel} — loading ensemble…`;
+      ensStatus.style.color = (model === 'yr' && yrPU) ? '#5a9' : '#888';
+    }
     document.getElementById('city-name').textContent = displayName;
     document.getElementById('loading').style.display = 'none';
     forecastEl.style.display = 'block';
@@ -924,10 +942,10 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     lastData = {
       times, temps, precips, gusts, winds, dirs, codes,
       detTemps, detWinds, detPrecips, detGusts,
-      ensTemp: null, ensWind: null, ensGust: null, ensPrecip: null,
+      ensTemp: null, ensWind: null, ensGust: null, ensPrecip: yrEnsPrecip,
       times1h, temps1h, precips1h, gusts1h, winds1h, codes1h, dirs1h,
       detTemps1h, detWinds1h, detPrecips1h, detGusts1h,
-      ensTemp1h: null, ensWind1h: null, ensGust1h: null, ensPrecip1h: null,
+      ensTemp1h: null, ensWind1h: null, ensGust1h: null, ensPrecip1h: yrEnsPrecip1h,
       otherModelsWind1h: null,
     };
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -942,13 +960,15 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
         })
         .catch(() => null);
     }));
-    // Apply ensemble bands when ready; re-render once.
-    const capturedForEns = lastData;
-    ensPromise.then(ensData => {
-      if (lastData !== capturedForEns) return;
-      applyEnsembleData(lastData, ensData, model);
-      renderDisplay(lastData);
-    }).catch(() => null);
+    // Apply ensemble bands when ready; re-render once. Skipped for Yr (no ensemble).
+    if (ensPromise) {
+      const capturedForEns = lastData;
+      ensPromise.then(ensData => {
+        if (lastData !== capturedForEns) return;
+        applyEnsembleData(lastData, ensData, model);
+        renderDisplay(lastData);
+      }).catch(() => null);
+    }
     // Call loadRadar only when the section is not yet visible (i.e. on a fresh
     // page load restored from a dragged-pin URL).  When called from a live drag
     // the radar is already initialised and correctly positioned, so skip it.

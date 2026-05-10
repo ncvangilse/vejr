@@ -153,6 +153,28 @@ function yrLerpDir(a, b, t) {
   const diff = ((b - a + 180) % 360 + 360) % 360 - 180;
   return ((a + t * diff) % 360 + 360) % 360;
 }
+function yrCatmullRom(p0, p1, p2, p3, t) {
+  return 0.5 * (
+    2 * p1 +
+    (-p0 + p2) * t +
+    (2*p0 - 5*p1 + 4*p2 - p3) * t * t +
+    (-p0 + 3*p1 - 3*p2 + p3) * t * t * t
+  );
+}
+
+// Build p10/p50/p90 precipitation bands from Yr's per-hour min/expected/max arrays,
+// sampled at `step` intervals (matching the shape of ensemblePercentiles output).
+function yrPrecipBands(precip, precip_min, precip_max, step) {
+  step = step || STEP;
+  const p10 = [], p50 = [], p90 = [];
+  const len = Math.min(precip.length, precip_min.length, precip_max.length);
+  for (let i = 0; i < len; i += step) {
+    p10.push(precip_min[i] ?? 0);
+    p50.push(precip[i]     ?? 0);
+    p90.push(precip_max[i] ?? 0);
+  }
+  return { p10, p50, p90 };
+}
 
 async function fetchYrWeather(lat, lon) {
   const url = `https://api.met.no/weatherapi/locationforecast/2.0/complete`
@@ -162,7 +184,7 @@ async function fetchYrWeather(lat, lon) {
   const json = await r.json();
   const timeseries = json.properties.timeseries;
 
-  const time = [], temperature_2m = [], precipitation = [],
+  const time = [], temperature_2m = [], precipitation = [], precip_min = [], precip_max = [],
         windspeed_10m = [], windgusts_10m = [], winddirection_10m = [], weathercode = [];
 
   for (let i = 0; i < timeseries.length; i++) {
@@ -172,29 +194,54 @@ async function fetchYrWeather(lat, lon) {
     const h6    = entry.data.next_6_hours;
 
     if (h1) {
+      const d = h1.details;
       time.push(yrUtcToLocal(entry.time));
       temperature_2m.push(inst.air_temperature);
       windspeed_10m.push(inst.wind_speed);
       windgusts_10m.push(inst.wind_speed_of_gust ?? inst.wind_speed);
       winddirection_10m.push(inst.wind_from_direction);
-      precipitation.push(h1.details.precipitation_amount ?? 0);
+      precipitation.push(d.precipitation_amount ?? 0);
+      precip_min.push(d.precipitation_amount_min ?? d.precipitation_amount ?? 0);
+      precip_max.push(d.precipitation_amount_max ?? d.precipitation_amount ?? 0);
       weathercode.push(yrSymbolToWmo(h1.summary?.symbol_code));
     } else if (h6) {
-      // Expand 6-hour block into 6 hourly slots; interpolate instant values toward next anchor
-      const nextInst = timeseries[i + 1]?.data.instant.details;
-      const baseMs   = new Date(entry.time).getTime();
-      const precip1h = (h6.details.precipitation_amount ?? 0) / 6;
-      const wmo      = yrSymbolToWmo(h6.summary?.symbol_code);
-      const gustA    = inst.wind_speed_of_gust ?? inst.wind_speed;
-      const gustB    = nextInst ? (nextInst.wind_speed_of_gust ?? nextInst.wind_speed) : gustA;
+      // Expand 6-hour block into 6 hourly slots.
+      // Cubic Catmull-Rom interpolation for smooth scalar fields; linear shortest-arc for direction.
+      // p0 is clamped to p1 at the 1h→6h boundary (where spacing changes) to avoid overshoot.
+      const prevEntry  = timeseries[i - 1];
+      const prevIs6h   = prevEntry && prevEntry.data.next_6_hours && !prevEntry.data.next_1_hours;
+      const p0i = prevIs6h ? prevEntry.data.instant.details : inst;
+      const p2i = timeseries[i + 1]?.data.instant.details;
+      const p3i = timeseries[i + 2]?.data.instant.details ?? p2i;
+
+      const baseMs    = new Date(entry.time).getTime();
+      const d         = h6.details;
+      const precip1h  = (d.precipitation_amount ?? 0) / 6;
+      const pmin1h    = (d.precipitation_amount_min ?? d.precipitation_amount ?? 0) / 6;
+      const pmax1h    = (d.precipitation_amount_max ?? d.precipitation_amount ?? 0) / 6;
+      const wmo       = yrSymbolToWmo(h6.summary?.symbol_code);
+      const gust0     = p0i.wind_speed_of_gust ?? p0i.wind_speed;
+      const gust1     = inst.wind_speed_of_gust ?? inst.wind_speed;
+      const gust2     = p2i ? (p2i.wind_speed_of_gust ?? p2i.wind_speed) : gust1;
+      const gust3     = p3i ? (p3i.wind_speed_of_gust ?? p3i.wind_speed) : gust2;
+
       for (let h = 0; h < 6; h++) {
         const t = h / 6;
         time.push(yrUtcToLocal(new Date(baseMs + h * 3600000).toISOString()));
-        temperature_2m.push(nextInst ? yrLerp(inst.air_temperature, nextInst.air_temperature, t) : inst.air_temperature);
-        windspeed_10m.push(nextInst ? yrLerp(inst.wind_speed, nextInst.wind_speed, t) : inst.wind_speed);
-        windgusts_10m.push(nextInst ? yrLerp(gustA, gustB, t) : gustA);
-        winddirection_10m.push(nextInst ? yrLerpDir(inst.wind_from_direction, nextInst.wind_from_direction, t) : inst.wind_from_direction);
+        if (p2i) {
+          temperature_2m.push(yrCatmullRom(p0i.air_temperature, inst.air_temperature, p2i.air_temperature, p3i ? p3i.air_temperature : p2i.air_temperature, t));
+          windspeed_10m.push(Math.max(0, yrCatmullRom(p0i.wind_speed, inst.wind_speed, p2i.wind_speed, p3i ? p3i.wind_speed : p2i.wind_speed, t)));
+          windgusts_10m.push(Math.max(0, yrCatmullRom(gust0, gust1, gust2, gust3, t)));
+          winddirection_10m.push(yrLerpDir(inst.wind_from_direction, p2i.wind_from_direction, t));
+        } else {
+          temperature_2m.push(inst.air_temperature);
+          windspeed_10m.push(inst.wind_speed);
+          windgusts_10m.push(gust1);
+          winddirection_10m.push(inst.wind_from_direction);
+        }
         precipitation.push(precip1h);
+        precip_min.push(pmin1h);
+        precip_max.push(pmax1h);
         weathercode.push(wmo);
       }
     }
@@ -216,12 +263,15 @@ async function fetchYrWeather(lat, lon) {
       winddirection_10m.unshift(...Array(n).fill(winddirection_10m[0]));
       weathercode.unshift(...Array(n).fill(weathercode[0]));
       precipitation.unshift(...Array(n).fill(0));
+      precip_min.unshift(...Array(n).fill(0));
+      precip_max.unshift(...Array(n).fill(0));
     }
   }
 
   return {
     hourly: { time, temperature_2m, precipitation, windspeed_10m, windgusts_10m, winddirection_10m, weathercode },
     daily: {},
+    precip_uncertainty: { precip_min, precip_max },
   };
 }
 
