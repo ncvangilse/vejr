@@ -104,7 +104,7 @@ describe('fetchYrWeather', () => {
     expect(result.hourly.weathercode).toEqual([63, 63, 63, 63, 63, 63]); // rain → WMO 63
   });
 
-  it('interpolates temperature and wind linearly across two consecutive 6h entries', async () => {
+  it('interpolates temperature and wind smoothly (Catmull-Rom) across two consecutive 6h entries', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const instA = { air_temperature: 0,  wind_speed: 0,  wind_speed_of_gust: 0,  wind_from_direction: 0 };
     const instB = { air_temperature: 12, wind_speed: 6,  wind_speed_of_gust: 12, wind_from_direction: 90 };
@@ -185,6 +185,73 @@ describe('fetchYrWeather', () => {
     const ctx = loadScripts('config.js', 'api.js');
     ctx.fetch = () => Promise.resolve({ ok: false });
     await expect(ctx.fetchYrWeather(55.0, 12.0)).rejects.toThrow('Yr fetch failed');
+  });
+
+  it('extracts precip_uncertainty min/max from next_1_hours details', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 10, wind_speed: 3, wind_from_direction: 0 };
+    const h1Details = { precipitation_amount: 0.5, precipitation_amount_min: 0.1, precipitation_amount_max: 1.8 };
+    const resp = makeYrResponse([{
+      time: '2026-05-10T00:00:00Z',
+      data: { instant: { details: inst }, next_1_hours: { summary: { symbol_code: 'rain' }, details: h1Details } },
+    }]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    expect(result.precip_uncertainty.precip_min).toEqual([0.1]);
+    expect(result.precip_uncertainty.precip_max).toEqual([1.8]);
+  });
+
+  it('spreads 6h precip min/max evenly across expanded hourly slots', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 5, wind_speed: 2, wind_from_direction: 0 };
+    const h6Details = { precipitation_amount: 6, precipitation_amount_min: 0, precipitation_amount_max: 12 };
+    const resp = makeYrResponse([{
+      time: '2026-05-10T00:00:00Z',
+      data: { instant: { details: inst }, next_6_hours: { summary: { symbol_code: 'rain' }, details: h6Details } },
+    }]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    expect(result.precip_uncertainty.precip_min).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(result.precip_uncertainty.precip_max).toEqual([2, 2, 2, 2, 2, 2]);
+  });
+
+  it('pads precip_min/max with zeros for gap hours before midnight', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 8, wind_speed: 4, wind_from_direction: 90 };
+    const h1Details = { precipitation_amount: 1.0, precipitation_amount_min: 0.5, precipitation_amount_max: 2.0 };
+    const resp = makeYrResponse([{
+      time: '2026-05-10T02:00:00Z',
+      data: { instant: { details: inst }, next_1_hours: { summary: { symbol_code: 'rain' }, details: h1Details } },
+    }]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    // 2 padded hours + 1 real = 3 total
+    expect(result.precip_uncertainty.precip_min).toEqual([0, 0, 0.5]);
+    expect(result.precip_uncertainty.precip_max).toEqual([0, 0, 2.0]);
+  });
+});
+
+describe('yrPrecipBands', () => {
+  const { yrPrecipBands } = loadScripts('config.js', 'api.js');
+
+  it('samples at STEP=3 intervals and maps to p10/p50/p90', () => {
+    const precip     = [0, 1, 2, 3, 4, 5];
+    const precip_min = [0, 0, 0, 1, 1, 1];
+    const precip_max = [1, 2, 3, 4, 5, 6];
+    const result = yrPrecipBands(precip, precip_min, precip_max, 3);
+    expect(result.p10).toEqual([0, 1]);  // indices 0, 3
+    expect(result.p50).toEqual([0, 3]);
+    expect(result.p90).toEqual([1, 4]);
+  });
+
+  it('samples at step=1 for full 1h resolution', () => {
+    const precip     = [0.5, 1.0, 1.5];
+    const precip_min = [0.1, 0.2, 0.3];
+    const precip_max = [1.0, 2.0, 3.0];
+    const result = yrPrecipBands(precip, precip_min, precip_max, 1);
+    expect(result.p10).toEqual([0.1, 0.2, 0.3]);
+    expect(result.p50).toEqual([0.5, 1.0, 1.5]);
+    expect(result.p90).toEqual([1.0, 2.0, 3.0]);
   });
 });
 
