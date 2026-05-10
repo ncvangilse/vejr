@@ -72,6 +72,7 @@ const MODEL_LABEL = {
   'ecmwf_ifs025':        'ECMWF IFS',
   'meteofrance_seamless':'Météo-France',
   'gfs_seamless':        'NOAA GFS',
+  'yr':                  'Yr (MET Norway)',
 };
 const ENS_LABEL = {
   'best_match':          'ICON-EPS',
@@ -80,6 +81,7 @@ const ENS_LABEL = {
   'ecmwf_ifs025':        'IFS-EPS',
   'meteofrance_seamless':'ICON-EPS',
   'gfs_seamless':        'GFS-EPS',
+  'yr':                  '',        // no ensemble for Yr
 };
 
 // Applies ensemble percentile data onto an existing lastData object, rebuilding
@@ -126,7 +128,15 @@ function applyEnsembleData(d, ensData, model) {
     d.precips = d.detPrecips.slice(); d.gusts = d.detGusts.slice();
     d.temps1h = d.detTemps1h.slice(); d.winds1h = d.detWinds1h.slice();
     d.precips1h = d.detPrecips1h.slice(); d.gusts1h = d.detGusts1h.slice();
-    if (ensStatus) { ensStatus.textContent = `${modelLabel} — ensemble not available`; ensStatus.style.color = '#a77'; }
+    if (ensStatus) {
+      if (ensLabel) {
+        ensStatus.textContent = `${modelLabel} — ensemble not available`;
+        ensStatus.style.color = '#a77';
+      } else {
+        ensStatus.textContent = modelLabel;
+        ensStatus.style.color = '#888';
+      }
+    }
   }
 }
 
@@ -155,14 +165,17 @@ async function load(cityName, model) {
     if (window.analyseShore)     window.analyseShore(loc.latitude, loc.longitude).catch(() => null);
     // Start ensemble and obs lookup immediately — they run in parallel with weather.
     // Only weather is on the critical path; ensemble bands are applied after first render.
-    const ensPromise = fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null);
+    // Yr uses its own API and has no ensemble.
+    const ensPromise = model === 'yr'
+      ? Promise.resolve(null)
+      : fetchEnsemble(loc.latitude, loc.longitude, model).catch(() => null);
     loadNearestObsStation(loc.latitude, loc.longitude).catch(() => null);
     const iconCodeFetch = (model === 'dmi_seamless')
       ? fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=weathercode&forecast_days=${FORECAST_DAYS}&timezone=auto&models=icon_seamless`)
           .then(r => r.ok ? r.json() : null).catch(() => null)
       : Promise.resolve(null);
     const [data, iconData] = await Promise.all([
-      fetchWeather(loc.latitude, loc.longitude, model),
+      model === 'yr' ? fetchYrWeather(loc.latitude, loc.longitude) : fetchWeather(loc.latitude, loc.longitude, model),
       iconCodeFetch,
     ]);
     const H = data.hourly;
@@ -220,7 +233,7 @@ async function load(cityName, model) {
     const detPrecips1h = precips1h.slice(), detGusts1h = gusts1h.slice();
     const modelLabel = MODEL_LABEL[model] || model;
     const ensStatus = document.getElementById('ens-status');
-    if (ensStatus) { ensStatus.textContent = `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
+    if (ensStatus) { ensStatus.textContent = model === 'yr' ? modelLabel : `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
     document.getElementById('city-name').textContent =
       loc.name+(loc.country_code?', '+loc.country_code:'');
     document.getElementById('loading').style.display='none';
@@ -813,7 +826,9 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     lastShoreCoords = { lat, lon };
     if (window.fetchShoreVector) window.fetchShoreVector(lat, lon).catch(() => null);
     if (window.analyseShore)     window.analyseShore(lat, lon).catch(() => null);
-    const ensPromise = fetchEnsemble(lat, lon, model).catch(() => null);
+    const ensPromise = model === 'yr'
+      ? Promise.resolve(null)
+      : fetchEnsemble(lat, lon, model).catch(() => null);
     loadNearestObsStation(lat, lon).catch(() => null);
 
     // Persist coords before any awaits: both a page reload and an iOS Home
@@ -848,7 +863,7 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
           .then(r => r.ok ? r.json() : null).catch(() => null)
       : Promise.resolve(null);
     const [data, iconData] = await Promise.all([
-      fetchWeather(lat, lon, model),
+      model === 'yr' ? fetchYrWeather(lat, lon) : fetchWeather(lat, lon, model),
       iconCodeFetch,
     ]);
     const H = data.hourly;
@@ -900,7 +915,7 @@ async function loadAtCoords(lat, lon, model, displayNameOverride) {
     const detPrecips1h = precips1h.slice(), detGusts1h = gusts1h.slice();
     const modelLabel = MODEL_LABEL[model] || model;
     const ensStatus = document.getElementById('ens-status');
-    if (ensStatus) { ensStatus.textContent = `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
+    if (ensStatus) { ensStatus.textContent = model === 'yr' ? modelLabel : `${modelLabel} — loading ensemble…`; ensStatus.style.color = '#888'; }
     document.getElementById('city-name').textContent = displayName;
     document.getElementById('loading').style.display = 'none';
     forecastEl.style.display = 'block';

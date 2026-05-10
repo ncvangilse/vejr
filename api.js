@@ -115,6 +115,86 @@ async function fetchOtherModelsWind(lat, lon, selectedModel) {
   return results.filter(Boolean);
 }
 
+/* ══════════════════════════════════════════════════
+   YR / MET NORWAY  (api.met.no)
+══════════════════════════════════════════════════ */
+const YR_SYMBOL_WMO = {
+  clearsky: 0, fair: 1, partlycloudy: 2, cloudy: 3,
+  fog: 45,
+  lightrain: 61, rain: 63, heavyrain: 65,
+  lightrainshowers: 80, rainshowers: 81, heavyrainshowers: 82,
+  lightsleet: 66, sleet: 67, heavysleet: 67,
+  lightsleetshowers: 66, sleetshowers: 67, heavysleetshowers: 67,
+  lightsnow: 71, snow: 73, heavysnow: 75,
+  lightsnowshowers: 85, snowshowers: 85, heavysnowshowers: 86,
+  thunder: 95, rainandthunder: 95, sleetandthunder: 95,
+  snowandthunder: 95, lightsnowandthunder: 95, heavysnowandthunder: 95,
+  lightrainandthunder: 95, heavyrainandthunder: 95,
+  lightsleetshowersandthunder: 96, sleetshowersandthunder: 96, heavysleetshowersandthunder: 96,
+  lightsnowshowersandthunder: 95, snowshowersandthunder: 95, heavysnowshowersandthunder: 95,
+  lightrainshowersandthunder: 95, rainshowersandthunder: 95, heavyrainshowersandthunder: 99,
+};
+
+function yrSymbolToWmo(sym) {
+  if (!sym) return 3;
+  return YR_SYMBOL_WMO[sym.replace(/_(day|night|polartwilight)$/, '')] ?? 3;
+}
+
+// Convert Met.no UTC ISO string → local-time string without Z (matches Open-Meteo format)
+function yrUtcToLocal(isoUtc) {
+  const d = new Date(isoUtc);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function fetchYrWeather(lat, lon) {
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/complete`
+    + `?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
+  const r = await fetch(url, { headers: { 'User-Agent': 'vejr.app/1.0 github.com/ncvangilse/vejr' } });
+  if (!r.ok) throw new Error('Yr fetch failed');
+  const json = await r.json();
+  const timeseries = json.properties.timeseries;
+
+  const time = [], temperature_2m = [], precipitation = [],
+        windspeed_10m = [], windgusts_10m = [], winddirection_10m = [], weathercode = [];
+
+  for (let i = 0; i < timeseries.length; i++) {
+    const entry = timeseries[i];
+    const inst  = entry.data.instant.details;
+    const h1    = entry.data.next_1_hours;
+    const h6    = entry.data.next_6_hours;
+
+    if (h1) {
+      time.push(yrUtcToLocal(entry.time));
+      temperature_2m.push(inst.air_temperature);
+      windspeed_10m.push(inst.wind_speed);
+      windgusts_10m.push(inst.wind_speed_of_gust ?? inst.wind_speed);
+      winddirection_10m.push(inst.wind_from_direction);
+      precipitation.push(h1.details.precipitation_amount ?? 0);
+      weathercode.push(yrSymbolToWmo(h1.summary?.symbol_code));
+    } else if (h6) {
+      // Expand 6-hour block into 6 hourly slots (constant instant values, precipitation spread evenly)
+      const baseMs   = new Date(entry.time).getTime();
+      const precip1h = (h6.details.precipitation_amount ?? 0) / 6;
+      const wmo      = yrSymbolToWmo(h6.summary?.symbol_code);
+      for (let h = 0; h < 6; h++) {
+        time.push(yrUtcToLocal(new Date(baseMs + h * 3600000).toISOString()));
+        temperature_2m.push(inst.air_temperature);
+        windspeed_10m.push(inst.wind_speed);
+        windgusts_10m.push(inst.wind_speed_of_gust ?? inst.wind_speed);
+        winddirection_10m.push(inst.wind_from_direction);
+        precipitation.push(precip1h);
+        weathercode.push(wmo);
+      }
+    }
+  }
+
+  return {
+    hourly: { time, temperature_2m, precipitation, windspeed_10m, windgusts_10m, winddirection_10m, weathercode },
+    daily: {},
+  };
+}
+
 // Given the ensemble hourly object, extract p10/p50/p90 arrays for a variable, sampled at step (default STEP)
 function ensemblePercentiles(H, varPrefix, step) {
   step = step || STEP;

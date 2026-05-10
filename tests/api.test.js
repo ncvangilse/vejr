@@ -4,6 +4,132 @@ import { loadScripts } from './helpers/loader.js';
 // Load config first so FORECAST_DAYS / STEP constants are in the same scope
 const { ensemblePercentiles } = loadScripts('config.js', 'api.js');
 
+// ── Yr helpers ────────────────────────────────────────────────────────────────
+
+describe('yrSymbolToWmo', () => {
+  it('maps clearsky_day to WMO 0', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('clearsky_day')).toBe(0);
+  });
+
+  it('maps clearsky_night to WMO 0 (strips _night suffix)', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('clearsky_night')).toBe(0);
+  });
+
+  it('maps clearsky_polartwilight to WMO 0', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('clearsky_polartwilight')).toBe(0);
+  });
+
+  it('maps rain to WMO 63', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('rain')).toBe(63);
+  });
+
+  it('maps heavyrainshowers_day to WMO 82', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('heavyrainshowers_day')).toBe(82);
+  });
+
+  it('maps snow to WMO 73', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('snow')).toBe(73);
+  });
+
+  it('maps heavyrainshowersandthunder_night to WMO 99', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('heavyrainshowersandthunder_night')).toBe(99);
+  });
+
+  it('falls back to WMO 3 (cloudy) for unknown symbols', () => {
+    const { yrSymbolToWmo } = loadScripts('config.js', 'api.js');
+    expect(yrSymbolToWmo('unknowncode')).toBe(3);
+    expect(yrSymbolToWmo(null)).toBe(3);
+    expect(yrSymbolToWmo(undefined)).toBe(3);
+  });
+});
+
+describe('fetchYrWeather', () => {
+  function makeYrResponse(timeseries) {
+    return { properties: { timeseries } };
+  }
+
+  function makeEntry(isoUtc, instDetails, h1Details, h6Details) {
+    return {
+      time: isoUtc,
+      data: {
+        instant: { details: instDetails },
+        ...(h1Details ? { next_1_hours: { summary: { symbol_code: 'clearsky_day' }, details: h1Details } } : {}),
+        ...(h6Details ? { next_6_hours: { summary: { symbol_code: 'rain' }, details: h6Details } } : {}),
+      },
+    };
+  }
+
+  it('extracts temperature, wind, gust, direction and precipitation from 1h entries', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 15, wind_speed: 5, wind_speed_of_gust: 8, wind_from_direction: 180 };
+    const resp = makeYrResponse([makeEntry('2026-05-10T12:00:00Z', inst, { precipitation_amount: 0.5 }, null)]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    expect(result.hourly.temperature_2m).toEqual([15]);
+    expect(result.hourly.windspeed_10m).toEqual([5]);
+    expect(result.hourly.windgusts_10m).toEqual([8]);
+    expect(result.hourly.winddirection_10m).toEqual([180]);
+    expect(result.hourly.precipitation).toEqual([0.5]);
+    expect(result.hourly.weathercode).toEqual([0]); // clearsky_day → WMO 0
+  });
+
+  it('falls back to wind_speed for gusts when wind_speed_of_gust is absent', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 10, wind_speed: 6, wind_from_direction: 90 };
+    const resp = makeYrResponse([makeEntry('2026-05-10T12:00:00Z', inst, { precipitation_amount: 0 }, null)]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    expect(result.hourly.windgusts_10m).toEqual([6]);
+  });
+
+  it('expands a 6h entry into 6 hourly slots with evenly spread precipitation', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 8, wind_speed: 4, wind_speed_of_gust: 7, wind_from_direction: 270 };
+    const resp = makeYrResponse([makeEntry('2026-05-10T06:00:00Z', inst, null, { precipitation_amount: 6.0 })]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    expect(result.hourly.time).toHaveLength(6);
+    expect(result.hourly.precipitation).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(result.hourly.temperature_2m).toEqual([8, 8, 8, 8, 8, 8]);
+    // 6h rain → WMO 63
+    expect(result.hourly.weathercode).toEqual([63, 63, 63, 63, 63, 63]);
+  });
+
+  it('prefers next_1_hours over next_6_hours when both are present', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 12, wind_speed: 3, wind_from_direction: 0 };
+    const entry = makeEntry('2026-05-10T12:00:00Z', inst, { precipitation_amount: 0.2 }, { precipitation_amount: 3.0 });
+    const resp = makeYrResponse([entry]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    // Only 1 slot (1h wins), precipitation = 0.2 (not 3/6 = 0.5)
+    expect(result.hourly.time).toHaveLength(1);
+    expect(result.hourly.precipitation).toEqual([0.2]);
+  });
+
+  it('returns empty daily object (no sunrise/sunset)', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 5, wind_speed: 2, wind_from_direction: 45 };
+    const resp = makeYrResponse([makeEntry('2026-05-10T10:00:00Z', inst, { precipitation_amount: 0 }, null)]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    expect(result.daily).toEqual({});
+  });
+
+  it('throws when the API response is not ok', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    ctx.fetch = () => Promise.resolve({ ok: false });
+    await expect(ctx.fetchYrWeather(55.0, 12.0)).rejects.toThrow('Yr fetch failed');
+  });
+});
+
 // Helper: build a fake ensemble hourly object with `n` members where each
 // member's values at index i are: baseVal + (memberIndex * step).
 function makeFakeEnsemble(varName, memberCount, hourCount, baseVal = 0, step = 2) {
