@@ -96,7 +96,8 @@ function buildPortraitSeries(s) {
       for (let j = i; j < end; j++) {
         const hj = new Date(s.times1h[j]).getHours();
         const nj = typeof isNight === 'function' ? isNight(s.times1h[j]) : (hj < 6 || hj >= 20);
-        const score = (nj ? 0 : 100) - Math.abs(hj - 12);
+        const nullCode = s.codes1h && s.codes1h[j] == null ? -1000 : 0;
+        const score = nullCode + (nj ? 0 : 100) - Math.abs(hj - 12);
         if (score > bestScore) { bestScore = score; best = j; }
       }
     }
@@ -204,7 +205,8 @@ function buildLandscapeSeries(s, colW) {
       for (let j = i; j < end; j++) {
         const hj = new Date(s.times1h[j]).getHours();
         const nj = typeof isNight === 'function' ? isNight(s.times1h[j]) : (hj < 6 || hj >= 20);
-        const score = (nj ? 0 : 100) - Math.abs(hj - 12);
+        const nullCode = s.codes1h && s.codes1h[j] == null ? -1000 : 0;
+        const score = nullCode + (nj ? 0 : 100) - Math.abs(hj - 12);
         if (score > bestScore) { bestScore = score; best = j; }
       }
     }

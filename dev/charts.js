@@ -199,18 +199,25 @@ function drawTopRow(times, codes, precips, invertedColors, totalCssW = null, now
     const lo = Math.max(0,   Math.round(pos - iconStride / 2));
     const hi = Math.min(n-1, Math.round(pos + iconStride / 2));
 
-    // find closest daytime slot within the window
+    // find closest non-null daytime slot within the window
     let best = -1, bestDist = Infinity;
     for (let j = lo; j <= hi; j++) {
-      if (!isNight(times[j])) {
+      if (codes[j] != null && !isNight(times[j])) {
         const dist = Math.abs(j - pos);
         if (dist < bestDist) { bestDist = dist; best = j; }
       }
     }
-    const i = best >= 0 ? best : Math.round(pos);  // fall back to nearest if all night
+    // fall back to nearest non-null slot regardless of day/night
+    if (best < 0) {
+      for (let j = lo; j <= hi; j++) {
+        if (codes[j] != null) { best = j; break; }
+      }
+    }
+    const i = best >= 0 ? best : Math.round(pos);  // fall back to nearest if all null
     if (i >= n) break;
 
     const c = codes[i];
+    if (c == null) continue;
     const centreX = (pos + iconStride / 2) * colW;
     dmiIcon(ctx, wmoType(c, times[i]), centreX, iconY + ICON_H/2, ICON_H, precips ? precips[i] : 0, c);
   }
@@ -436,6 +443,7 @@ function drawWindDir(times, winds, dirs, totalCssW = null, divXs = null, nowLine
 
   // arrows + compass labels
   dirs.forEach((deg, i) => {
+    if (deg == null) return;
     const cx = (i + 0.5) * colW;
     // Arrow tip is size*0.76 above cy, shaft-bottom size*0.50 below → shift cy down by the half-difference to optically centre
     const cy = DIR_H / 2 + arrowSize * 0.13;
@@ -659,10 +667,12 @@ function _drawWindAxisLabels(wLevels, wy, WIND_H) {
 
 /**
  * Stroke colour used for non-selected model comparison lines.
- * Dark on light background (normal mode) / light on dark background (inverted mode)
- * so lines remain visible in both colour schemes without dominating the chart.
+ * When Yr is selected the lines represent known models with real data so they
+ * use a more prominent black/white; otherwise a semi-transparent tone that
+ * doesn't compete with the main (Yr) coloured line.
  */
-function _otherModelLineColor(invertedColors) {
+function _otherModelLineColor(invertedColors, yrSelected = false) {
+  if (yrSelected) return invertedColors ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)';
   return invertedColors ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
 }
 
@@ -672,7 +682,7 @@ function _windAxisMax(winds, obsMax = 0) {
   const base = Math.max(...winds.filter(v => v != null));
   return Math.max(base, obsMax, 5) + 2;
 }
-function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null, nowLineX = null) {
+function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h, invertedColors, totalCssW = null, xMap = null, otherModelsWind = null, otherModelsXMap = null, divXs = null, nowLineX = null, yrSelected = false) {
   // --- canvas setup ---
   const canvas = document.getElementById('c-wind');
   const n      = times.length;
@@ -777,7 +787,7 @@ function drawWind(times, gusts, winds, dirs, ensWind, ensGust, times3h, winds3h,
     ctx.save();
     otherModelsWind.forEach(({ winds1h: omWinds }) => {
       if (!omWinds || omWinds.length < 2) return;
-      ctx.strokeStyle = _otherModelLineColor(invertedColors);
+      ctx.strokeStyle = _otherModelLineColor(invertedColors, yrSelected);
       ctx.lineWidth   = 1.5;
       ctx.setLineDash([]);
       ctx.beginPath();
@@ -920,14 +930,14 @@ function renderAll(d, invertedColors, portraitColW = null) {
              d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, d.xMap1h || null, divXs, nowX);
     drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
              d.times, d.winds, invertedColors, totalCssW, d.xMap1h || null,
-             d.otherModelsWind1h || null, d.xMap1h || null, divXs, nowX);
+             d.otherModelsWind1h || null, d.xMap1h || null, divXs, nowX, d.yrModel || false);
   } else {
     // Landscape: smooth 1h curves with display-series for precip bars / kite highlights.
     drawTemp(d.times1h, d.temps1h, d.precips1h, d.ensTemp1h || null, d.ensPrecip1h || null,
              d.times, d.precips, d.ensPrecip || null, invertedColors, totalCssW, null, null, nowX);
     drawWind(d.times1h, d.gusts1h, d.winds1h, d.dirs, d.ensWind1h || null, d.ensGust1h || null,
              d.times, d.winds, invertedColors, totalCssW, null,
-             d.otherModelsWind1h || null, null, null, nowX);
+             d.otherModelsWind1h || null, null, null, nowX, d.yrModel || false);
   }
 }
 

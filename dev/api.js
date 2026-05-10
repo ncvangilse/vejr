@@ -257,11 +257,11 @@ async function fetchYrWeather(lat, lon) {
       const n      = firstH;
       const padTimes = Array.from({ length: n }, (_, h) => `${date}T${String(h).padStart(2, '0')}:00`);
       time.unshift(...padTimes);
-      temperature_2m.unshift(...Array(n).fill(temperature_2m[0]));
-      windspeed_10m.unshift(...Array(n).fill(windspeed_10m[0]));
-      windgusts_10m.unshift(...Array(n).fill(windgusts_10m[0]));
-      winddirection_10m.unshift(...Array(n).fill(winddirection_10m[0]));
-      weathercode.unshift(...Array(n).fill(weathercode[0]));
+      temperature_2m.unshift(...Array(n).fill(null));
+      windspeed_10m.unshift(...Array(n).fill(null));
+      windgusts_10m.unshift(...Array(n).fill(null));
+      winddirection_10m.unshift(...Array(n).fill(null));
+      weathercode.unshift(...Array(n).fill(null));
       precipitation.unshift(...Array(n).fill(0));
       precip_min.unshift(...Array(n).fill(0));
       precip_max.unshift(...Array(n).fill(0));
