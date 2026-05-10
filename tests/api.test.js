@@ -51,6 +51,7 @@ describe('yrSymbolToWmo', () => {
 });
 
 describe('fetchYrWeather', () => {
+  // All entry times use UTC midnight so the TZ=UTC test env sees no padding.
   function makeYrResponse(timeseries) {
     return { properties: { timeseries } };
   }
@@ -69,7 +70,7 @@ describe('fetchYrWeather', () => {
   it('extracts temperature, wind, gust, direction and precipitation from 1h entries', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 15, wind_speed: 5, wind_speed_of_gust: 8, wind_from_direction: 180 };
-    const resp = makeYrResponse([makeEntry('2026-05-10T12:00:00Z', inst, { precipitation_amount: 0.5 }, null)]);
+    const resp = makeYrResponse([makeEntry('2026-05-10T00:00:00Z', inst, { precipitation_amount: 0.5 }, null)]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
     const result = await ctx.fetchYrWeather(55.0, 12.0);
     expect(result.hourly.temperature_2m).toEqual([15]);
@@ -83,7 +84,7 @@ describe('fetchYrWeather', () => {
   it('falls back to wind_speed for gusts when wind_speed_of_gust is absent', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 10, wind_speed: 6, wind_from_direction: 90 };
-    const resp = makeYrResponse([makeEntry('2026-05-10T12:00:00Z', inst, { precipitation_amount: 0 }, null)]);
+    const resp = makeYrResponse([makeEntry('2026-05-10T00:00:00Z', inst, { precipitation_amount: 0 }, null)]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
     const result = await ctx.fetchYrWeather(55.0, 12.0);
     expect(result.hourly.windgusts_10m).toEqual([6]);
@@ -92,24 +93,81 @@ describe('fetchYrWeather', () => {
   it('expands a 6h entry into 6 hourly slots with evenly spread precipitation', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 8, wind_speed: 4, wind_speed_of_gust: 7, wind_from_direction: 270 };
-    const resp = makeYrResponse([makeEntry('2026-05-10T06:00:00Z', inst, null, { precipitation_amount: 6.0 })]);
+    // UTC midnight → no padding in UTC test environment
+    const resp = makeYrResponse([makeEntry('2026-05-10T00:00:00Z', inst, null, { precipitation_amount: 6.0 })]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
     const result = await ctx.fetchYrWeather(55.0, 12.0);
     expect(result.hourly.time).toHaveLength(6);
     expect(result.hourly.precipitation).toEqual([1, 1, 1, 1, 1, 1]);
+    // No next entry → constant temperature (no interpolation partner)
     expect(result.hourly.temperature_2m).toEqual([8, 8, 8, 8, 8, 8]);
-    // 6h rain → WMO 63
-    expect(result.hourly.weathercode).toEqual([63, 63, 63, 63, 63, 63]);
+    expect(result.hourly.weathercode).toEqual([63, 63, 63, 63, 63, 63]); // rain → WMO 63
+  });
+
+  it('interpolates temperature and wind linearly across two consecutive 6h entries', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const instA = { air_temperature: 0,  wind_speed: 0,  wind_speed_of_gust: 0,  wind_from_direction: 0 };
+    const instB = { air_temperature: 12, wind_speed: 6,  wind_speed_of_gust: 12, wind_from_direction: 90 };
+    const resp = makeYrResponse([
+      makeEntry('2026-05-10T00:00:00Z', instA, null, { precipitation_amount: 0 }),
+      makeEntry('2026-05-10T06:00:00Z', instB, null, { precipitation_amount: 0 }),
+    ]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    // Slots 0-5 interpolate from instA toward instB (t = 0/6 .. 5/6)
+    // At h=0 (t=0): values equal instA
+    expect(result.hourly.temperature_2m[0]).toBeCloseTo(0);
+    // At h=3 (t=0.5): midpoint
+    expect(result.hourly.temperature_2m[3]).toBeCloseTo(6);
+    expect(result.hourly.windspeed_10m[3]).toBeCloseTo(3);
+    expect(result.hourly.windgusts_10m[3]).toBeCloseTo(6);
+    // Wind direction interpolates through the shortest arc (0° → 90°, t=0.5 → 45°)
+    expect(result.hourly.winddirection_10m[3]).toBeCloseTo(45);
+    // Slots 6-11 interpolate from instB with no next entry → constant
+    expect(result.hourly.temperature_2m[6]).toBeCloseTo(12);
+    expect(result.hourly.temperature_2m[11]).toBeCloseTo(12);
+  });
+
+  it('interpolates wind direction through the shortest arc (350° → 10°)', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const instA = { air_temperature: 0, wind_speed: 0, wind_from_direction: 350 };
+    const instB = { air_temperature: 0, wind_speed: 0, wind_from_direction: 10 };
+    const resp = makeYrResponse([
+      makeEntry('2026-05-10T00:00:00Z', instA, null, { precipitation_amount: 0 }),
+      makeEntry('2026-05-10T06:00:00Z', instB, null, { precipitation_amount: 0 }),
+    ]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    // Shortest arc from 350 to 10 is +20°; at t=0.5 → 360° = 0°
+    expect(result.hourly.winddirection_10m[3]).toBeCloseTo(0, 0);
+  });
+
+  it('pads hours before first data point with first-entry values (zero precip)', async () => {
+    const ctx = loadScripts('config.js', 'api.js');
+    const inst = { air_temperature: 10, wind_speed: 5, wind_speed_of_gust: 8, wind_from_direction: 90 };
+    // 06:00 UTC = 06:00 local in TZ=UTC → 6 hours of padding expected
+    const resp = makeYrResponse([makeEntry('2026-05-10T06:00:00Z', inst, { precipitation_amount: 1.0 }, null)]);
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
+    const result = await ctx.fetchYrWeather(55.0, 12.0);
+    // First time should be midnight of the same date
+    expect(result.hourly.time[0]).toBe('2026-05-10T00:00');
+    // 6 padded + 1 data = 7 total
+    expect(result.hourly.time).toHaveLength(7);
+    // Padded entries carry first temperature, zero precip
+    expect(result.hourly.temperature_2m[0]).toBe(10);
+    expect(result.hourly.precipitation[0]).toBe(0);
+    // The real data entry sits at index 6
+    expect(result.hourly.precipitation[6]).toBe(1.0);
   });
 
   it('prefers next_1_hours over next_6_hours when both are present', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 12, wind_speed: 3, wind_from_direction: 0 };
-    const entry = makeEntry('2026-05-10T12:00:00Z', inst, { precipitation_amount: 0.2 }, { precipitation_amount: 3.0 });
+    const entry = makeEntry('2026-05-10T00:00:00Z', inst, { precipitation_amount: 0.2 }, { precipitation_amount: 3.0 });
     const resp = makeYrResponse([entry]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
     const result = await ctx.fetchYrWeather(55.0, 12.0);
-    // Only 1 slot (1h wins), precipitation = 0.2 (not 3/6 = 0.5)
+    // Only 1 slot (1h wins), precipitation = 0.2
     expect(result.hourly.time).toHaveLength(1);
     expect(result.hourly.precipitation).toEqual([0.2]);
   });
@@ -117,7 +175,7 @@ describe('fetchYrWeather', () => {
   it('returns empty daily object (no sunrise/sunset)', async () => {
     const ctx = loadScripts('config.js', 'api.js');
     const inst = { air_temperature: 5, wind_speed: 2, wind_from_direction: 45 };
-    const resp = makeYrResponse([makeEntry('2026-05-10T10:00:00Z', inst, { precipitation_amount: 0 }, null)]);
+    const resp = makeYrResponse([makeEntry('2026-05-10T00:00:00Z', inst, { precipitation_amount: 0 }, null)]);
     ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(resp) });
     const result = await ctx.fetchYrWeather(55.0, 12.0);
     expect(result.daily).toEqual({});

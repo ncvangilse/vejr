@@ -147,6 +147,13 @@ function yrUtcToLocal(isoUtc) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function yrLerp(a, b, t) { return a + t * (b - a); }
+function yrLerpDir(a, b, t) {
+  // JS % keeps the sign of the dividend, so add 360 to ensure positive before final mod
+  const diff = ((b - a + 180) % 360 + 360) % 360 - 180;
+  return ((a + t * diff) % 360 + 360) % 360;
+}
+
 async function fetchYrWeather(lat, lon) {
   const url = `https://api.met.no/weatherapi/locationforecast/2.0/complete`
     + `?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
@@ -173,19 +180,42 @@ async function fetchYrWeather(lat, lon) {
       precipitation.push(h1.details.precipitation_amount ?? 0);
       weathercode.push(yrSymbolToWmo(h1.summary?.symbol_code));
     } else if (h6) {
-      // Expand 6-hour block into 6 hourly slots (constant instant values, precipitation spread evenly)
+      // Expand 6-hour block into 6 hourly slots; interpolate instant values toward next anchor
+      const nextInst = timeseries[i + 1]?.data.instant.details;
       const baseMs   = new Date(entry.time).getTime();
       const precip1h = (h6.details.precipitation_amount ?? 0) / 6;
       const wmo      = yrSymbolToWmo(h6.summary?.symbol_code);
+      const gustA    = inst.wind_speed_of_gust ?? inst.wind_speed;
+      const gustB    = nextInst ? (nextInst.wind_speed_of_gust ?? nextInst.wind_speed) : gustA;
       for (let h = 0; h < 6; h++) {
+        const t = h / 6;
         time.push(yrUtcToLocal(new Date(baseMs + h * 3600000).toISOString()));
-        temperature_2m.push(inst.air_temperature);
-        windspeed_10m.push(inst.wind_speed);
-        windgusts_10m.push(inst.wind_speed_of_gust ?? inst.wind_speed);
-        winddirection_10m.push(inst.wind_from_direction);
+        temperature_2m.push(nextInst ? yrLerp(inst.air_temperature, nextInst.air_temperature, t) : inst.air_temperature);
+        windspeed_10m.push(nextInst ? yrLerp(inst.wind_speed, nextInst.wind_speed, t) : inst.wind_speed);
+        windgusts_10m.push(nextInst ? yrLerp(gustA, gustB, t) : gustA);
+        winddirection_10m.push(nextInst ? yrLerpDir(inst.wind_from_direction, nextInst.wind_from_direction, t) : inst.wind_from_direction);
         precipitation.push(precip1h);
         weathercode.push(wmo);
       }
+    }
+  }
+
+  // Pad to local midnight of the first day so the chart starts at the same
+  // point as Open-Meteo (which always starts at local midnight via timezone=auto).
+  if (time.length > 0) {
+    const firstMidnight = time[0].slice(0, 10) + 'T00:00';
+    if (time[0] > firstMidnight) {
+      const firstH = parseInt(time[0].slice(11, 13), 10);
+      const date   = time[0].slice(0, 10);
+      const n      = firstH;
+      const padTimes = Array.from({ length: n }, (_, h) => `${date}T${String(h).padStart(2, '0')}:00`);
+      time.unshift(...padTimes);
+      temperature_2m.unshift(...Array(n).fill(temperature_2m[0]));
+      windspeed_10m.unshift(...Array(n).fill(windspeed_10m[0]));
+      windgusts_10m.unshift(...Array(n).fill(windgusts_10m[0]));
+      winddirection_10m.unshift(...Array(n).fill(winddirection_10m[0]));
+      weathercode.unshift(...Array(n).fill(weathercode[0]));
+      precipitation.unshift(...Array(n).fill(0));
     }
   }
 
